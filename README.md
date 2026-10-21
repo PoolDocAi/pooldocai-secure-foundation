@@ -34,7 +34,7 @@ A GitHub URL alone does not deploy an Edge Function. The workflow deploys it whe
 1. Add `supabase/functions/clever-handler/index.ts` and `supabase/migrations/202610210001_learning_loop_privacy.sql` to the repository.
 2. Add `.github/workflows/deploy-supabase.yml`. Review it before enabling.
 3. In GitHub repository Settings → Secrets and variables → Actions, add `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`. Never commit API keys or service-role keys.
-4. In Supabase Dashboard → Edge Functions → Secrets, set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) and verify existing `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` runtime values.
+4. In Supabase Dashboard → Edge Functions → Secrets, set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). Supabase provides its reserved `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` runtime variables automatically; do not attempt to add custom `SUPABASE_` secrets.
 5. Apply the migration using Supabase SQL Editor or `supabase db push`. Back up production first.
 6. Run GitHub Actions workflow and verify deployment logs.
 7. Test the deployed endpoint with no personal data, then verify quotas, RLS, redaction, chemistry validation and model fallback behavior.
@@ -67,8 +67,8 @@ New files and migration:
 ### Required deployment steps
 1. Copy the website files to the Vercel/GitHub repository, including `admin.html` and `app.html`.
 2. Apply migrations in numerical order in Supabase SQL Editor, including `202610210003_company_admin_portal.sql`. Review the SQL against your existing schema before production.
-3. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as Supabase Edge Function secrets (existing setup), deploy the updated `clever-handler` function, and keep all service-role keys server-side.
-4. In `website/admin.html`, `website/app.html`, and `website/technician.html`, replace `REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY` with the **public anon key** from Supabase Settings → API. Never use a service-role key in browser code.
+3. Set `GEMINI_API_KEY` as a Supabase Edge Function secret, deploy the updated `clever-handler` function, and keep all service-role/secret keys server-side. Supabase supplies its reserved `SUPABASE_` runtime variables automatically.
+4. In `website/js/config.js`, replace `REPLACE_WITH_SUPABASE_PUBLIC_KEY` with the public publishable/anon key from the correct Supabase project. Never use a service-role or `sb_secret_` key in browser code.
 5. Create each company and its first admin using a trusted administrative process. Create individual Supabase Auth users, then insert their `company_members` row. Add your own user ID to `platform_admins` from the SQL Editor after confirming the correct Auth user UUID. Never allow public sign-up to assign platform-admin role.
 6. Ensure email/password auth and password-reset email templates are configured. Invitation requests are queued in the portal; sending an Auth invite requires a trusted server-side function using the service-role key.
 7. Billing fields in this release are account metadata only. Connect a billing provider and verified webhooks before accepting payments or treating billing status as authoritative.

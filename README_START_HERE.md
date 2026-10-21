@@ -19,7 +19,7 @@ This bundle is intended to be the full repository contents for a **new/empty** S
 
 1. Create a new Supabase project and save its project URL, project reference and public anon key.
 2. Keep the **service-role key** private. Never put it in website HTML, GitHub, Vercel client environment variables, or a screenshot.
-3. In SQL Editor, run each file under `supabase/migrations/` in ascending numeric order (`202610210001` through `202610210006`). Use a fresh project for this sequence; do not apply it blindly to an existing production schema.
+3. In SQL Editor, run each file under `supabase/migrations/` in ascending numeric order (`202610210001` through `202610210007`). Use a fresh project for this sequence; do not apply it blindly to an existing production schema.
 4. Run `supabase/tests/security_review.sql`. Review failures before continuing.
 5. In Authentication settings, enable email/password sign-in. Turn off public sign-up unless you intentionally implement a reviewed invitation flow. Create individual user accounts for company admins/technicians.
 
@@ -46,10 +46,7 @@ Replace all placeholders; never execute the sample unchanged. The platform-owner
 ## 2. Deploy the Edge Function
 
 1. Install the Supabase CLI and sign in, or use the GitHub Actions workflow after configuring its secrets.
-2. Set Edge Function secrets in Supabase Dashboard → Edge Functions → Secrets:
-   - `SUPABASE_URL` — your project URL
-   - `SUPABASE_SERVICE_ROLE_KEY` — server-side only
-   - `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) — provider key used by troubleshooting and OCR
+2. In Supabase Dashboard → Edge Functions → Secrets, set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) to your Gemini provider key. Hosted Edge Functions receive `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as Supabase-managed runtime variables; the dashboard rejects manually creating custom secrets with the reserved `SUPABASE_` prefix. Do not expose server-side credentials.
 3. Deploy `supabase/functions/clever-handler/` as `clever-handler`.
 4. `supabase/config.toml` disables gateway JWT verification for this mixed public-demo/authenticated function; protected operations must therefore keep validating the bearer token and membership/role inside the function. Never remove those checks.
 
@@ -70,8 +67,8 @@ The worker polls the private queue and claims jobs using an atomic database func
 1. Create an empty GitHub repository and upload **the contents of this bundle's `PoolDocAI_Release_Bundle/` folder** to the repository root (not an extra nested folder).
 2. In GitHub repository Settings → Secrets and variables → Actions, add `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` if you want to use the included manual-dispatch deployment workflow. Restrict repository access.
 3. Import that repository into Vercel. The included `vercel.json` serves the `website/` directory as the static output. Deploy the first production build.
-4. In `website/admin.html`, `website/app.html`, `website/technician.html`, and `website/learning-review.html`, replace `REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY` with your **public anon key**. The public anon key is expected to be visible in browser code; service-role and provider keys are not.
-5. Commit the public-key configuration and redeploy. Ensure Vercel's project root is the repository root.
+4. In `website/js/config.js`, replace `REPLACE_WITH_SUPABASE_PUBLIC_KEY` with the **public publishable/anon key from this same Supabase project**. Do not use an `sb_secret_` key or the service-role key. All website pages read this shared configuration.
+5. Commit `website/js/config.js` and redeploy. Ensure Vercel's project root is the repository root.
 
 ## 5. Set up accounts and access
 

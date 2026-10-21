@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PoolDocAI Secure Troubleshooter</title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="manifest" href="/app.webmanifest">
   <meta name="description" content="Authenticated PoolDocAI troubleshooting workspace for subscribed companies." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏊%3C/text%3E%3C/svg%3E" />
   <meta property="og:title" content="PoolDocAI — Cut Unbillable Callbacks &amp; Diagnose Faster on the First Visit" />
@@ -159,14 +161,69 @@
     @media (max-width:639px){.hero-gradient::before{animation:none;filter:none;opacity:.45}}
     @media (max-width:1023px){#dispatchNoteContent{display:none}#dispatchNoteContent.dispatch-summary-open{display:block}}
   </style>
+  <script src="/js/config.js"></script>
+
+  <style id="secure-workspace-styles">
+    .secure-login-gate{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:22px;background:radial-gradient(900px 500px at 15% 0%,#164b6b 0%,transparent 65%),linear-gradient(140deg,#071b2d,#0e3b57);overflow:auto}
+    .secure-login-card{width:min(100%,480px);background:#fff;border:1px solid #bfdae8;border-radius:22px;padding:clamp(22px,5vw,38px);box-shadow:0 24px 80px #00162788;color:#102a40}
+    .secure-login-mark,.secure-app-mark{display:inline-grid;place-items:center;width:46px;height:46px;border-radius:13px;background:linear-gradient(140deg,#0878b9,#38bdea);font-weight:900;color:#fff;box-shadow:0 6px 18px #0878b933}
+    .secure-eyebrow{margin:16px 0 8px!important;color:#0878b9!important;font-weight:800!important;font-size:.75rem!important;letter-spacing:.1em}
+    #secureLoginTitle{font-size:clamp(1.7rem,5vw,2.25rem);font-weight:900;letter-spacing:-.035em;line-height:1.1;margin:0 0 12px;color:#0c2d46}
+    .secure-login-copy{color:#4d6172!important;font-size:.96rem!important;line-height:1.6!important;margin:0 0 18px}
+    #secureLoginForm label{display:block;font-weight:750;color:#243d50;margin:13px 0 6px}
+    #secureLoginForm input{width:100%;padding:13px 14px;border:1px solid #b9cedc;border-radius:10px;background:#fff;color:#0b2437;font:inherit}
+    #secureLoginSubmit{width:100%;margin-top:18px;background:#0878b9;color:white;border:0;border-radius:11px;padding:13px;font-weight:850;cursor:pointer}
+    .secure-login-status{min-height:1.5em;color:#38546a!important;font-size:.9rem!important;margin:13px 0 5px}
+    .secure-login-links{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid #e1eaf0;font-size:.85rem;font-weight:700}
+    .secure-login-links a{color:#086eaa;text-decoration:underline;text-underline-offset:3px}
+    .secure-app-toolbar{display:none;position:sticky;top:0;z-index:5000;background:#071d30;color:#fff;padding:10px clamp(12px,3vw,30px);gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;box-shadow:0 8px 28px #00132144}
+    .secure-app-brand{display:flex;align-items:center;gap:10px}.secure-app-brand strong{display:block;font-size:1rem;line-height:1.2}.secure-app-brand small{display:block;color:#c4e5f4;font-size:.72rem;max-width:46vw;overflow-wrap:anywhere}
+    .secure-app-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.secure-app-actions a,.secure-app-actions button{display:inline-block;padding:9px 11px;border:1px solid #35546a;border-radius:9px;color:#f4fbff;background:#143751;text-decoration:none;font-size:.82rem;font-weight:750;cursor:pointer}.secure-app-actions button.secure-signout{background:#f3f7fb;color:#122a3c;border-color:#f3f7fb}
+    body[data-site-page="secure-app"] #interactive-demo{display:none}
+    body[data-site-page="secure-app"].secure-app-ready > *:not(#secureLoginGate):not(#secureAppToolbar):not(#interactive-demo):not(#onboardingModal):not(#waitlistSuccessModal):not(#privacyModal):not(script):not(style){display:none!important}
+    body[data-site-page="secure-app"].secure-app-ready #secureAppToolbar{display:flex!important}
+    body[data-site-page="secure-app"].secure-app-ready #interactive-demo{display:block!important;padding:26px 0 36px!important}
+    body[data-site-page="secure-app"].secure-app-ready #interactive-demo > .max-w-7xl{max-width:1500px}
+    body[data-site-page="secure-app"].secure-app-ready #interactive-demo .max-w-3xl.mx-auto.text-center.space-y-3 span{color:#7dd3fc!important}
+    body[data-site-page="secure-app"].secure-app-ready #walkthroughHeaderTitle{color:#fff}
+    @media(max-width:650px){.secure-app-toolbar{align-items:flex-start}.secure-app-actions{width:100%}.secure-app-actions a,.secure-app-actions button{flex:1;text-align:center}.secure-app-brand small{max-width:75vw}}
+  </style>
+
 </head>
-<body data-site-page="demo" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
+<body data-site-page="secure-app" class="app-auth-required bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
+  <div id="secureLoginGate" class="secure-login-gate" role="main" aria-labelledby="secureLoginTitle">
+    <div class="secure-login-card">
+      <div class="secure-login-mark" aria-hidden="true">PD</div>
+      <p class="secure-eyebrow">POOLDOC AI · COMPANY WORKSPACE</p>
+      <h1 id="secureLoginTitle">Sign in to the full troubleshooter</h1>
+      <p class="secure-login-copy">Use your PoolDocAI company account to access full troubleshooting, equipment photo identification, and private company-specific references. The public demo is separate and limited.</p>
+      <form id="secureLoginForm" autocomplete="on">
+        <label for="secureEmail">Work email</label>
+        <input id="secureEmail" type="email" autocomplete="username" required placeholder="you@company.com">
+        <label for="securePassword">Password</label>
+        <input id="securePassword" type="password" autocomplete="current-password" required placeholder="Your password">
+        <button type="submit" id="secureLoginSubmit">Sign in and open troubleshooter</button>
+      </form>
+      <p id="secureLoginStatus" class="secure-login-status" role="status" aria-live="polite">Sign in using your provisioned company account.</p>
+      <div class="secure-login-links"><a href="/admin">Back to account portal</a><a href="/demo">Try the 3-turn public demo</a></div>
+    </div>
+  </div>
+  <nav id="secureAppToolbar" class="secure-app-toolbar" aria-label="Secure workspace navigation">
+    <div class="secure-app-brand"><span class="secure-app-mark">PD</span><span><strong>PoolDocAI</strong><small id="secureAppIdentity">Authenticated troubleshooting workspace</small></span></div>
+    <div class="secure-app-actions">
+      <a href="/admin">Account portal</a>
+      <a href="/technician">Technician field notes</a>
+      <button type="button" data-install-pooldocai-app>Install app</button>
+      <button type="button" id="secureAppSignOut" class="secure-signout">Sign out</button>
+    </div>
+  </nav>
+
 
   <!-- TOP VALIDATION & WAITLIST BANNER -->
   <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Live demo available</span>
+        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Sign-in required · Full workspace</span>
         <span class="font-medium">Try up to 3 troubleshooting turns in this public demo. Join the waitlist for full access.</span>
       </div>
       <div class="flex items-center gap-4">
@@ -192,7 +249,7 @@
       <nav class="hidden xl:flex items-center gap-5 text-sm font-medium text-slate-600">
         <a href="index.html#top" class="hover:text-sky-600 transition">Home</a>
         <a href="how-it-works.html#solution-section" class="hover:text-sky-600 transition">How It Works</a>
-        <a href="demo.html#interactive-demo" class="hover:text-sky-600 transition">Try the Demo</a> <a href="/technician.html" class="nav-link">Technician Panel</a> <a href="/admin.html" class="nav-link">Account Portal</a> <a href="/admin.html" class="nav-link">Account Login</a>
+        <a href="demo.html#interactive-demo" class="hover:text-sky-600 transition">Try the Demo</a> <a href="/app" class="nav-link">Technician Troubleshooter</a> <a href="/admin.html" class="nav-link">Account Portal</a> <a href="/admin.html" class="nav-link">Account Login</a>
         <a href="pricing.html#pricing-roi-section" class="hover:text-sky-600 transition">Pricing</a>
         <a href="faq.html#faq-section" class="hover:text-sky-600 transition">Help &amp; Safety</a>
       </nav>
@@ -417,7 +474,7 @@
           </div>
           <h3 class="text-xl font-bold text-slate-900">Field Technician Workflow Preview</h3>
           <ul class="space-y-2 text-xs sm:text-sm text-slate-600 list-disc list-inside">
-            <li><strong>Tech Mode preview:</strong> The demo previews a technician-focused troubleshooting conversation. Model-specific tests and references depend on validated source material; the technician field-notes PWA is available at the Technician Panel.</li>
+            <li><strong>Technician workspace:</strong> The authenticated troubleshooter supports company-account access and equipment photo identification. Technician Field Notes is a separate job-record tool.</li>
             <li><strong>Company-specific procedures:</strong> Adding a company’s manuals and procedures is planned as an early-access onboarding capability. The demo’s available references vary by equipment and issue; not every answer has a verified manufacturer source.</li>
             <li><strong>Team access:</strong> Technician accounts, shared case access, and job close-out tracking depend on the production pilot setup and are not provisioned by this public demo.</li>
             <li><strong>Bonus sessions:</strong> Not active in the current public demo.</li>
@@ -431,10 +488,10 @@
   <section id="interactive-demo" class="py-16 sm:py-20 bg-slate-900 text-white border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="max-w-3xl mx-auto text-center space-y-3">
-        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Live Conversational PoolDocAI Troubleshooter</span>
-        <h2 class="text-2xl sm:text-4xl font-extrabold">Have a Natural Troubleshooting Conversation with PoolDocAI</h2>
+        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">AUTHENTICATED · FULL TROUBLESHOOTING WORKSPACE</span>
+        <h2 class="text-2xl sm:text-4xl font-extrabold">Diagnose equipment with your company workspace</h2>
         <p class="text-slate-300 text-xs sm:text-base">
-          Start with a symptom or choose one of the eight categories below. PoolDocAI guides the intake, runs an illustrative water-balancing calculator, and prepares a Pre-Job Summary for review. This is a demo; it does not book or dispatch a technician.
+          Start with a symptom or choose an equipment category. This authenticated workspace supports equipment photo identification, sequential troubleshooting, water-balance assistance, a Pre-Job Summary, and case capture. Guidance remains subject to company permissions and account usage limits.
         </p>
       </div>
 
@@ -459,7 +516,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2.5">
                 <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — 24/7 Homeowner Troubleshooting Assistant</span>
+                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — Secure Troubleshooting Workspace</span>
               </div>
               <button id="restartScenarioBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer">
                 ↻ New Conversation
@@ -493,8 +550,8 @@
                   placeholder="Type your symptom, water test value, or observation (e.g., 'balance my pool water', 'my pump won't turn on', 'water leaking at motor')..."
                   class="flex-1 px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-400"
                 />
-                <label for="poolEquipmentPhotoInput" class="px-3 py-3 rounded-xl border border-slate-600 text-sky-200 text-xs font-bold cursor-pointer hover:bg-slate-800 text-center">📷 Add photo</label>
-                <input id="poolEquipmentPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" aria-label="Upload pool equipment photo" />
+                <label for="poolEquipmentPhotoInput" class="px-3 py-3 rounded-xl border border-slate-600 text-sky-200 text-xs font-bold cursor-pointer hover:bg-slate-800 text-center">📷 Add equipment photo</label>
+                <input id="poolEquipmentPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="hidden" aria-label="Upload pool equipment photo" />
                 <button
                   id="liveDemoSendBtn"
                   type="submit"
@@ -1142,18 +1199,62 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const SECURE_SUPABASE_URL='https://sborrkmwfhzqtuiodgje.supabase.co';
-    const SECURE_SUPABASE_ANON_KEY='REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY';
+    const SECURE_SUPABASE_URL=window.POOLDOCAI_CONFIG.supabaseUrl;
+    const SECURE_SUPABASE_ANON_KEY=window.POOLDOCAI_CONFIG.publicAnonKey;
     const secureClient=(window.supabase&&SECURE_SUPABASE_ANON_KEY&&!SECURE_SUPABASE_ANON_KEY.startsWith('REPLACE_'))?window.supabase.createClient(SECURE_SUPABASE_URL,SECURE_SUPABASE_ANON_KEY):null;
-    async function revealSecureApp(session){ if(!session)return; APP_SESSION=session; const {data,error}=await secureClient.from('company_members').select('company_id,role,companies(status)').eq('user_id',session.user.id).eq('status','active'); if(error||!data?.length){document.getElementById('secureLoginStatus').textContent='This login has no active company membership. Contact your company administrator.'; await secureClient.auth.signOut();return;} document.body.classList.remove('app-auth-required');document.getElementById('secureLoginGate').style.display='none'; }
-    document.addEventListener('DOMContentLoaded',()=>{const form=document.getElementById('secureLoginForm');form.addEventListener('submit',async e=>{e.preventDefault();const status=document.getElementById('secureLoginStatus');if(!secureClient){status.textContent='Setup required: replace the public anon key in app.html. Never use the service-role key.';return;}const {data,error}=await secureClient.auth.signInWithPassword({email:document.getElementById('secureEmail').value.trim(),password:document.getElementById('securePassword').value});if(error){status.textContent=error.message;return;}APP_SESSION=data.session;await revealSecureApp(data.session);});if(!secureClient){document.getElementById('secureLoginStatus').textContent='Administrator setup required: configure the Supabase public anon key.';return;}secureClient.auth.getSession().then(({data})=>revealSecureApp(data.session));secureClient.auth.onAuthStateChange((_e,s)=>{if(s){APP_SESSION=s;revealSecureApp(s);}else{APP_SESSION=null;document.body.classList.add('app-auth-required');document.getElementById('secureLoginGate').style.display='flex';}});});
+    let secureRevealBusy = false;
+    async function revealSecureApp(session){
+      if(!session || !secureClient || secureRevealBusy) return;
+      secureRevealBusy = true;
+      const status = document.getElementById('secureLoginStatus');
+      try {
+        const {data:members,error} = await secureClient.from('company_members')
+          .select('company_id,role,status,companies(status,name)')
+          .eq('user_id',session.user.id).eq('status','active');
+        const isUsable = !error && Array.isArray(members) && members.some(m => {
+          const company = Array.isArray(m.companies) ? m.companies[0] : m.companies;
+          return m.status === 'active' && company && ['pilot','active'].includes(String(company.status||'').toLowerCase());
+        });
+        if(!isUsable){
+          status.textContent = error ? 'Could not verify company access: '+error.message : 'This login does not have an active membership in a pilot/active company. Ask your company administrator to check account access.';
+          await secureClient.auth.signOut();
+          return;
+        }
+        APP_SESSION = session;
+        document.body.classList.remove('app-auth-required');
+        document.body.classList.add('secure-app-ready');
+        document.getElementById('secureLoginGate').style.display='none';
+        document.getElementById('secureAppIdentity').textContent = `${session.user.email || 'Signed in'} · ${members[0].role.replace('_',' ')}`;
+      } catch(err) { status.textContent = err?.message || 'Could not verify your company access.'; }
+      finally { secureRevealBusy=false; }
+    }
+    document.addEventListener('DOMContentLoaded',()=>{
+      const form=document.getElementById('secureLoginForm');
+      const status=document.getElementById('secureLoginStatus');
+      if(!secureClient){status.textContent='Setup required: set the correct public Supabase key in website/js/config.js. Never use a secret/service-role key.';return;}
+      form.addEventListener('submit',async e=>{
+        e.preventDefault();
+        const btn=document.getElementById('secureLoginSubmit'); btn.disabled=true; btn.textContent='Signing in…'; status.textContent='Checking account and company access…';
+        try { const {data,error}=await secureClient.auth.signInWithPassword({email:document.getElementById('secureEmail').value.trim(),password:document.getElementById('securePassword').value});
+          if(error){status.textContent=error.message;return;}
+          await revealSecureApp(data.session);
+        } catch(err){status.textContent=err?.message||'Sign-in failed. Try again.';}
+        finally {btn.disabled=false;btn.textContent='Sign in and open troubleshooter';}
+      });
+      document.getElementById('secureAppSignOut').addEventListener('click',async()=>{await secureClient.auth.signOut();});
+      secureClient.auth.getSession().then(({data,error})=>{if(error)status.textContent=error.message; if(data?.session)void revealSecureApp(data.session);});
+      secureClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>{
+        if(session) void revealSecureApp(session);
+        else { APP_SESSION=null; document.body.classList.remove('secure-app-ready'); document.body.classList.add('app-auth-required'); document.getElementById('secureLoginGate').style.display='flex'; }
+      },0));
+    });
   </script>
   <script>
     // =========================================================================
     // 0. SUPABASE TROUBLESHOOTER CONFIGURATION
     // =========================================================================
-    const TROUBLESHOOTER_ENDPOINT = 'https://sborrkmwfhzqtuiodgje.supabase.co/functions/v1/clever-handler';
-    const SUPABASE_ANON_KEY = 'REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY';
+    const TROUBLESHOOTER_ENDPOINT = `${window.POOLDOCAI_CONFIG.supabaseUrl}/functions/v1/clever-handler`;
+    const SUPABASE_ANON_KEY = window.POOLDOCAI_CONFIG.publicAnonKey;
     const SECURE_APP_MODE = true;
     let APP_SESSION = null;
     function secureAuthHeaders(){ if(!APP_SESSION?.access_token) throw new Error('Your login session expired. Sign in again.'); return {'Content-Type':'application/json','Accept':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+APP_SESSION.access_token}; }
@@ -1162,12 +1263,6 @@
       try { const headers=secureAuthHeaders(); await fetch(TROUBLESHOOTER_ENDPOINT,{method:'POST',headers,keepalive:true,body:JSON.stringify({action:'capture_learning_case',authenticatedApp:true,sessionId:APP_SESSION.user?.id?('account-'+APP_SESSION.user.id):'',issue:String(issue).slice(0,1200),answer:String(answer).slice(0,1200),category:sessionContext.category||'',manufacturer:sessionContext.brand||'',model:sessionContext.model||'',caseStatus:actionName==='resolved'?'resolved':'open'})}); } catch(err) { console.warn('Learning-loop capture will need retry:',err?.message||'network issue'); }
     }
     const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
-    const PUBLIC_DEMO_TURN_LIMIT = 3;
-    const PUBLIC_DEMO_COUNT_KEY = 'pooldocai_public_demo_turns_v1';
-    function publicDemoTurns(){ return Number(sessionStorage.getItem(PUBLIC_DEMO_COUNT_KEY)||0); }
-    function showDemoWaitlistNotice(reason='You have reached the public demo limit.') {
-      let n=document.getElementById('demoLimitNotice'); if(!n){ n=document.createElement('div'); n.id='demoLimitNotice'; n.className='demo-limit-notice'; n.setAttribute('role','dialog'); n.setAttribute('aria-live','polite'); n.innerHTML='<strong>That’s the end of the public demo.</strong><p id="demoLimitText" class="mt-2 text-sm"></p><p class="text-sm mt-2">For the full troubleshooting tool and photo identification, join the PoolDocAI early-access waitlist.</p><a href="waitlist.html#interest-section">Join the Waitlist</a><button type="button" id="demoLimitClose">Close</button>'; document.body.appendChild(n); n.querySelector('#demoLimitClose').addEventListener('click',()=>n.remove()); } n.querySelector('#demoLimitText').textContent=reason; n.scrollIntoView({block:'nearest'});
-    }
 
     function openWaitlistSuccessPopup(customTitle, customBody) {
       const modal = document.getElementById('waitlistSuccessModal');
@@ -5168,6 +5263,6 @@
   else saveState();
 })();
 </script>
-<script src="/js/core.js" defer></script>
+<script src="/js/pwa-install.js" defer></script><script src="/js/core.js" defer></script>
 </body>
 </html>

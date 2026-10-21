@@ -158,6 +158,7 @@
     @media (max-width:639px){.hero-gradient::before{animation:none;filter:none;opacity:.45}}
     @media (max-width:1023px){#dispatchNoteContent{display:none}#dispatchNoteContent.dispatch-summary-open{display:block}}
   </style>
+  <script src="/js/config.js"></script>
 </head>
 <body data-site-page="demo" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
 
@@ -165,7 +166,7 @@
   <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Live demo available</span>
+        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">PUBLIC DEMO · 3 TURNS</span>
         <span class="font-medium">Try up to 3 troubleshooting turns in this public demo. Join the waitlist for full access.</span>
       </div>
       <div class="flex items-center gap-4">
@@ -191,7 +192,7 @@
       <nav class="hidden xl:flex items-center gap-5 text-sm font-medium text-slate-600">
         <a href="index.html#top" class="hover:text-sky-600 transition">Home</a>
         <a href="how-it-works.html#solution-section" class="hover:text-sky-600 transition">How It Works</a>
-        <a href="demo.html#interactive-demo" class="hover:text-sky-600 transition">Try the Demo</a> <a href="/technician.html" class="nav-link">Technician Panel</a> <a href="/admin.html" class="nav-link">Account Login</a>
+        <a href="demo.html#interactive-demo" class="hover:text-sky-600 transition">Try the Demo</a> <a href="/app" class="nav-link">Technician Troubleshooter</a> <a href="/admin.html" class="nav-link">Account Login</a>
         <a href="pricing.html#pricing-roi-section" class="hover:text-sky-600 transition">Pricing</a>
         <a href="faq.html#faq-section" class="hover:text-sky-600 transition">Help &amp; Safety</a>
       </nav>
@@ -416,7 +417,7 @@
           </div>
           <h3 class="text-xl font-bold text-slate-900">Field Technician Workflow Preview</h3>
           <ul class="space-y-2 text-xs sm:text-sm text-slate-600 list-disc list-inside">
-            <li><strong>Tech Mode preview:</strong> The demo previews a technician-focused troubleshooting conversation. Model-specific tests and references depend on validated source material; the technician field-notes PWA is available at the Technician Panel.</li>
+            <li><strong>Tech Mode preview:</strong> The demo previews a technician-focused troubleshooting conversation. Model-specific tests and references depend on validated source material; Technician Field Notes is available after account sign-in from the account portal.</li>
             <li><strong>Company-specific procedures:</strong> Adding a company’s manuals and procedures is planned as an early-access onboarding capability. The demo’s available references vary by equipment and issue; not every answer has a verified manufacturer source.</li>
             <li><strong>Team access:</strong> Technician accounts, shared case access, and job close-out tracking depend on the production pilot setup and are not provisioned by this public demo.</li>
             <li><strong>Bonus sessions:</strong> Not active in the current public demo.</li>
@@ -492,7 +493,7 @@
                   placeholder="Type your symptom, water test value, or observation (e.g., 'balance my pool water', 'my pump won't turn on', 'water leaking at motor')..."
                   class="flex-1 px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-400"
                 />
-                <label for="poolEquipmentPhotoInput" class="px-3 py-3 rounded-xl border border-slate-600 text-sky-200 text-xs font-bold cursor-pointer hover:bg-slate-800 text-center">📷 Add photo</label>
+                <label for="poolEquipmentPhotoInput" class="px-3 py-3 rounded-xl border border-slate-600 text-sky-200 text-xs font-bold cursor-pointer hover:bg-slate-800 text-center">📷 Photo upload requires sign-in</label>
                 <input id="poolEquipmentPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" aria-label="Upload pool equipment photo" />
                 <button
                   id="liveDemoSendBtn"
@@ -1143,8 +1144,8 @@
     // =========================================================================
     // 0. SUPABASE TROUBLESHOOTER CONFIGURATION
     // =========================================================================
-    const TROUBLESHOOTER_ENDPOINT = 'https://sborrkmwfhzqtuiodgje.supabase.co/functions/v1/clever-handler';
-    const SUPABASE_ANON_KEY = '';
+    const TROUBLESHOOTER_ENDPOINT = `${window.POOLDOCAI_CONFIG.supabaseUrl}/functions/v1/clever-handler`;
+    const SUPABASE_ANON_KEY = window.POOLDOCAI_CONFIG.publicAnonKey;
     const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
     const PUBLIC_DEMO_TURN_LIMIT = 3;
     const PUBLIC_DEMO_COUNT_KEY = 'pooldocai_public_demo_turns_v1';
@@ -5141,7 +5142,7 @@
   else saveState();
 })();
 </script>
-<script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch('https://sborrkmwfhzqtuiodgje.supabase.co/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
+<script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
 <script src="/js/core.js" defer></script>
 </body>
 </html>
