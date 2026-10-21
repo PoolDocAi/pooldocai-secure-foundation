@@ -16,4 +16,8 @@ $('login').addEventListener('click',async()=>{say('loginStatus','Signing in…')
 if(!window.supabase||SUPABASE_ANON_KEY.startsWith('REPLACE_')){say('loginStatus','Setup required: replace SUPABASE_ANON_KEY with the public anon key. Never use a service-role key.');$('login').disabled=true;return}client=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);client.auth.onAuthStateChange(()=>setTimeout(sync,0));void sync();
 })();
 </script><script src="/js/core.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body></html>
