@@ -81,4 +81,4 @@ The canonical Render service definition is `document-worker/render.yaml`; the re
 
 ### Existing-install administration and public demo fix
 
-For an existing project, use `README_UPDATE_20261021_EXISTING_INSTALL.md` and apply migrations 008–011 in order (one file per SQL Editor query). Migration 011 is a forward fix for the server-side eight-turn demo quota function and explicitly limits company creation to registered PoolDocAI platform owners. Do not assume editing migration 008 changes a database where it already ran.
+For an existing project, use `README_FEATURE_EXPANSION_20261021.md` and apply only missing migrations (008–014), one full file per fresh SQL Editor query. Migration 011 repairs the server-side eight-turn quota function; migrations 012–014 add invitations, Stripe-ready billing, usage, vector retrieval, offline-sync hardening and industry activation guards.

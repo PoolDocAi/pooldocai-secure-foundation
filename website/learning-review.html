@@ -16,4 +16,5 @@ $('login').addEventListener('click',async()=>{say('loginStatus','Signing in…')
 if(!window.supabase||SUPABASE_ANON_KEY.startsWith('REPLACE_')){say('loginStatus','Setup required: replace SUPABASE_ANON_KEY with the public anon key. Never use a service-role key.');$('login').disabled=true;return}client=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);client.auth.onAuthStateChange(()=>setTimeout(sync,0));void sync();
 })();
 </script><script src="/js/core.js" defer></script>
+<script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
 </body></html>

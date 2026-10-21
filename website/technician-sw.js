@@ -1,4 +1,4 @@
-const CACHE = 'pooldocai-tech-v2';
+const CACHE = 'pooldocai-tech-v3';
 const ASSETS = ['/technician.html', '/technician.webmanifest', '/technician-icon.svg'];
 const TECH_PATHS = new Set(['/technician.html', '/technician', '/technician.webmanifest', '/technician-icon.svg']);
 

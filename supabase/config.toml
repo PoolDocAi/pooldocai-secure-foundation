@@ -5,3 +5,7 @@ project_id = "pooldocai"
 # It manually validates Supabase bearer tokens for every protected action. Keep all
 # service-role and provider secrets in Supabase Edge Function secrets only.
 verify_jwt = false
+
+[functions.stripe-webhook]
+# Stripe webhook signature verification is implemented in this function; do not require Supabase JWTs.
+verify_jwt = false

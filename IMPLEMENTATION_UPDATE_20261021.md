@@ -18,3 +18,13 @@ This update preserves the existing vanilla HTML troubleshooting UI, Edge Functio
 
 ## Validation status
 Run the included CI workflow and `SECURITY_TEST_PLAN.md` before production use. Local syntax and static checks are not proof of live tenant isolation. Validate HMAC signatures with a real integration test before exposing `/process` to any caller.
+
+## Additional update: pump no-start reliability and platform analytics
+- Added an explicit unknown-make/model path for general non-invasive pump troubleshooting.
+- Strengthened symptom-specific Google Search fallback instructions for pump no-start cases when internal procedures are absent or incomplete.
+- Added a conservative pump no-start fallback response if no verifiable source is returned, with electrical safety boundaries and clear service-technician escalation.
+- Updated technician escalation wording to **Request a Pool Service Technician**.
+- Added public API-request metering without storing user prompts and expanded the platform-owner analytics view to show last-30-day site visits, browser sessions, AI/API request counts, token totals, estimated priced API cost, and recent events.
+- Added privacy-minimized page-view tracking to public HTML pages that previously lacked it.
+- No additional database migration is required for this change; it uses the existing analytics and usage-event tables.
+- Validation: inline HTML JavaScript syntax checks and TypeScript syntax transpilation passed. Live integration behavior still needs to be verified after deployment.

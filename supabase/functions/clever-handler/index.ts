@@ -63,6 +63,44 @@ function scrubObject(value: unknown, depth = 0): unknown {
 function jsonResponse(body: AnyRecord, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
+function appBaseUrl(): string {
+  const raw = (Deno.env.get("APP_BASE_URL") || "https://pooldocai.vercel.app").trim();
+  try { const u = new URL(raw); if (u.protocol !== "https:" && u.hostname !== "localhost") throw new Error(); return u.origin; }
+  catch { return "https://pooldocai.vercel.app"; }
+}
+function bytesToHex(bytes: Uint8Array): string { return Array.from(bytes).map((b) => b.toString(16).padStart(2,"0")).join(""); }
+async function geminiEmbedding(text: string, taskType: "RETRIEVAL_QUERY" | "RETRIEVAL_DOCUMENT" = "RETRIEVAL_QUERY"): Promise<string | null> {
+  const key = Deno.env.get("GEMINI_API_KEY") || Deno.env.get("GOOGLE_API_KEY");
+  if (!key || !text.trim()) return null;
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${encodeURIComponent(key)}`, {
+      method:"POST", headers:{"content-type":"application/json"}, signal:AbortSignal.timeout(12000),
+      body:JSON.stringify({model:"models/gemini-embedding-001",content:{parts:[{text:text.slice(0,8000)}]},taskType,outputDimensionality:768})
+    });
+    if (!r.ok) return null;
+    const j = objectValue(await r.json()); const embedding=objectValue(j?.embedding); const vals=Array.isArray(embedding?.values)?embedding.values:[];
+    if (vals.length !== 768 || vals.some((x)=>typeof x !== "number" || !Number.isFinite(x))) return null;
+    return `[${vals.join(",")}]`;
+  } catch { return null; }
+}
+async function utcMonthStartDate(): string { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
+
+async function recordModelUsage(supabase: ReturnType<typeof createClient>, companyId: string | null, userId: string | null, model: string, usage: AnyRecord | null, eventType = "ai_request", eventKey?: string) {
+  const inputTokens = Number(usage?.input_tokens ?? usage?.promptTokenCount ?? usage?.prompt_token_count ?? 0) || 0;
+  const outputTokens = Number(usage?.output_tokens ?? usage?.candidatesTokenCount ?? usage?.candidates_token_count ?? 0) || 0;
+  let estimatedCost: number | null = null;
+  let costSource = "not_priced";
+  const modelName = model || "unknown";
+  if (inputTokens || outputTokens) {
+    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
+    const rate = rates?.[0];
+    if (rate && rate.input_usd_per_million_tokens != null && rate.output_usd_per_million_tokens != null) {
+      estimatedCost = inputTokens * Number(rate.input_usd_per_million_tokens) / 1_000_000 + outputTokens * Number(rate.output_usd_per_million_tokens) / 1_000_000;
+      costSource = "rate_card_estimate";
+    }
+  }
+  await supabase.from("platform_usage_events").insert({company_id:companyId,user_id:userId,event_type:eventType,units:1,metric_type:"ai_tokens",quantity:inputTokens+outputTokens,quantity_unit:"token",provider:"google_gemini",model:modelName,input_tokens:inputTokens||null,output_tokens:outputTokens||null,estimated_cost_usd:estimatedCost,cost_source:costSource,period_start:utcMonthStartDate(),source_event_key:eventKey||null,metadata:{usage_reported:Boolean(inputTokens||outputTokens)}});
+}
 
 function textValue(value: unknown, max = 5000): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -305,9 +343,18 @@ function hasCompleteAlgaeTreatmentPlan(reply: string): boolean {
   return hasActualAlgaeTreatment && hasChlorineCya && hasSurfaceCare && hasCirculationFiltration && hasTestAndRedose && hasFinishCriteria;
 }
 
-function buildUnverifiedGuidanceReply(isWaterQualityCase: boolean, isConfirmedAlgaeCase: boolean): string {
+function buildUnverifiedGuidanceReply(isWaterQualityCase: boolean, isConfirmedAlgaeCase: boolean, category = "", symptom = "", subType = ""): string {
   if (isConfirmedAlgaeCase) {
     return "**PoolDocAI is unsure of the best next steps for treating this green pool.** I could not verify a complete, applicable algae-treatment procedure from the available knowledge-base records or live web results. I will not guess at a chlorine target or chemical dose. Keep swimmers out if the water is cloudy or the pool floor is not clearly visible. Follow exact product labels and never combine chemicals. Please request a qualified service technician to assess the water and determine a Green-to-Clean plan.";
+  }
+  if (/pump/i.test(category) && /\b(?:won.t start|will not start|not starting|no start|silent|hums?|buzz(?:es|ing)?)\b/i.test(`${symptom} ${subType}`)) {
+    return `**PoolDocAI could not verify a pump-specific procedure from the available manuals or live web search, so this is a general safety-first check—not a model-specific repair.**
+
+**Step 1 — Check the run command and visible power status.** From a dry location, confirm the timer or automation is currently calling for the pump to run and look only at the outside/visible status of the breaker or control panel. Do not open an electrical panel, touch wiring, remove the motor cover, or repeatedly reset a breaker.
+
+Which best describes the pump when it is commanded on: **completely silent**, **hums/buzzes**, or **the breaker trips**? If the breaker trips, you smell burning, see sparks, or feel tingling/shock, stop and request a qualified pool service technician.
+
+**Need hands-on help?** Select **Request a Pool Service Technician** below to have a qualified professional inspect the equipment.`;
   }
   if (isWaterQualityCase) {
     return "**PoolDocAI is unsure of the best next steps for this water-quality issue.** I could not verify an applicable treatment procedure from the available knowledge-base records or live web results. I will not guess at treatment chemistry or chemical doses. Record the test results and product labels, keep swimmers out if water clarity or sanitizer safety is uncertain, and request a qualified service technician to assess the water.";
@@ -650,7 +697,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     "save_technician_job", "capture_learning_case", "public_page_view", "photo_recognition",
     "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
     "review_learning_case", "list_learning_review_queue", "review_company_document",
-    "invite_company_member", "platform_list_account_statuses"
+    "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
   ]);
   if (!query && !noQueryActions.has(action)) return jsonResponse({ error: "A non-empty query or message is required.", code: "QUERY_REQUIRED" }, 400);
 
@@ -672,7 +719,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       aiReply: techMode
         ? "🛑 **SAFETY STOP — DO NOT CONTINUE THIS CASE STEP.** The report matches a possible real hazard, not merely a component/fault name. Keep people and pets clear, do not touch or restart the equipment, and follow your company safety procedure. For suspected gas leak, fire, smoke, chemical release, carbon monoxide, or immediate danger, move to safety and contact 911/the appropriate utility. Otherwise arrange qualified inspection before re-energizing."
         : "🛑 **STOP TROUBLESHOOTING — POSSIBLE IMMEDIATE HAZARD.** Do not approach or touch the equipment, switches, gas valves, wiring, or breaker if doing so could expose you to danger. Move people and pets away and keep everyone out of the pool if an electrical hazard is suspected. For suspected gas leak, fire, smoke, chemical release, carbon monoxide, or immediate danger, move to a safe location and call 911 or the appropriate utility/emergency service. Do not restart equipment until it has been cleared by a qualified professional.",
-      choices: [{ label: "📋 Request Service Technician", action: "escalate" }],
+      choices: [{ label: "📞 Request a Pool Service Technician", action: "escalate" }],
       sourceMode: "generic",
     }, 200);
   }
@@ -693,6 +740,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   let authenticatedUserId: string | null = null;
   let authenticatedRole: string | null = null;
   let authenticatedPermissions: { canViewJobNotes: boolean; canEditJobNotes: boolean; canUploadDocuments: boolean; canReviewDocuments: boolean } | null = null;
+  let authenticatedIndustryKey = "pool";
+  let usageEventId: number | null = null;
   if (body.authenticatedApp === true) {
     const authHeader = req.headers.get("authorization") || "";
     const bearer = authHeader.match(/^Bearer\s+(.+)$/i)?.[1] || "";
@@ -700,8 +749,12 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     const { data: authData, error: authError } = await supabase.auth.getUser(bearer);
     if (authError || !authData.user) return jsonResponse({ error: "Please sign in with an active company account.", code: "AUTH_REQUIRED" }, 401);
     authenticatedUserId = authData.user.id;
+    // Temporary credentials expire independently of the Supabase JWT lifetime.
+    const {data:temporaryGrant, error:temporaryGrantError}=await supabase.from("temporary_access_grants").select("expires_at,revoked_at").eq("user_id",authenticatedUserId).maybeSingle();
+    if(temporaryGrantError && temporaryGrantError.code !== "42P01") return jsonResponse({error:"Could not verify temporary account expiry.",code:"TEMPORARY_EXPIRY_CHECK_FAILED"},503);
+    if(temporaryGrant && (temporaryGrant.revoked_at || Date.parse(String(temporaryGrant.expires_at)) <= Date.now())) return jsonResponse({error:"This temporary PoolDocAI trial has expired or been revoked. Ask the platform owner for a new trial.",code:"TEMPORARY_ACCESS_EXPIRED"},401);
     const { data: memberships, error: membershipError } = await supabase.from("company_members")
-      .select("company_id,role,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,companies(status,seat_limit)")
+      .select("company_id,role,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,companies(status,seat_limit,industry_key)")
       .eq("user_id", authenticatedUserId).eq("status", "active");
     const requestedCompanyId = textValue(body.companyId, 80);
     if (membershipError) {
@@ -712,16 +765,72 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (validMembership) {
       authenticatedCompanyId = validMembership.company_id;
       authenticatedRole = String((validMembership as any).role || "");
+      authenticatedIndustryKey = String((validMembership as any).companies?.industry_key || "pool");
       authenticatedPermissions = {
         canViewJobNotes: authenticatedRole === "company_admin" || (validMembership as any).can_view_job_notes === true,
         canEditJobNotes: authenticatedRole === "company_admin" || (validMembership as any).can_edit_job_notes === true,
         canUploadDocuments: authenticatedRole === "company_admin" || (validMembership as any).can_upload_documents === true,
         canReviewDocuments: authenticatedRole === "company_admin" || (validMembership as any).can_review_documents === true,
       };
-      await supabase.from("platform_usage_events").insert({ company_id: authenticatedCompanyId, user_id: authenticatedUserId, event_type: action || "troubleshoot", units: 1, metadata: { authenticated: true } });
-    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
+      // Prevent pool-specific diagnostic/safety rules from running for an industry module that is merely planned.
+      const {data:activeIndustry}=await supabase.from("industry_modules").select("industry_key,status").eq("industry_key",authenticatedIndustryKey).eq("status","active").maybeSingle();
+      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
+        return jsonResponse({error:"This company's industry module is not active yet. PoolDocAI will not apply pool-specific troubleshooting or safety rules to an unreviewed industry.",code:"INDUSTRY_MODULE_NOT_ACTIVE",industryKey:authenticatedIndustryKey},409);
+      }
+      const documentAction = ["process_company_manual","import_company_webpage"].includes(action);
+      const seatAction = ["invite_company_member","resend_company_invitation","revoke_company_invitation"].includes(action);
+      const billingAction = ["create_billing_checkout","create_billing_portal"].includes(action);
+      const adminAction = ["get_company_usage","export_company_usage","review_company_document","set_manual_learning_consent"].includes(action);
+      const metricType = documentAction ? "document_request" : seatAction ? "seat_event" : billingAction ? "billing_event" : adminAction ? "admin_event" : action === "save_technician_job" ? "technician_job" : "ai_request";
+      const usageInsert = await supabase.from("platform_usage_events").insert({
+        company_id: authenticatedCompanyId, user_id: authenticatedUserId, event_type: action || "troubleshoot", units: 1,
+        metric_type: metricType, quantity: 1, quantity_unit: metricType === "ai_request" ? "request" : metricType === "document_request" ? "document_request" : metricType === "technician_job" ? "job" : metricType === "seat_event" ? "seat_event" : metricType === "billing_event" ? "billing_event" : "admin_action",
+        provider: metricType === "ai_request" ? "google_gemini" : null, cost_source: "not_priced", period_start: utcMonthStartDate(),
+        source_event_key: crypto.randomUUID(), metadata: { authenticated: true, industry_key: authenticatedIndustryKey }
+      }).select("id").maybeSingle();
+      usageEventId = usageInsert.data?.id == null ? null : Number(usageInsert.data.id);
+    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
       return jsonResponse({ error: "This login has no active membership for the selected company.", code: "COMPANY_MEMBERSHIP_REQUIRED" }, 403);
     }
+  }
+
+  // Temporary full-experience trial credentials. Every operation is platform-owner-only.
+  if (["platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"].includes(action)) {
+    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({error:"Sign in with a PoolDocAI platform-owner account.",code:"AUTH_REQUIRED"},401);
+    const {data:owner,error:ownerError}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle();
+    if(ownerError || !owner) return jsonResponse({error:"Only the PoolDocAI platform owner can manage temporary credentials.",code:"PLATFORM_OWNER_REQUIRED"},403);
+    if(action === "platform_list_temporary_credentials") {
+      const {data,error}=await supabase.from("temporary_access_grants").select("id,user_id,company_id,created_by,created_at,expires_at,revoked_at,note").order("created_at",{ascending:false}).limit(200);
+      if(error)return jsonResponse({error:"Could not load temporary credentials.",code:"TEMP_CREDENTIAL_LIST_FAILED"},500);
+      const users:AnyRecord[]=[]; for(const row of data||[]){const {data:u}=await supabase.auth.admin.getUserById(String(row.user_id));users.push({...row,email:u?.user?.email||null,status:row.revoked_at?"revoked":Date.parse(String(row.expires_at))<=Date.now()?"expired":"active"});}
+      return jsonResponse({ok:true,credentials:users},200);
+    }
+    if(action === "platform_revoke_temporary_credentials") {
+      const grantId=textValue(body.grantId,80); if(!grantId)return jsonResponse({error:"Temporary credential ID is required."},400);
+      const {data:grant,error}=await supabase.from("temporary_access_grants").update({revoked_at:new Date().toISOString()}).eq("id",grantId).is("revoked_at",null).select("id,user_id,company_id").maybeSingle();
+      if(error||!grant)return jsonResponse({error:"Temporary credential not found or already revoked."},404);
+      await supabase.from("company_members").update({status:"suspended"}).eq("company_id",grant.company_id).eq("user_id",grant.user_id);
+      await supabase.auth.admin.updateUserById(String(grant.user_id),{ban_duration:"876000h"});
+      await supabase.from("companies").update({status:"suspended"}).eq("id",grant.company_id);
+      await supabase.from("platform_usage_events").insert({company_id:grant.company_id,user_id:authenticatedUserId,event_type:"temporary_credential_revoked",units:1,metadata:{grant_id:grant.id}});
+      return jsonResponse({ok:true,message:"Temporary credentials revoked."},200);
+    }
+    const duration=Number(body.durationMinutes); if(!Number.isInteger(duration)||duration<30||duration>1440)return jsonResponse({error:"Choose an expiration from 30 minutes through 24 hours.",code:"INVALID_EXPIRATION"},400);
+    const label=textValue(body.label,100)||"PoolDocAI product trial";
+    const email=`trial-${crypto.randomUUID()}@temporary.pooldocai.invalid`;
+    const password=`PdAI-${bytesToHex(crypto.getRandomValues(new Uint8Array(18)))}-aA9!`;
+    const expiresAt=new Date(Date.now()+duration*60000).toISOString();
+    const {data:authCreated,error:authCreateError}=await supabase.auth.admin.createUser({email,password,email_confirm:true,user_metadata:{pooldocai_temporary_access:true,trial_label:label}});
+    if(authCreateError||!authCreated.user)return jsonResponse({error:"Could not create temporary authentication account.",details:authCreateError?.message||"Auth account creation failed",code:"TEMP_AUTH_CREATE_FAILED"},500);
+    const userId=authCreated.user.id;
+    const {data:company,error:companyError}=await supabase.from("companies").insert({name:`Temporary Trial — ${label}`.slice(0,120),status:"pilot",plan_name:"pilot",seat_limit:1,billing_status:"not_configured",industry_key:"pool"}).select("id").single();
+    if(companyError||!company){await supabase.auth.admin.deleteUser(userId);return jsonResponse({error:"Could not create an isolated trial workspace.",details:companyError?.message||"Company creation failed",code:"TEMP_COMPANY_CREATE_FAILED"},500);}
+    const {error:memberError}=await supabase.from("company_members").insert({company_id:company.id,user_id:userId,role:"company_admin",status:"active",display_name:"Temporary Trial User",can_view_job_notes:true,can_edit_job_notes:true,can_upload_documents:true,can_review_documents:false});
+    if(memberError){await supabase.from("companies").update({status:"suspended"}).eq("id",company.id);await supabase.auth.admin.deleteUser(userId);return jsonResponse({error:"Could not assign trial access.",details:memberError.message,code:"TEMP_MEMBERSHIP_CREATE_FAILED"},500);}
+    const {data:grant,error:grantError}=await supabase.from("temporary_access_grants").insert({user_id:userId,company_id:company.id,created_by:authenticatedUserId,expires_at:expiresAt,note:label}).select("id,user_id,company_id,created_at,expires_at").single();
+    if(grantError||!grant){await supabase.from("company_members").update({status:"suspended"}).eq("company_id",company.id).eq("user_id",userId);await supabase.from("companies").update({status:"suspended"}).eq("id",company.id);await supabase.auth.admin.deleteUser(userId);return jsonResponse({error:"Could not save trial expiry. No credentials were issued.",details:grantError?.message||"Grant creation failed",code:"TEMP_GRANT_CREATE_FAILED"},500);}
+    await supabase.from("platform_usage_events").insert({company_id:company.id,user_id:authenticatedUserId,event_type:"temporary_credential_created",units:1,metadata:{grant_id:grant.id,duration_minutes:duration,expires_at:expiresAt}});
+    return jsonResponse({ok:true,credential:{id:grant.id,email,password,expires_at:expiresAt,company_id:company.id},message:"Copy the password now. It is shown only once and is not stored in readable form."},200);
   }
 
   // Platform-owner account status view. Auth user details are never returned to company admins.
@@ -768,78 +877,204 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     return jsonResponse({ ok:true, accounts, returned:accounts.length, truncated:allUsers.length >= 10000 || (memberships || []).length >= 5000 }, 200);
   }
 
-  // Company seat provisioning. Auth invitation and membership creation are performed server-side.
+  // Company seat provisioning with an expiring invitation state machine.
   if (action === "invite_company_member") {
-    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({ error: "Sign in before managing company seats.", code: "AUTH_REQUIRED" }, 401);
-    const email = textValue(body.email, 254).toLowerCase();
-    const displayName = scrubPII(textValue(body.displayName, 120));
-    const role = textValue(body.role, 40);
-    const targetCompanyId = textValue(body.companyId, 80) || authenticatedCompanyId || "";
-    if (!targetCompanyId || !/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)) return jsonResponse({ error: "Choose a company and enter a valid email address.", code: "INVITE_INPUT_INVALID" }, 400);
-    if (!["company_admin", "technician", "read_only"].includes(role)) return jsonResponse({ error: "Choose a supported company role.", code: "INVITE_ROLE_INVALID" }, 400);
-    const { data: callerPlatformAdmin } = await supabase.from("platform_admins").select("user_id").eq("user_id", authenticatedUserId).maybeSingle();
-    const isPlatformActor = Boolean(callerPlatformAdmin);
-    if (!isPlatformActor && (authenticatedCompanyId !== targetCompanyId || authenticatedRole !== "company_admin")) return jsonResponse({ error: "Only this company's active administrator can invite or manage seats.", code: "COMPANY_ADMIN_REQUIRED" }, 403);
-    const { data: company, error: companyError } = await supabase.from("companies").select("id,name,status,seat_limit").eq("id", targetCompanyId).maybeSingle();
-    if (companyError || !company) return jsonResponse({ error: "Company not found.", code: "COMPANY_NOT_FOUND" }, 404);
-    if (!["pilot", "active"].includes(String(company.status))) return jsonResponse({ error: "This company is not active for new seats.", code: "COMPANY_NOT_ACTIVE" }, 403);
-    const { count: seatCount, error: seatCountError } = await supabase.from("company_members").select("id", { count:"exact", head:true }).eq("company_id", targetCompanyId).eq("status", "active");
-    if (seatCountError) return jsonResponse({ error: "Could not verify available seats.", code: "SEAT_CHECK_FAILED" }, 500);
-    if ((seatCount || 0) >= Number(company.seat_limit)) return jsonResponse({ error: `This plan has no unused seats (${seatCount || 0}/${company.seat_limit}). Ask the PoolDocAI platform owner about a subscription seat increase.`, code: "SEAT_LIMIT_REACHED" }, 409);
-    const permissionInput = objectValue(body.permissions) || {};
-    const permissions = {
-      can_view_job_notes: role === "company_admin" || permissionInput.canViewJobNotes !== false,
-      can_edit_job_notes: role === "company_admin" || (permissionInput.canEditJobNotes === undefined ? role === "technician" : permissionInput.canEditJobNotes === true),
-      can_upload_documents: role === "company_admin" || permissionInput.canUploadDocuments === true,
-      can_review_documents: role === "company_admin" || permissionInput.canReviewDocuments === true,
-    };
-    // Find an existing Auth user first. If none exists, send a Supabase Auth invitation.
-    let authUser: AnyRecord | null = null;
-    let listError: AnyRecord | null = null;
-    for (let page = 1; page <= 10; page++) {
-      const { data: usersPage, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
-      if (error) { listError = error as unknown as AnyRecord; break; }
-      const batch = (usersPage?.users || []) as unknown as AnyRecord[];
-      authUser = batch.find((u: AnyRecord) => String(u.email || "").toLowerCase() === email) || null;
-      if (authUser || batch.length < 1000) break;
-    }
-    if (listError) return jsonResponse({ error: "Could not check whether the email already has a PoolDocAI account.", code: "AUTH_USER_LOOKUP_FAILED" }, 500);
-    let invitationSent = false;
-    if (!authUser) {
-      const { data: inviteResult, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, { data: { display_name: displayName || email.split("@")[0], invited_company_name: company.name } });
-      if (inviteError || !inviteResult?.user) return jsonResponse({ error: inviteError?.message || "Supabase could not send the invitation. Check Auth email settings and try again.", code: "AUTH_INVITE_FAILED" }, 502);
-      authUser = inviteResult.user as unknown as AnyRecord;
-      invitationSent = true;
-    }
-    const { data: previous, error: previousError } = await supabase.from("company_members").select("id,status").eq("company_id", targetCompanyId).eq("user_id", String(authUser.id)).maybeSingle();
-    if (previousError) {
-      if (invitationSent) await supabase.auth.admin.deleteUser(String(authUser.id));
-      return jsonResponse({ error: "Could not check existing membership.", code: "MEMBERSHIP_CHECK_FAILED" }, 500);
-    }
-    if (previous?.status === "active") {
-      if (invitationSent) await supabase.auth.admin.deleteUser(String(authUser.id));
-      return jsonResponse({ error: "That account already has an active seat in this company.", code: "MEMBER_ALREADY_ACTIVE" }, 409);
-    }
-    let membershipResult: AnyRecord | null = null;
-    let membershipError: AnyRecord | null = null;
-    if (previous?.id) {
-      const update = await supabase.from("company_members").update({ role, status:"active", display_name:displayName || null, ...permissions }).eq("id", previous.id).select("id,company_id,user_id,role,status,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents").single();
-      membershipResult = update.data as unknown as AnyRecord | null;
-      membershipError = update.error as unknown as AnyRecord | null;
+    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({error:"Sign in before managing company seats.",code:"AUTH_REQUIRED"},401);
+    const email=textValue(body.email,254).toLowerCase(); const displayName=scrubPII(textValue(body.displayName,120)); const role=textValue(body.role,40);
+    const targetCompanyId=textValue(body.companyId,80)||authenticatedCompanyId||"";
+    if(!targetCompanyId||!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)) return jsonResponse({error:"Choose a company and enter a valid email address.",code:"INVITE_INPUT_INVALID"},400);
+    if(!["company_admin","technician","read_only"].includes(role)) return jsonResponse({error:"Choose a supported company role.",code:"INVITE_ROLE_INVALID"},400);
+    const {data:owner}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle(); const isPlatformActor=Boolean(owner);
+    if(!isPlatformActor&&(authenticatedCompanyId!==targetCompanyId||authenticatedRole!=="company_admin")) return jsonResponse({error:"Only this company's active administrator can invite or manage seats.",code:"COMPANY_ADMIN_REQUIRED"},403);
+    const {data:company,error:companyError}=await supabase.from("companies").select("id,name,status,seat_limit").eq("id",targetCompanyId).maybeSingle();
+    if(companyError||!company)return jsonResponse({error:"Company not found.",code:"COMPANY_NOT_FOUND"},404);
+    if(!["pilot","active"].includes(String(company.status)))return jsonResponse({error:"This company is not active for new seats.",code:"COMPANY_NOT_ACTIVE"},403);
+    const {count:seatCount,error:seatErr}=await supabase.from("company_members").select("id",{count:"exact",head:true}).eq("company_id",targetCompanyId).eq("status","active");
+    if(seatErr)return jsonResponse({error:"Could not verify available seats.",code:"SEAT_CHECK_FAILED"},500);
+    const {count:pendingCount,error:pendingErr}=await supabase.from("technician_invitation_requests").select("id",{count:"exact",head:true}).eq("company_id",targetCompanyId).in("status",["pending","sent"]).gt("expires_at",new Date().toISOString());
+    if(pendingErr)return jsonResponse({error:"Could not verify outstanding invitations.",code:"INVITE_CHECK_FAILED"},500);
+    const {data:allUsers,error:listError}=await supabase.auth.admin.listUsers({page:1,perPage:1000});
+    if(listError)return jsonResponse({error:"Could not check existing accounts.",code:"AUTH_USER_LOOKUP_FAILED"},500);
+    let authUser=(allUsers?.users||[]).find((u:any)=>String(u.email||"").toLowerCase()===email) as any||null;
+    const existingAuthUser=Boolean(authUser);
+    const {data:previous,error:previousError}=authUser?await supabase.from("company_members").select("id,status").eq("company_id",targetCompanyId).eq("user_id",String(authUser.id)).maybeSingle():{data:null,error:null};
+    if(previousError)return jsonResponse({error:"Could not check existing membership.",code:"MEMBERSHIP_CHECK_FAILED"},500);
+    if(previous?.status==="active")return jsonResponse({error:"That account already has an active seat in this company.",code:"MEMBER_ALREADY_ACTIVE"},409);
+    const consumesSeat = !previous?.id || previous.status !== "active";
+    if(consumesSeat&&(Number(seatCount||0)+Number(pendingCount||0))>=Number(company.seat_limit))return jsonResponse({error:`This plan has no unused seats (${Number(seatCount||0)+Number(pendingCount||0)}/${company.seat_limit}, including invitations). Ask the PoolDocAI platform owner about a subscription seat increase.`,code:"SEAT_LIMIT_REACHED"},409);
+    const pi=objectValue(body.permissions)||{};
+    const permissions={can_view_job_notes:role==="company_admin"||pi.canViewJobNotes!==false,can_edit_job_notes:role==="company_admin"||(pi.canEditJobNotes===undefined?role==="technician":pi.canEditJobNotes===true),can_upload_documents:role==="company_admin"||pi.canUploadDocuments===true,can_review_documents:role==="company_admin"||pi.canReviewDocuments===true};
+    let invitation:AnyRecord|null=null; let invitationSent=false;
+    if(!existingAuthUser){
+      const {data:row,error:inviteRowError}=await supabase.from("technician_invitation_requests").insert({company_id:targetCompanyId,requested_by:authenticatedUserId,invite_email:email,display_name:displayName||null,requested_role:role,status:"pending",expires_at:new Date(Date.now()+7*86400000).toISOString(),last_sent_at:null,existing_auth_user:false,invite_permissions:permissions}).select("*").single();
+      if(inviteRowError||!row)return jsonResponse({error:"Could not create invitation record.",code:"INVITATION_RECORD_FAILED"},500);
+      invitation=row as unknown as AnyRecord;
+      const redirectTo=`${appBaseUrl()}/accept-invite?invitation_id=${encodeURIComponent(String(invitation.id))}`;
+      const {data:inviteResult,error:inviteError}=await supabase.auth.admin.inviteUserByEmail(email,{data:{display_name:displayName||email.split("@")[0],invited_company_name:company.name,pooldocai_invitation_id:invitation.id,pooldocai_company_id:targetCompanyId},redirectTo});
+      if(inviteError||!inviteResult?.user){await supabase.from("technician_invitation_requests").update({status:"cancelled",revoked_at:new Date().toISOString()}).eq("id",invitation.id);return jsonResponse({error:inviteError?.message||"Supabase could not send the invitation. Check Auth email settings and the allowed redirect URLs.",code:"AUTH_INVITE_FAILED"},502);}
+      authUser=inviteResult.user; invitationSent=true;
+      const {error:invUpdateError}=await supabase.from("technician_invitation_requests").update({auth_user_id:authUser.id,status:"sent",last_sent_at:new Date().toISOString()}).eq("id",invitation.id);
+      if(invUpdateError)return jsonResponse({error:"The Auth invitation was sent but its status could not be saved; inspect the invitation table before retrying.",code:"INVITATION_STATUS_SAVE_FAILED",invitationId:invitation.id},500);
     } else {
-      const insert = await supabase.from("company_members").insert({ company_id:targetCompanyId, user_id:String(authUser.id), role, status:"active", display_name:displayName || null, ...permissions }).select("id,company_id,user_id,role,status,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents").single();
-      membershipResult = insert.data as unknown as AnyRecord | null;
-      membershipError = insert.error as unknown as AnyRecord | null;
+      const {data:row,error:invError}=await supabase.from("technician_invitation_requests").insert({company_id:targetCompanyId,requested_by:authenticatedUserId,auth_user_id:authUser.id,invite_email:email,display_name:displayName||null,requested_role:role,status:"accepted",accepted_at:new Date().toISOString(),expires_at:new Date(Date.now()+7*86400000).toISOString(),last_sent_at:new Date().toISOString(),existing_auth_user:true,invite_permissions:permissions}).select("*").single();
+      if(invError||!row)return jsonResponse({error:"Could not record seat assignment.",code:"INVITATION_RECORD_FAILED"},500); invitation=row as unknown as AnyRecord;
     }
-    if (membershipError || !membershipResult) {
-      if (invitationSent) await supabase.auth.admin.deleteUser(String(authUser.id));
-      const details = String((membershipError as AnyRecord | null)?.message || "");
-      return jsonResponse({ error: /seat|limit/i.test(details) ? "This company has reached its subscription seat limit." : "Could not create this company membership. The database rejected the change.", code: /seat|limit/i.test(details) ? "SEAT_LIMIT_REACHED" : "MEMBERSHIP_CREATE_FAILED" }, 409);
+    // New invitees are kept suspended until the authenticated acceptance page runs.
+    const memberStatus = invitationSent ? "suspended" : "active";
+    let membershipResult:AnyRecord|null=null; let membershipError:AnyRecord|null=null;
+    if(previous?.id){
+      const upd=await supabase.from("company_members").update({role,status:memberStatus,display_name:displayName||null,...permissions}).eq("id",previous.id).select("id,company_id,user_id,role,status,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents").single();membershipResult=upd.data as unknown as AnyRecord|null;membershipError=upd.error as unknown as AnyRecord|null;
+    }else{
+      const ins=await supabase.from("company_members").insert({company_id:targetCompanyId,user_id:String(authUser.id),role,status:memberStatus,display_name:displayName||null,...permissions}).select("id,company_id,user_id,role,status,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents").single();membershipResult=ins.data as unknown as AnyRecord|null;membershipError=ins.error as unknown as AnyRecord|null;
     }
-    await supabase.from("technician_invitation_requests").insert({ company_id:targetCompanyId, requested_by:authenticatedUserId, invite_email:email, display_name:displayName || null, requested_role:role, status:"sent" });
-    await supabase.from("company_member_access_audit").insert({ company_id:targetCompanyId, member_id:membershipResult.id, subject_user_id:authUser.id, actor_user_id:authenticatedUserId, event_type:previous?.id ? "member_reactivated" : "member_added", before_state:previous ? {status:previous.status} : null, after_state:membershipResult });
-    await supabase.from("platform_usage_events").insert({ company_id:targetCompanyId, user_id:authenticatedUserId, event_type:previous?.id ? "seat_reactivated" : "seat_added", units:1, metadata:{ member_user_id:authUser.id, role, invited:invitationSent } });
-    return jsonResponse({ ok:true, member:membershipResult, invitationSent, existingAccount:!invitationSent, seatUsage:{ active:(seatCount || 0)+1, limit:company.seat_limit }, message:invitationSent ? "Invitation sent and seat assigned. The teammate should accept the email and sign in." : "Existing account added to this company as an active seat." }, 200);
+    if(membershipError||!membershipResult){await supabase.from("technician_invitation_requests").update({status:"cancelled",revoked_at:new Date().toISOString()}).eq("id",String(invitation?.id||""));return jsonResponse({error:/seat|limit/i.test(String((membershipError as AnyRecord|null)?.message||""))?"This company has reached its subscription seat limit.":"Could not create this company membership. Check membership constraints and retry after inspecting the invitation record.",code:/seat|limit/i.test(String((membershipError as AnyRecord|null)?.message||""))?"SEAT_LIMIT_REACHED":"MEMBERSHIP_CREATE_FAILED"},409);}
+    await supabase.from("company_member_access_audit").insert({company_id:targetCompanyId,member_id:membershipResult.id,subject_user_id:authUser.id,actor_user_id:authenticatedUserId,event_type:invitationSent?"member_invited":previous?.id?"member_reactivated":"member_added",before_state:previous?{status:previous.status}:null,after_state:membershipResult});
+    await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:invitationSent?"seat_invitation_sent":previous?.id?"seat_reactivated":"seat_added",units:1,metric_type:"seat_event",quantity:1,quantity_unit:"seat",source_event_key:`seat-invite:${invitation?.id}`,metadata:{member_user_id:authUser.id,role,invitation_id:invitation?.id,invitation_expires_at:invitation?.expires_at}});
+    return jsonResponse({ok:true,member:membershipResult,invitationId:invitation?.id||null,invitationSent,existingAccount:!invitationSent,seatUsage:{active:Number(seatCount||0)+(invitationSent?0:1),reserved:Number(pendingCount||0)+(invitationSent?1:0),limit:company.seat_limit},message:invitationSent?"Invitation email sent. The new seat remains locked until the recipient accepts the invite and sets a password.":"Existing account assigned to this company as an active seat."},200);
+  }
+
+  if (["accept_company_invitation","resend_company_invitation","revoke_company_invitation"].includes(action)) {
+    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({error:"Sign in before managing an invitation.",code:"AUTH_REQUIRED"},401);
+    const invitationId=textValue(body.invitationId,80);
+    if(!invitationId)return jsonResponse({error:"Invitation ID is required.",code:"INVITATION_ID_REQUIRED"},400);
+    const {data:invite,error:inviteError}=await supabase.from("technician_invitation_requests").select("*").eq("id",invitationId).maybeSingle();
+    if(inviteError||!invite)return jsonResponse({error:"Invitation not found.",code:"INVITATION_NOT_FOUND"},404);
+    const {data:owner}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle();const isOwner=Boolean(owner);
+    if(action==="accept_company_invitation"){
+      const {data:userData,error:userError}=await supabase.auth.admin.getUserById(authenticatedUserId);
+      const userEmail=String(userData?.user?.email||"").toLowerCase();
+      if(userError||String(invite.auth_user_id||"")!==authenticatedUserId||userEmail!==String(invite.invite_email||"").toLowerCase())return jsonResponse({error:"This invitation is not addressed to the signed-in account.",code:"INVITATION_ACCOUNT_MISMATCH"},403);
+      if(invite.status==="revoked"||invite.status==="cancelled"||invite.status==="expired")return jsonResponse({error:"This invitation is no longer valid. Ask the company administrator to send a new invitation.",code:"INVITATION_NO_LONGER_VALID"},410);
+      if(new Date(invite.expires_at||0).getTime()<Date.now()){
+        await supabase.from("technician_invitation_requests").update({status:"expired"}).eq("id",invitationId);
+        await supabase.from("company_members").update({status:"suspended"}).eq("company_id",invite.company_id).eq("user_id",authenticatedUserId);
+        return jsonResponse({error:"This invitation has expired. Ask the company administrator to resend it.",code:"INVITATION_EXPIRED"},410);
+      }
+      if(invite.status==="accepted")return jsonResponse({ok:true,accepted:true,companyId:invite.company_id,message:"This invitation has already been accepted."},200);
+      const {data:company}=await supabase.from("companies").select("status,seat_limit").eq("id",invite.company_id).maybeSingle();
+      if(!company||!["active","pilot"].includes(String(company.status)))return jsonResponse({error:"The company is not active for new access.",code:"COMPANY_NOT_ACTIVE"},403);
+      const {count:activeCount}=await supabase.from("company_members").select("id",{count:"exact",head:true}).eq("company_id",invite.company_id).eq("status","active");
+      const {data:membership}=await supabase.from("company_members").select("id,status").eq("company_id",invite.company_id).eq("user_id",authenticatedUserId).maybeSingle();
+      if(!membership)return jsonResponse({error:"The invited membership record is missing. Ask an administrator to resend the invite.",code:"INVITED_MEMBERSHIP_MISSING"},409);
+      if(membership.status!=="active"&&Number(activeCount||0)>=Number(company.seat_limit))return jsonResponse({error:"The company has no available seat. Ask its administrator to resolve the seat limit.",code:"SEAT_LIMIT_REACHED"},409);
+      const {error:activateError}=await supabase.from("company_members").update({status:"active"}).eq("id",membership.id);
+      if(activateError)return jsonResponse({error:"Could not activate the invited seat.",code:"INVITATION_ACTIVATION_FAILED"},500);
+      await supabase.from("technician_invitation_requests").update({status:"accepted",accepted_at:new Date().toISOString()}).eq("id",invitationId);
+      await supabase.from("platform_usage_events").insert({company_id:invite.company_id,user_id:authenticatedUserId,event_type:"seat_invitation_accepted",units:1,metric_type:"seat_event",quantity:1,quantity_unit:"seat",source_event_key:`invite-accepted:${invitationId}`,metadata:{invitation_id:invitationId}});
+      return jsonResponse({ok:true,accepted:true,companyId:invite.company_id,message:"Invitation accepted. Your company access is now active."},200);
+    }
+    if(!isOwner&&(authenticatedCompanyId!==String(invite.company_id)||authenticatedRole!=="company_admin"))return jsonResponse({error:"Only this company's administrator or a PoolDocAI platform owner can manage this invitation.",code:"COMPANY_ADMIN_REQUIRED"},403);
+    if(action==="revoke_company_invitation"){
+      if(["accepted","revoked","cancelled","expired"].includes(String(invite.status)))return jsonResponse({error:"Only an outstanding invitation can be revoked.",code:"INVITATION_NOT_PENDING"},409);
+      const {error:revokeError}=await supabase.from("technician_invitation_requests").update({status:"revoked",revoked_at:new Date().toISOString()}).eq("id",invitationId);
+      if(revokeError)return jsonResponse({error:"Could not revoke the invitation.",code:"INVITATION_REVOKE_FAILED"},500);
+      if(invite.auth_user_id&&!invite.existing_auth_user)await supabase.from("company_members").update({status:"suspended"}).eq("company_id",invite.company_id).eq("user_id",invite.auth_user_id);
+      await supabase.from("platform_usage_events").insert({company_id:invite.company_id,user_id:authenticatedUserId,event_type:"seat_invitation_revoked",units:1,metric_type:"seat_event",quantity:1,quantity_unit:"seat",source_event_key:`invite-revoked:${invitationId}`,metadata:{invitation_id:invitationId}});
+      return jsonResponse({ok:true,status:"revoked",message:"Invitation revoked. Any newly invited seat remains suspended; history is retained."},200);
+    }
+    if(["accepted","revoked","cancelled"].includes(String(invite.status)))return jsonResponse({error:"Only a pending/sent invitation can be resent.",code:"INVITATION_NOT_PENDING"},409);
+    const resendKey=Deno.env.get("RESEND_API_KEY");const fromEmail=Deno.env.get("INVITATION_FROM_EMAIL");
+    if(!resendKey||!fromEmail)return jsonResponse({error:"Resending requires RESEND_API_KEY and INVITATION_FROM_EMAIL. Initial invitations continue to use Supabase Auth email; configure a transactional email provider for resend support.",code:"INVITATION_RESEND_EMAIL_NOT_CONFIGURED"},503);
+    const redirectTo=`${appBaseUrl()}/accept-invite?invitation_id=${encodeURIComponent(invitationId)}`;
+    const {data:linkData,error:linkError}=await supabase.auth.admin.generateLink({type:"magiclink",email:String(invite.invite_email),options:{redirectTo}} as any);
+    const actionLink=String((linkData as any)?.properties?.action_link||(linkData as any)?.action_link||"");
+    if(linkError||!actionLink)return jsonResponse({error:"Could not generate a fresh acceptance link. Check the Auth account and try again.",code:"INVITATION_LINK_GENERATION_FAILED"},502);
+    const sendRes=await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:`Bearer ${resendKey}`,"Content-Type":"application/json"},body:JSON.stringify({from:fromEmail,to:[String(invite.invite_email)],subject:"Your PoolDocAI team invitation",html:`<p>You have been invited to join a PoolDocAI company workspace.</p><p>This link expires in 7 days. If you were not expecting this, ignore the email.</p><p><a href="${actionLink}">Accept your PoolDocAI invitation</a></p>`})});
+    if(!sendRes.ok)return jsonResponse({error:"Email provider rejected the invitation. Check its domain/from-email configuration.",code:"INVITATION_EMAIL_SEND_FAILED"},502);
+    await supabase.from("technician_invitation_requests").update({status:"sent",expires_at:new Date(Date.now()+7*86400000).toISOString(),last_sent_at:new Date().toISOString(),revoked_at:null}).eq("id",invitationId);
+    return jsonResponse({ok:true,status:"sent",message:"A fresh invitation link was emailed and the 7-day expiry reset."},200);
+  }
+
+  // Billing actions are a ready-to-configure Stripe adapter. Until Stripe secrets/price IDs
+  // are added after the company account is opened, checkout fails closed without altering plans.
+  if (["create_billing_checkout","create_billing_portal"].includes(action)) {
+    if(!authenticatedUserId||body.authenticatedApp!==true)return jsonResponse({error:"Sign in before managing billing.",code:"AUTH_REQUIRED"},401);
+    const {data:owner}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle();const isOwner=Boolean(owner);
+    const targetCompanyId=isOwner?textValue(body.companyId,80):authenticatedCompanyId||"";
+    if(!targetCompanyId||(!isOwner&&(authenticatedCompanyId!==targetCompanyId||authenticatedRole!=="company_admin")))return jsonResponse({error:"Only the company administrator or a platform owner can manage subscription billing.",code:"BILLING_PERMISSION_REQUIRED"},403);
+    const stripeKey=Deno.env.get("STRIPE_SECRET_KEY");if(!stripeKey)return jsonResponse({error:"Stripe is not connected yet. Open your Stripe account first, then configure STRIPE_SECRET_KEY and a STRIPE_PRICE_* value in Supabase Edge Function Secrets.",code:"BILLING_NOT_CONFIGURED"},503);
+    const {data:company,error:coErr}=await supabase.from("companies").select("id,name,billing_email,billing_customer_ref,stripe_customer_id,plan_name,seat_limit").eq("id",targetCompanyId).maybeSingle();
+    if(coErr||!company)return jsonResponse({error:"Company not found.",code:"COMPANY_NOT_FOUND"},404);
+    if(action==="create_billing_portal"){
+      const customer=String(company.stripe_customer_id||company.billing_customer_ref||"");if(!customer)return jsonResponse({error:"No Stripe customer is associated with this company yet. Start checkout after configuring Stripe.",code:"STRIPE_CUSTOMER_NOT_FOUND"},409);
+      const form=new URLSearchParams({customer,return_url:`${appBaseUrl()}/admin.html?billing=returned`});const response=await fetch("https://api.stripe.com/v1/billing_portal/sessions",{method:"POST",headers:{Authorization:`Bearer ${stripeKey}`,"Content-Type":"application/x-www-form-urlencoded"},body:form});const data=await response.json().catch(()=>({}));if(!response.ok||!data.url)return jsonResponse({error:"Stripe billing portal could not be created. Check the Stripe account and portal configuration.",code:"STRIPE_PORTAL_FAILED"},502);return jsonResponse({ok:true,url:data.url},200);
+    }
+    const plan=textValue(body.planName||company.plan_name,40).toLowerCase();const priceEnv=({starter:"STRIPE_PRICE_STARTER",professional:"STRIPE_PRICE_PROFESSIONAL",enterprise:"STRIPE_PRICE_ENTERPRISE",pilot:"STRIPE_PRICE_PILOT"} as Record<string,string>)[plan];const priceId=priceEnv?Deno.env.get(priceEnv):null;
+    if(!priceId)return jsonResponse({error:`Stripe checkout is prepared but the price for ${plan} is not configured. After creating a Stripe account and a recurring Price, add ${priceEnv||"STRIPE_PRICE_STARTER/PROFESSIONAL/ENTERPRISE"} to Supabase Edge Function Secrets.`,code:"STRIPE_PRICE_NOT_CONFIGURED"},503);
+    const seats=Number(body.seatQuantity??company.seat_limit);if(!Number.isInteger(seats)||seats<1||seats>500)return jsonResponse({error:"Requested seats must be between 1 and 500.",code:"INVALID_SEAT_QUANTITY"},400);
+    const form=new URLSearchParams();form.set("mode","subscription");form.set("line_items[0][price]",priceId);form.set("line_items[0][quantity]",String(seats));form.set("success_url",`${appBaseUrl()}/admin.html?billing=success`);form.set("cancel_url",`${appBaseUrl()}/admin.html?billing=cancelled`);form.set("client_reference_id",targetCompanyId);form.set("metadata[pooldocai_company_id]",targetCompanyId);form.set("metadata[plan_name]",plan);form.set("metadata[seat_limit]",String(seats));form.set("subscription_data[metadata][pooldocai_company_id]",targetCompanyId);form.set("subscription_data[metadata][plan_name]",plan);form.set("subscription_data[metadata][seat_limit]",String(seats));
+    if(company.stripe_customer_id||company.billing_customer_ref)form.set("customer",String(company.stripe_customer_id||company.billing_customer_ref));else if(company.billing_email)form.set("customer_email",String(company.billing_email));
+    const response=await fetch("https://api.stripe.com/v1/checkout/sessions",{method:"POST",headers:{Authorization:`Bearer ${stripeKey}`,"Content-Type":"application/x-www-form-urlencoded"},body:form});const data=await response.json().catch(()=>({}));if(!response.ok||!data.url)return jsonResponse({error:"Stripe Checkout could not be created. Verify the test/live Stripe secret and configured Price ID.",code:"STRIPE_CHECKOUT_FAILED"},502);
+    await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:"billing_checkout_created",units:1,metric_type:"billing_event",quantity:1,quantity_unit:"checkout",metadata:{plan_name:plan,seat_quantity:seats,stripe_session_id:data.id}});
+    return jsonResponse({ok:true,url:data.url},200);
+  }
+
+  // Company usage report/export. Company owners see only their tenant; platform owners may
+  // request one company or all companies. Limits are configurable platform-side and default unset.
+  if (["get_company_usage","export_company_usage","platform_usage_export"].includes(action)) {
+    if(!authenticatedUserId||body.authenticatedApp!==true)return jsonResponse({error:"Sign in to view usage.",code:"AUTH_REQUIRED"},401);
+    const {data:owner}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle();const isOwner=Boolean(owner);
+    const targetCompanyId=textValue(body.companyId,80)||authenticatedCompanyId||"";
+    if(action==="platform_usage_export"&&!isOwner)return jsonResponse({error:"Only a platform owner can export platform-wide usage.",code:"PLATFORM_OWNER_REQUIRED"},403);
+    if(!isOwner&&(!targetCompanyId||targetCompanyId!==authenticatedCompanyId||authenticatedRole!=="company_admin"))return jsonResponse({error:"Only a company administrator can access company usage reports.",code:"USAGE_PERMISSION_REQUIRED"},403);
+    if(isOwner&&action!=="platform_usage_export"&&!targetCompanyId)return jsonResponse({error:"Choose a company for its usage report.",code:"COMPANY_REQUIRED"},400);
+    const targetIds: string[] = action==="platform_usage_export" ? (await supabase.from("companies").select("id")).data?.map((c:any)=>String(c.id))||[] : [targetCompanyId];
+    const {data:companiesForUsage,error:companyUsageError}=await supabase.from("companies").select("id,name,status,plan_name,seat_limit,monthly_ai_request_limit,monthly_document_character_limit,storage_limit_bytes,industry_key,billing_period_start,current_period_end").in("id",targetIds);
+    if(companyUsageError)return jsonResponse({error:"Could not load company billing periods.",code:"USAGE_COMPANIES_READ_FAILED"},500);
+    const nowMs=Date.now();const currentMonthStart=new Date();currentMonthStart.setUTCDate(1);currentMonthStart.setUTCHours(0,0,0,0);
+    const cycles=new Map<string,{start:Date;end:Date|null}>();
+    for(const c of companiesForUsage||[]){
+      const billedStart=c.billing_period_start?new Date(c.billing_period_start):null;const billedEnd=c.current_period_end?new Date(c.current_period_end):null;
+      const useBillingCycle=Boolean(billedStart&&!Number.isNaN(billedStart.getTime())&&billedStart.getTime()<=nowMs&&(!billedEnd||(!Number.isNaN(billedEnd.getTime())&&billedEnd.getTime()>nowMs)));
+      cycles.set(c.id,{start:useBillingCycle?billedStart!:currentMonthStart,end:useBillingCycle&&billedEnd&&!Number.isNaN(billedEnd.getTime())?billedEnd:null});
+    }
+    const earliestStart=[...cycles.values()].reduce((earliest,cycle)=>cycle.start<earliest?cycle.start:earliest,currentMonthStart);
+    const {data:events,error:eventError}=await supabase.from("platform_usage_events").select("id,company_id,user_id,event_type,units,metric_type,quantity,quantity_unit,provider,model,input_tokens,output_tokens,estimated_cost_usd,cost_source,storage_bytes,extracted_characters,duration_ms,metadata,created_at,period_start").in("company_id",targetIds).gte("created_at",earliestStart.toISOString()).order("created_at",{ascending:false}).limit(10000);
+    if(eventError)return jsonResponse({error:"Could not retrieve usage records.",code:"USAGE_READ_FAILED"},500);
+    const {data:manuals}=await supabase.from("company_manuals").select("company_id,file_size,extracted_char_count,extraction_status,created_at").in("company_id",targetIds);
+    const results=(companiesForUsage||[]).map((company:any)=>{
+      const cycle=cycles.get(company.id)||{start:currentMonthStart,end:null};
+      const ce=(events||[]).filter((e:any)=>e.company_id===company.id&&new Date(e.created_at).getTime()>=cycle.start.getTime()&&(!cycle.end||new Date(e.created_at).getTime()<cycle.end!.getTime()));
+      const cm=(manuals||[]).filter((m:any)=>m.company_id===company.id);
+      const aiRequests=ce.filter((e:any)=>e.metric_type==="ai_request").reduce((n:number,e:any)=>n+Number(e.quantity||e.units||0),0);
+      const documentCharacters=ce.filter((e:any)=>e.metric_type==="document_characters").reduce((n:number,e:any)=>n+Number(e.extracted_characters||e.quantity||0),0);
+      const documentsProcessedInPeriod=ce.filter((e:any)=>e.event_type==="document_extraction").length;
+      const storageBytes=cm.reduce((n:number,m:any)=>n+Number(m.file_size||0),0);
+      const inputTokens=ce.reduce((n:number,e:any)=>n+Number(e.input_tokens||0),0);const outputTokens=ce.reduce((n:number,e:any)=>n+Number(e.output_tokens||0),0);
+      const costValues=ce.filter((e:any)=>e.estimated_cost_usd!==null&&e.estimated_cost_usd!==undefined);const estimatedCost=costValues.length?costValues.reduce((n:number,e:any)=>n+Number(e.estimated_cost_usd||0),0):null;
+      const docReady=cm.filter((m:any)=>m.extraction_status==="ready").length;const alerts:any[]=[];
+      const check=(metric:string,value:number,limit:any)=>{if(limit==null||Number(limit)<=0)return;const pct=value/Number(limit)*100;for(const threshold of [80,100])if(pct>=threshold)alerts.push({metric_type:metric,threshold_percent:threshold,observed_value:value,limit_value:Number(limit),percent:Math.round(pct)});};
+      check("ai_requests",aiRequests,company.monthly_ai_request_limit);check("document_characters",documentCharacters,company.monthly_document_character_limit);check("storage_bytes",storageBytes,company.storage_limit_bytes);
+      return {company_id:company.id,company_name:company.name,company_status:company.status,industry_key:company.industry_key,plan_name:company.plan_name,period_start:cycle.start.toISOString(),period_end:cycle.end?.toISOString()||null,period_basis:cycle.end?"stripe_billing_cycle":(company.billing_period_start?"calendar_month_fallback":"calendar_month"),ai_requests:aiRequests,documents_total:cm.length,documents_processed_this_month:documentsProcessedInPeriod,documents_processed_in_period:documentsProcessedInPeriod,documents_ready:docReady,document_characters:documentCharacters,storage_bytes:storageBytes,input_tokens:inputTokens,output_tokens:outputTokens,estimated_cost_usd:estimatedCost,cost_priced_events:costValues.length,unpriced_events:ce.length-costValues.length,limits:{ai_requests:company.monthly_ai_request_limit,document_characters:company.monthly_document_character_limit,storage_bytes:company.storage_limit_bytes},alerts};
+    });
+    for(const result of results)for(const alert of result.alerts)await supabase.from("pooldocai_usage_alerts").upsert({company_id:result.company_id,period_start:String(result.period_start).slice(0,10),metric_type:alert.metric_type,threshold_percent:alert.threshold_percent,observed_value:alert.observed_value,limit_value:alert.limit_value,status:"open"},{onConflict:"company_id,period_start,metric_type,threshold_percent",ignoreDuplicates:true});
+    const allEvents=(events||[]).filter((e:any)=>{const cycle=cycles.get(e.company_id);return cycle&&new Date(e.created_at).getTime()>=cycle.start.getTime()&&(!cycle.end||new Date(e.created_at).getTime()<cycle.end.getTime());});
+    if(action==="platform_usage_export")return jsonResponse({ok:true,summary:results,events:allEvents},200);
+    return jsonResponse({ok:true,periodStart:results[0]?.period_start||currentMonthStart.toISOString(),periodEnd:results[0]?.period_end||null,summary:results[0]||null,events:allEvents,alerts:results[0]?.alerts||[]},200);
+  }
+
+  // Versioned provider rate cards are managed only by a registered platform owner.
+  if (["platform_list_model_rate_cards","platform_upsert_model_rate_card"].includes(action)) {
+    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({error:"Sign in with a platform-owner account.",code:"AUTH_REQUIRED"},401);
+    const {data:owner}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle();
+    if(!owner)return jsonResponse({error:"Only a PoolDocAI platform owner can manage model rate cards.",code:"PLATFORM_OWNER_REQUIRED"},403);
+    if(action==="platform_list_model_rate_cards"){
+      const {data,error}=await supabase.from("pooldocai_model_rate_cards").select("id,provider,model,input_usd_per_million_tokens,output_usd_per_million_tokens,active,valid_from,valid_to,created_at").order("valid_from",{ascending:false}).limit(200);
+      if(error)return jsonResponse({error:"Could not load model rate cards.",code:"RATE_CARDS_READ_FAILED"},500);
+      return jsonResponse({ok:true,rateCards:data||[]},200);
+    }
+    const provider=textValue(body.provider||"google_gemini",60).toLowerCase();
+    const model=textValue(body.model,100);
+    const knownModels=new Set(["gemini-2.5-flash-lite","gemini-2.5-flash","gemini-3.8-flash","gemini-embedding-001"]);
+    const inputRate=Number(body.inputUsdPerMillionTokens);const outputRate=Number(body.outputUsdPerMillionTokens);
+    if(provider!=="google_gemini"||!knownModels.has(model)||!Number.isFinite(inputRate)||!Number.isFinite(outputRate)||inputRate<0||outputRate<0||inputRate>100000||outputRate>100000)return jsonResponse({error:"Choose a supported Gemini model and enter non-negative USD-per-million-token rates from your current provider pricing.",code:"RATE_CARD_INPUT_INVALID"},400);
+    const now=new Date().toISOString();
+    const {error:closeError}=await supabase.from("pooldocai_model_rate_cards").update({active:false,valid_to:now}).eq("provider",provider).eq("model",model).eq("active",true).is("valid_to",null);
+    if(closeError)return jsonResponse({error:"Could not close the previous rate-card version.",code:"RATE_CARD_VERSION_CLOSE_FAILED"},500);
+    const {data:created,error:createError}=await supabase.from("pooldocai_model_rate_cards").insert({provider,model,input_usd_per_million_tokens:inputRate,output_usd_per_million_tokens:outputRate,active:true,valid_from:now,valid_to:null}).select("id,provider,model,input_usd_per_million_tokens,output_usd_per_million_tokens,active,valid_from,valid_to").single();
+    if(createError||!created)return jsonResponse({error:"Could not save the rate card.",code:"RATE_CARD_SAVE_FAILED"},500);
+    await supabase.from("platform_usage_events").insert({company_id:null,user_id:authenticatedUserId,event_type:"model_rate_card_updated",units:1,metric_type:"admin_event",quantity:1,quantity_unit:"rate_card",metadata:{provider,model,rate_card_id:created.id}});
+    return jsonResponse({ok:true,rateCard:created,message:"Rate card saved. New metered usage will use this version; historical events are not retroactively repriced."},200);
   }
 
   // Inspect an extracted private document. Only the same company, an authorized reviewer, or platform owner may request it.
@@ -1039,6 +1274,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (!complaint && !notes && !resolution && repairSteps.length === 0) {
       return jsonResponse({ error: "Add diagnostic notes, repair steps, or a resolution before saving.", code: "JOB_NOTES_REQUIRED" }, 400);
     }
+    const clientJobId = textValue(body.clientJobId, 80);
+    if (clientJobId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientJobId)) {
+      return jsonResponse({ error: "The offline sync ID must be a valid UUID. Save the job again to create a fresh sync ID.", code: "CLIENT_JOB_ID_INVALID" }, 400);
+    }
     const row = {
       tenant_id: authenticatedCompanyId,
       technician_id: authenticatedUserId,
@@ -1057,12 +1296,26 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       source: textValue(body.source, 40) === "troubleshooter" ? "troubleshooter" : "technician_manual",
       technician_verified: true,
       approved_for_learning: false,
+      client_job_id: clientJobId || null,
     };
     try {
-      const { data, error } = await supabase.from("technician_job_records").insert(row).select("id, created_at, case_status").single();
+      let data:any=null; let error:any=null; let replayedExisting=false;
+      if(clientJobId){
+        const {data:existing,error:existingError}=await supabase.from("technician_job_records").select("id,created_at,case_status,client_job_id,job_reference_redacted,complaint_redacted,diagnostic_notes_redacted,resolution_summary_redacted,repair_steps_redacted,equipment_category,manufacturer_normalized,model_normalized,outcome,related_case_id,voice_transcribed,sync_version").eq("tenant_id",authenticatedCompanyId).eq("technician_id",authenticatedUserId).eq("client_job_id",clientJobId).maybeSingle();
+        if(existingError)throw existingError;
+        if(existing){
+          const normalizeSteps=(value:any)=>JSON.stringify((Array.isArray(value)?value:[]).map((step:any)=>({step:Number(step?.step||0),action:String(step?.action||""),parts:String(step?.parts||""),result:String(step?.result||"")})));
+          const samePayload=String(existing.complaint_redacted||"")===String(row.complaint_redacted||"")&&String(existing.diagnostic_notes_redacted||"")===String(row.diagnostic_notes_redacted||"")&&String(existing.resolution_summary_redacted||"")===String(row.resolution_summary_redacted||"")&&normalizeSteps(existing.repair_steps_redacted)===normalizeSteps(row.repair_steps_redacted)&&String(existing.equipment_category||"")===String(row.equipment_category||"")&&String(existing.manufacturer_normalized||"")===String(row.manufacturer_normalized||"")&&String(existing.model_normalized||"")===String(row.model_normalized||"")&&String(existing.outcome||"")===String(row.outcome||"")&&String(existing.job_reference_redacted||"")===String(row.job_reference_redacted||"")&&String(existing.related_case_id||"")===String(row.related_case_id||"")&&Boolean(existing.voice_transcribed)===Boolean(row.voice_transcribed);
+          if(!samePayload)return jsonResponse({error:"This queued job differs from the saved server record with the same sync ID. The local copy has been kept; open the job and resolve the conflict before deleting the local queue item.",code:"JOB_SYNC_CONFLICT",serverJob:{id:existing.id,created_at:existing.created_at,case_status:existing.case_status,sync_version:existing.sync_version}},409);
+          data=existing;replayedExisting=true;
+        }else{const inserted=await supabase.from("technician_job_records").insert(row).select("id,created_at,case_status,client_job_id,sync_version").single();data=inserted.data;error=inserted.error;}
+      }else{const inserted=await supabase.from("technician_job_records").insert(row).select("id,created_at,case_status,client_job_id").single();data=inserted.data;error=inserted.error;}
       if (error) {
         console.error("Technician job save failed", { code: error.code });
         return jsonResponse({ error: "Could not save the job record. Confirm the technician migration is applied.", code: "JOB_SAVE_FAILED" }, 500);
+      }
+      if (clientJobId && replayedExisting) {
+        return jsonResponse({ok:true,job:data,idempotentReplay:true,message:"This queued job was already synced with matching content; no duplicate was created."},200);
       }
       // Every directly entered PWA job is automatically included in the learning loop
       // as a privacy-minimized pending review item, regardless of its source.
@@ -1210,16 +1463,19 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   let companyManualRows: AnyRecord[] = [];
   if (authenticatedCompanyId) {
     try {
-      const { data, error } = await supabase.rpc("search_company_manual_chunks", {
-        p_company_id: authenticatedCompanyId,
-        p_query: [symptom, brand, model, textValue(context.subType ?? context.sub_type, 100), query].filter(Boolean).join(" ").slice(0, 1800),
-        p_limit: 6,
-      });
-      if (error) throw error;
+      const searchQuery=[symptom,brand,model,textValue(context.subType ?? context.sub_type,100),query].filter(Boolean).join(" ").slice(0,1800);
+      const queryEmbedding=await geminiEmbedding(searchQuery,"RETRIEVAL_QUERY");
+      let data:any=null; let error:any=null;
+      const hybrid=await supabase.rpc("search_company_manual_chunks_hybrid",{p_company_id:authenticatedCompanyId,p_query:searchQuery,p_embedding:queryEmbedding,p_limit:8});
+      if(!hybrid.error){data=hybrid.data;}else{
+        // Safe backward compatibility while a project is being upgraded: keyword-only retrieval still applies tenant filters.
+        const fallback=await supabase.rpc("search_company_manual_chunks",{p_company_id:authenticatedCompanyId,p_query:searchQuery,p_limit:6});data=fallback.data;error=fallback.error;
+      }
+      if(error)throw error;
       companyManualRows = getRows(data).map((r: AnyRecord) => ({
-        id: r.id, title: r.title, document_title: r.title, source_url: r.source_url,
-        file_name: r.title, page_number: r.page_number, category: "Company manual / SOP",
-        content_text: r.content_text, procedure_text: r.content_text, company_manual_source: true,
+        id:r.id,title:r.title,document_title:r.title,source_url:r.source_url,file_name:r.title,
+        page_number:r.page_number,page_start:r.page_start,page_end:r.page_end,rank:r.rank,retrieval_method:r.retrieval_method,
+        industry_key:r.industry_key,category:"Company manual / SOP",content_text:r.content_text,procedure_text:r.content_text,company_manual_source:true,
       }));
       kbRows = [...companyManualRows, ...kbRows];
     } catch (error) { console.warn("Company document retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
@@ -1233,7 +1489,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     }
   } catch (error) { console.warn("Approved shared-learning retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
 
-  const modelFamilies = getModelFamilies(kbRows, brand, category);
+  const modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);
   const procedures = kbRows.map((row, index) => {
     const procedureText = getProcedureText(row);
     const title = textValue(row.title ?? row.name ?? row.manual_title ?? row.document_title, 200) || `Matched KB entry ${index + 1}`;
@@ -1244,6 +1500,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       `Category/type: ${textValue(row.category ?? row.type, 100)}`,
       `Symptom: ${textValue(row.symptom, 240)}`,
       `Error code: ${textValue(row.code ?? row.error_code, 100)}`,
+      `Source page: ${row.page_number ?? row.page_start ?? "not available"}`,
+      `Retrieval method: ${textValue(row.retrieval_method, 30) || "keyword"}`,
       procedureText ? `MANUAL / PROCEDURE TEXT:\n${procedureText}` : "NO PROCEDURE TEXT FOUND IN THIS RECORD'S RETURNED FIELDS.",
     ].filter(Boolean).join("\n");
     return { details, procedureText, title };
@@ -1269,6 +1527,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       modelFamily: textValue(row.model_family ?? row.modelFamily, 100) || undefined,
       category: textValue(row.category ?? row.type, 100) || undefined,
       page: row.page ?? row.page_number ?? row.pageNumber ?? undefined,
+      pageStart: row.page_start ?? row.page_number ?? undefined,
+      pageEnd: row.page_end ?? row.page_number ?? undefined,
+      pageLabel: (row.page_start || row.page_end) ? (row.page_start && row.page_end && row.page_start !== row.page_end ? `pp. ${row.page_start}–${row.page_end}` : `p. ${row.page_start || row.page_end}`) : (row.page_number ? `p. ${row.page_number}` : undefined),
+      retrievalMethod: textValue(row.retrieval_method, 20) || undefined,
       fileName: textValue(row.file_name ?? row.filename ?? row.source_file, 200) || undefined,
       url: textValue(row.source_url ?? row.url ?? row.manual_url, 1000) || undefined,
     };
@@ -1295,7 +1557,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       prompt: `The label appears to say ${brand} ${family}. This is a family clue only; confirm the exact nameplate model before model-specific instructions.`,
     }));
     choices.push({ label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the exact model; continue with general troubleshooting" });
-    choices.push({ label: "📋 Request Service Technician", action: "escalate" });
+    choices.push({ label: "📞 Request a Pool Service Technician", action: "escalate" });
     return jsonResponse({
       status: "triage",
       aiReply: `Thanks for confirming **${brand} ${category}**. Before using a model-specific procedure, please select the closest model family below, enter the nameplate model, or choose general troubleshooting. These families are candidates, not confirmation of your installed unit.`,
@@ -1354,13 +1616,70 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     }, 200);
   }
 
-  // Common troubleshooting prompt: prioritize the manual, then official manufacturer
-  // web search, then safe generic triage. Never use a metadata-only match as a procedure.
+  // Common troubleshooting prompt: use the source priority selected from the active industry module;
+  // company-private source retrieval is always tenant-scoped and metadata-only matches are not procedures.
   const isWaterQualityCase = requestIsWaterQualityCase;
   const waterQualityResults = textValue(context.waterQualityResults ?? context.water_quality_results, 1200);
-  const systemPrompt = `You are PoolDocAI, an expert pool-equipment and pool-water troubleshooting assistant. Conduct a real, multi-turn diagnosis. For normal equipment cases, provide one individual diagnostic step at a time. For a confirmed green-pool/algae case with chemistry, use the water-quality exception below.
+  let industryContext = "Industry module: Swimming Pools. Use pool-specific catalog and safety guidance.";
+  let industryCatalogRows: AnyRecord[] = [];
+  let industrySourceRankingRules: AnyRecord[] = [];
+  try {
+    const {data:industryModule}=await supabase.from("industry_modules").select("industry_key,display_name,configuration,status,module_version").eq("industry_key",authenticatedIndustryKey).eq("status","active").maybeSingle();
+    if(industryModule){
+      const [safetyResult,workflowResult,sourceRankResult,catalogResult]=await Promise.all([
+        supabase.from("industry_safety_rules").select("rule_key,rule_text,severity,non_bypassable").eq("industry_key",authenticatedIndustryKey).eq("active",true).limit(30),
+        supabase.from("industry_diagnostic_workflows").select("workflow_key,display_name,rules,safety_class,version").eq("industry_key",authenticatedIndustryKey).eq("active",true).order("version",{ascending:false}).limit(30),
+        supabase.from("industry_source_ranking_rules").select("source_type,priority,require_authoritative").eq("industry_key",authenticatedIndustryKey).eq("active",true).order("priority",{ascending:true}).limit(20),
+        supabase.from("industry_equipment_catalog").select("equipment_code,display_name,manufacturer,model_family,attributes").eq("industry_key",authenticatedIndustryKey).eq("active",true).limit(250),
+      ]);
+      if(safetyResult.error) throw safetyResult.error;
+      if(workflowResult.error) throw workflowResult.error;
+      if(sourceRankResult.error) throw sourceRankResult.error;
+      if(catalogResult.error) throw catalogResult.error;
+      const safetyRules=safetyResult.data||[];const workflowRules=workflowResult.data||[];
+      industrySourceRankingRules=sourceRankResult.data||[];
+      industryCatalogRows=(catalogResult.data||[]).map((r:any)=>({
+        id:`industry-catalog:${authenticatedIndustryKey}:${r.equipment_code}`,
+        title:r.display_name,brand:r.manufacturer,manufacturer:r.manufacturer,
+        model_family:r.model_family,category:String(r.attributes?.category||r.attributes?.equipment_category||r.equipment_code||r.display_name||"equipment"),
+        equipment_code:r.equipment_code,attributes:r.attributes||{},industry_catalog_record:true,
+      }));
+      const catalogForPrompt=industryCatalogRows.filter((r:any)=>{
+        const brandFit=!brand||!r.manufacturer||String(r.manufacturer).toLowerCase().includes(brand.toLowerCase())||brand.toLowerCase().includes(String(r.manufacturer).toLowerCase());
+        const categoryFit=!category||String(r.category||"").toLowerCase().includes(category.toLowerCase())||String(category).toLowerCase().includes(String(r.category||"").toLowerCase());
+        return brandFit&&categoryFit;
+      }).slice(0,20).map((r:any)=>({equipment_code:r.equipment_code,manufacturer:r.manufacturer,model_family:r.model_family,display_name:r.title,attributes:r.attributes}));
+      industryContext=`Industry module: ${industryModule.display_name} (${industryModule.industry_key}, v${industryModule.module_version||1}). Configuration: ${JSON.stringify(industryModule.configuration||{})}. Reviewed safety rules (must be followed, non-bypassable rules cannot be overridden): ${JSON.stringify(safetyRules)}. Active workflows: ${JSON.stringify(workflowRules)}. Source-ranking rules, lower priority number ranks earlier: ${JSON.stringify(industrySourceRankingRules)}. Matching equipment catalog records (metadata only; not repair procedures): ${JSON.stringify(catalogForPrompt)}.`;
+      // Apply each active industry's configured source order to the server-fetched evidence.
+      // Unclassified sources rank last; metadata-only catalog records are used for identification,
+      // never treated as repair procedures because they do not enter kbRows.
+      const rankByType=new Map<string,number>(industrySourceRankingRules.map((r:any)=>[String(r.source_type),Number(r.priority)] as [string,number]));
+      const sourceType=(row:AnyRecord)=>{
+        if(row.company_manual_source)return "company_manual";
+        if(row.shared_learning_source)return "approved_shared_knowledge";
+        const explicit=String(row.source_type||row.source_kind||"").toLowerCase();
+        if(explicit.includes("official_manufacturer"))return "official_manufacturer_web";
+        const url=String(row.source_url||row.url||"");
+        if(/(?:pentair|hayward|fluidra|jandy|raypak|trane|carrier|lennox|rheem|goodman|navien|rinnai)\./i.test(url))return "official_manufacturer_web";
+        return "general_web";
+      };
+      kbRows.sort((a:AnyRecord,b:AnyRecord)=>{
+        const pa=rankByType.get(sourceType(a))??999;const pb=rankByType.get(sourceType(b))??999;
+        if(pa!==pb)return pa-pb;
+        return Number(b.rank||0)-Number(a.rank||0);
+      });
+    } else if(authenticatedIndustryKey!=="pool") industryContext=`Industry module ${authenticatedIndustryKey} is not active. Do not provide industry-specific diagnostic procedures; tell the user this module is not enabled yet and offer a qualified professional.`;
+  } catch (industryError) {
+    // If the industry configuration cannot be read, don't claim catalog/rules were consulted.
+    console.warn("Industry module configuration could not be loaded", { errorType: industryError instanceof Error ? industryError.name : "unknown" });
+    industryContext=`Industry module ${authenticatedIndustryKey} configuration could not be verified. Do not claim a catalog or module-specific source ranking was consulted. Use conservative non-invasive triage; for procedure-specific work, state uncertainty and offer a qualified professional.`;
+  }
+  const systemPrompt = `You are PoolDocAI, an expert troubleshooting assistant operating only within the server-selected, active industry module. Conduct a real, multi-turn diagnosis. For normal equipment cases, provide one individual diagnostic step at a time. For a confirmed green-pool/algae case with chemistry, use the water-quality exception below.
 
 REQUEST ACTION: ${action || "troubleshoot"}. Treat "next_kb_step" as "continue" and "skip_step" as a request for a different safe alternative (never mark it completed). If the action is "model_triage", do not troubleshoot yet. Return a short list of relevant, verified model families for the known make and equipment category; prefer matching Supabase catalog families, and use Google Search only if the catalog is insufficient. Candidates are not confirmation of the installed model. Ask the user to choose a family, enter the exact nameplate model, or continue with general troubleshooting.
+
+INDUSTRY MODULE RULES (server-selected, never client-supplied):
+${industryContext}
 
 CASE CONTEXT:
 ${JSON.stringify({ category, brand, model, symptom, subType: context.subType ?? context.sub_type ?? "", waterQualityIntent: context.waterQualityIntent ?? context.water_quality_intent ?? false, waterQualityConfirmedAlgae: context.waterQualityConfirmedAlgae ?? context.water_quality_confirmed_algae ?? false, waterQualityResults: textValue(context.waterQualityResults ?? context.water_quality_results, 1200), hasNoScreen, genericMode, modelConfirmed, modelFamilySelected, initialTriageComplete, operatingStateConfirmed, ruledOut, skippedSteps })}
@@ -1378,7 +1697,7 @@ ${isWaterQualityCase ? `WATER-QUALITY CASE RULES:
 - Treat this as pool-water chemistry/sanitation, not equipment hardware. Never ask for pump/heater make or model. Use relevant internal water-treatment procedures first. If there is no clearly applicable, source-bearing procedure for the actual symptom, you MUST invoke the Google Search tool in this request. Cite only URLs actually returned by Google Search; never invent citations or say a search happened if it did not. If neither the database nor web search verifies an applicable next step or complete treatment plan, say PoolDocAI is unsure and include a Request Service Technician choice. A local water-balancing calculator output is not itself symptom-specific troubleshooting or an algae-treatment plan.
 - ${isConfirmedAlgaeCase ? `The user confirmed the green water is believed to be algae. Respond with response_type="water_quality_plan" and a complete concise ordered remediation plan. Use a retrieved reputable source to set the free-chlorine target from measured CYA/stabilizer; calculate an exact dose only when actual pool volume, chemical identity and product strength are all known and the calculation is supported. Include any necessary pH adjustment before high-chlorine treatment, swimmer exclusion, surface brushing, filtration/circulation, test-and-redose cadence, and objective completion criteria. Keep water-balancing steps coordinated and avoid stacking uncertain doses. Never mix acid and chlorine or add products together. The reply MUST contain treatment actions, not merely calculator pH/TA recommendations. If no reliable applicable source is found or the essential dose factors are missing, explicitly say PoolDocAI is unsure, do not invent a dose, and offer a Request Service Technician choice.` : isGreenWaterCase ? `The water is green, but algae has NOT been confirmed or the cause/chemistry is still uncertain. Do not state algae is confirmed or generate an algae-specific chemical dose. Ask for missing critical readings (FC, pH, CYA, TA, and pool volume as relevant), recommend professional inspection if water is unclear/unsafe, and offer technician escalation. If the intake says circulation is not good, route into low-flow/circulation troubleshooting before algae treatment.` : isCloudyWaterCase ? `The reported symptom is cloudy/hazy pool water, not confirmed algae. Identify one appropriate next non-invasive observation or water test from a relevant internal cloudy-water procedure. If internal results do not contain a symptom-matched actionable procedure, invoke Google Search and use a reputable, applicable pool-care or manufacturer source. Do not assume algae, prescribe unsupported chemical doses, or give water-balancing math as if it explains the cause. If neither source verifies a relevant next step, explicitly say PoolDocAI is unsure and offer Request Service Technician.` : `This is a general water-quality issue that was triaged separately from confirmed green/algae water. Follow the specific category and symptom from context; use applicable internal procedures first, then Google Search if the internal result is irrelevant or incomplete. Do not assume algae or recommend treatment based on color alone. If no applicable, source-supported next step is found, state uncertainty and offer Request Service Technician.`}
 - If cause is uncertain or the pool floor is not visible, advise keeping swimmers out until the water can be assessed safely.
-- In Tech Mode, component/fault labels such as “flame sensor,” “suction-side air leak,” and “faint humming” are not hazards by themselves. Actual gas odor/leak (including “smells like gas” and propane odor/leak), fire/smoke, flames outside the burner, burning smell, melting electrical components, arcing/sparking, electrical shock, chemical fumes/dangerous chemical mixing, CO alarm/exposure, or actual entrapment remain non-bypassable safety stops.` : `EQUIPMENT CASE RULES: Use normal model/symptom gates and one-step diagnostic guidance. Never treat component-name matches as hazards without a contextual sign of a real safety condition.`}
+- In Tech Mode, component/fault labels such as “flame sensor,” “suction-side air leak,” and “faint humming” are not hazards by themselves. Actual gas odor/leak (including “smells like gas” and propane odor/leak), fire/smoke, flames outside the burner, burning smell, melting electrical components, arcing/sparking, electrical shock, chemical fumes/dangerous chemical mixing, CO alarm/exposure, or actual entrapment remain non-bypassable safety stops.` : `EQUIPMENT CASE RULES: Use normal model/symptom gates and one-step diagnostic guidance. An unknown manufacturer or model MUST NOT block general, non-invasive troubleshooting when the equipment category and symptom are clear. For a pool pump reported as "won't start", "will not start", "not starting", or "no start", provide one safe, actionable first check instead of asking for make/model again: from a dry location, check whether the pump timer/automation is calling for the pump to run and whether a breaker is visibly tripped; do not open electrical panels, touch wiring, or repeatedly reset a tripping breaker. Ask whether the pump is completely silent, hums/buzzes, or trips the breaker. If the response indicates a tripped breaker, burning smell, sparking, shock/tingling, or repeated trips, stop and request a qualified technician. Use internal procedures first and mandatory Google Search fallback whenever the internal results do not provide an applicable procedure. Never treat component-name matches as hazards without a contextual sign of a real safety condition.`}
 
 MANDATORY DIAGNOSTIC ORDER:
 1. TRIAGE FIRST. Decide whether the symptom is specific enough to select an applicable procedure. If the reported symptom is vague, ask exactly ONE focused clarification question before giving any procedure or repair action. Do not skip the intake/model gate just because a database match exists.
@@ -1416,6 +1735,19 @@ MANDATORY DIAGNOSTIC ORDER:
   let warning = "";
   let geminiStatus: number | null = null;
   let geminiError = "";
+
+  // Public demo/API requests are metered separately from page views and token usage.
+  // Never persist the customer prompt in this event record.
+  if (body.authenticatedApp !== true && action !== "public_page_view" && query) {
+    const publicAction = action || "troubleshoot";
+    const { error: publicUsageError } = await supabase.from("platform_usage_events").insert({
+      company_id: null, user_id: null, event_type: publicAction, units: 1, metric_type: "public_api_request",
+      quantity: 1, quantity_unit: "request", provider: "google_gemini", cost_source: "not_priced",
+      period_start: await utcMonthStartDate(), source_event_key: crypto.randomUUID(),
+      metadata: { authenticated: false, surface: "public_demo", query_length: query.length }
+    });
+    if (publicUsageError) console.warn("Public API usage metering unavailable", { code: publicUsageError.code });
+  }
 
   if (geminiKey) {
     try {
@@ -1458,6 +1790,8 @@ MANDATORY DIAGNOSTIC ORDER:
           geminiError = textValue(apiErr?.message, 700) || `Gemini interaction status: ${responseStatus || "unknown"}.`;
         }
         const outputText = getInteractionOutputText(response);
+        const usageObject=objectValue(response.usage)||objectValue(response.usageMetadata)||objectValue(response.usage_metadata);
+        if(usageObject)await recordModelUsage(supabase,authenticatedCompanyId,authenticatedUserId,textValue(response.model,100)||"gemini-unknown",usageObject,"ai_provider_usage");
         webSources = getInteractionSources(response);
         const structured = parseStructuredDiagnostic(outputText);
         if (structured) {
@@ -1480,7 +1814,7 @@ MANDATORY DIAGNOSTIC ORDER:
           else if (label === "internal_manual" && procedureTextPresent) sourceMode = "manual";
           else if (label === "catalog" || action === "model_triage") sourceMode = "catalog";
           else sourceMode = "generic";
-          if (structured.requires_technician) responseChoices.push({ label: "📋 Request Service Technician", action: "escalate" });
+          if (structured.requires_technician) responseChoices.push({ label: "📞 Request a Pool Service Technician", action: "escalate" });
         } else {
           // Fail closed if the model ignores the required JSON schema. Treating
           // arbitrary free text as a valid step could reintroduce a multi-step
@@ -1505,11 +1839,16 @@ MANDATORY DIAGNOSTIC ORDER:
   } else {
     geminiError = "GEMINI_API_KEY (or GOOGLE_API_KEY) is not configured.";
   }
-  // For any sufficiently triaged issue, don't silently trust a generic model answer when
-  // no applicable internal procedure was selected. Make a second, explicitly search-led
-  // Interactions request; accept it only if it returns real citations and usable guidance.
-  const needsSourceGroundedAnswer = Boolean(category) && initialTriageComplete && operatingStateConfirmed &&
-    action !== "model_triage" && action !== "escalate" && !isVagueSymptom(symptom, subTypeForTriage);
+  // UNIVERSAL NEXT-STEP SEARCH RULE:
+  // For every diagnostic request with an equipment category, if the first pass does not
+  // produce a complete, applicable step grounded in an internal procedure or real web
+  // citations, make a second explicitly search-led request. Do not bypass this because
+  // triage is incomplete, the operating state is not yet confirmed, or the symptom is
+  // vague. The search prompt must respect the reported context; if it cannot find a
+  // relevant source, the response must ask a focused clarifying question or offer service.
+  // Dedicated model identification and explicit escalation actions remain separate flows.
+  const needsSourceGroundedAnswer = Boolean(category) &&
+    action !== "model_triage" && action !== "escalate";
   const internalProcedureIsUsable = isWaterQualityCase
     ? (relevantWaterQualityProcedurePresent && structuredSourceLabel === "internal_manual")
     : (structuredSourceLabel === "internal_manual" && procedureTextPresent);
@@ -1536,7 +1875,7 @@ MANDATORY DIAGNOSTIC ORDER:
         ? `Find an authoritative, symptom-matched cloudy swimming-pool water troubleshooting procedure. Prioritize reputable pool-care organizations, pool-chemical manufacturers, or applicable manufacturer support pages. Distinguish cloudiness causes where sources allow, identify an applicable first test/observation and filtration/circulation checks, and give chemical advice only when supported by test results and the product label. Do not assume algae or make up a dose. Issue context: ${relevantContext}.`
         : isWaterQualityCase
           ? `Find a reputable, symptom-matched swimming-pool water-quality troubleshooting procedure for the reported issue. Prioritize authoritative pool-care organizations or chemical manufacturers. Base advice on measured results, not appearance alone, and do not invent doses. Issue context: ${relevantContext}.`
-          : `Find the official manufacturer manual, technical bulletin, or reputable authoritative procedure that matches this troubleshooting issue. Return one applicable next diagnostic step and its safety constraints. Issue context: ${relevantContext}. Do not use product/catalog listings as repair instructions.`;
+          : /\b(?:pump|motor)\b/i.test(`${category} ${symptom} ${subTypeForTriage}`) && /\b(?:won.t start|will not start|not starting|no start|silent|hums?|buzz(?:es|ing)?)\b/i.test(`${query} ${symptom} ${subTypeForTriage}`) ? `Search the web now for an authoritative pool-pump no-start troubleshooting procedure that applies when make/model are unknown. Prioritize official manufacturer support pages/manuals and reputable pool-equipment technical sources. Return one safe first check for a pump that will not start, distinguishing completely silent from humming/buzzing and breaker trips. Do not instruct the customer to open electrical panels, touch wiring, bypass a safety device, or repeatedly reset a breaker. Issue context: ${relevantContext}. Do not use product/catalog listings as repair instructions.` : `Find the official manufacturer manual, technical bulletin, or reputable authoritative procedure that matches this troubleshooting issue. Return one applicable next diagnostic step and its safety constraints. Issue context: ${relevantContext}. Do not use product/catalog listings as repair instructions.`;
     try {
       const forcedSearchRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
@@ -1590,7 +1929,7 @@ MANDATORY DIAGNOSTIC ORDER:
             action: textValue(choice?.action, 60) || undefined,
           })).filter((choice) => choice.label).slice(0, 10);
           if (forcedStructured.requires_technician && !responseChoices.some((choice) => choice.action === "escalate")) {
-            responseChoices.push({ label: "📋 Request Service Technician", action: "escalate" });
+            responseChoices.push({ label: "📞 Request a Pool Service Technician", action: "escalate" });
           }
           sourceVerifiedAnswer = true;
         } else {
@@ -1615,10 +1954,10 @@ MANDATORY DIAGNOSTIC ORDER:
   // If neither internal procedure retrieval nor a cited Google Search supports the issue,
   // fail closed with a clear uncertainty message and a technician choice (for every issue type).
   if (needsSourceGroundedAnswer && !sourceVerifiedAnswer) {
-    aiReply = buildUnverifiedGuidanceReply(isWaterQualityCase, isConfirmedAlgaeCase);
+    aiReply = buildUnverifiedGuidanceReply(isWaterQualityCase, isConfirmedAlgaeCase, category, symptom, textValue(context.subType ?? context.sub_type, 120));
     if (isConfirmedAlgaeCase) generatedResponseType = "water_quality_plan";
     responseChoices = [
-      { label: "📋 Request Service Technician", action: "escalate" },
+      { label: "📞 Request a Pool Service Technician", action: "escalate" },
       { label: "↻ Retry source lookup", action: "retry_last" },
     ];
     sourceMode = "generic";
@@ -1650,7 +1989,7 @@ MANDATORY DIAGNOSTIC ORDER:
         sourceMode = "generic";
       }
       responseChoices.push({ label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the exact model; continue with general troubleshooting" });
-      responseChoices.push({ label: "📋 Request Service Technician", action: "escalate" });
+      responseChoices.push({ label: "📞 Request a Pool Service Technician", action: "escalate" });
     } else if (!category) {
       aiReply = "Let's start with triage so I choose the right procedure. Which part of the pool system is having trouble? Please select the equipment category below, or describe the symptom in more detail.";
       sourceMode = "generic";
@@ -1659,7 +1998,7 @@ MANDATORY DIAGNOSTIC ORDER:
       generatedResponseType = "water_quality_plan";
       aiReply = "**Water-quality treatment could not be source-verified right now.** I will not guess at an algae-treatment dose. Keep swimmers out if water clarity or sanitizer safety is uncertain; record pool volume, free chlorine, pH, CYA/stabilizer, and total alkalinity, then use the exact product labels and a qualified pool professional to set the dose. Never mix acid and chlorine. Re-submit the readings when the knowledge/search service is available, or request a technician.";
       sourceMode = "generic";
-      responseChoices = [{ label: "📋 Request Service Technician", action: "escalate" }];
+      responseChoices = [{ label: "📞 Request a Pool Service Technician", action: "escalate" }];
     } else {
       if (action === "skip_step") {
         aiReply = `**General triage alternative — no procedure step was marked complete.**\n\nLet's use a different, non-invasive observation: without touching or opening the equipment, describe any visible indicator lights, unusual sounds, leaks, or blocked ventilation you can see from a safe distance. Do not reach into vents or touch hot or moving parts.`;
@@ -1677,7 +2016,7 @@ MANDATORY DIAGNOSTIC ORDER:
           ? getOperatingStateChoices(category, symptom, textValue(context.subType ?? context.sub_type, 100))
           : getTriageChoices(category)).map((choice) => ({ ...choice }));
       responseChoices.push({ label: "⏭ Skip this check and try an alternative", action: "skip_step" });
-      responseChoices.push({ label: "📋 Request Service Technician", action: "escalate" });
+      responseChoices.push({ label: "📞 Request a Pool Service Technician", action: "escalate" });
     }
     warning = `AI answer/search service unavailable (${geminiError || "no usable response"}). ${procedureTextPresent ? "Relevant internal procedure text was retrieved, but it is not being displayed or interpreted automatically while answer generation is down." : "This is a one-question general triage fallback, not a model-specific manual procedure."}`;
   }
@@ -1701,7 +2040,7 @@ MANDATORY DIAGNOSTIC ORDER:
       prompt: `The label appears to say ${brand} ${family}. Treat this as a family clue, not an exact model confirmation. Ask me to confirm the nameplate before model-specific repair instructions.`,
     })).slice(0, 8);
     responseChoices.push({ label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the exact model; continue with general troubleshooting" });
-    responseChoices.push({ label: "📋 Request Service Technician", action: "escalate" });
+    responseChoices.push({ label: "📞 Request a Pool Service Technician", action: "escalate" });
   }
 
   const knowledgeDiagnostics = {

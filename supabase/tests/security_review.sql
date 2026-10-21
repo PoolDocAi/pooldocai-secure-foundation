@@ -63,3 +63,32 @@ select schemaname, tablename, policyname, roles, cmd, qual, with_check
 from pg_policies
 where schemaname='public' and tablename in ('companies','company_members','service_requests','service_customers','company_manuals','technician_job_records')
 order by tablename, policyname;
+
+
+-- Feature-expansion schema guards: invitations, usage metering, billing webhooks,
+-- semantic retrieval, page-level citations and industry activation constraints.
+do $$
+begin
+  if to_regclass('public.pooldocai_model_rate_cards') is null then raise exception 'model rate-card table missing'; end if;
+  if to_regclass('public.pooldocai_usage_alerts') is null then raise exception 'usage alert table missing'; end if;
+  if to_regclass('public.pooldocai_stripe_webhook_events') is null then raise exception 'Stripe webhook idempotency ledger missing'; end if;
+  if to_regclass('public.industry_modules') is null or to_regclass('public.industry_safety_rules') is null then raise exception 'industry module tables missing'; end if;
+  if to_regprocedure('public.search_company_manual_chunks_hybrid(uuid,text,extensions.vector,integer)') is null then raise exception 'hybrid private document search function missing'; end if;
+  if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='company_manual_chunks' and column_name='page_start') then raise exception 'PDF page range metadata missing'; end if;
+  if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='technician_invitation_requests' and column_name='expires_at') then raise exception 'invitation expiry support missing'; end if;
+  if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='technician_job_records' and column_name='client_job_id') then raise exception 'offline sync idempotency column missing'; end if;
+  if not exists (select 1 from pg_trigger where tgrelid='public.companies'::regclass and tgname='companies_industry_active_guard' and not tgisinternal) then raise exception 'planned industry activation guard missing'; end if;
+  if has_table_privilege('authenticated','public.pooldocai_stripe_webhook_events','insert') then raise exception 'authenticated clients can forge Stripe webhook ledger entries'; end if;
+end $$;
+
+-- Companies cannot be assigned to HVAC while the module remains planned/unreviewed.
+do $$
+begin
+  begin
+    insert into public.companies(name,status,plan_name,seat_limit,industry_key)
+    values ('CI planned industry guard','pilot','pilot',1,'hvac');
+    raise exception 'planned HVAC module unexpectedly accepted';
+  exception when check_violation then
+    null;
+  end;
+end $$;

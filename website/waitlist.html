@@ -243,15 +243,6 @@
             <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-5 py-3.5 rounded-xl text-sm sm:text-base font-bold text-white bg-white/10 hover:bg-white/20 border border-white/35 transition">Join the Early-Access Pilot</a>
           </div>
 
-          <div class="rounded-xl border border-white/20 bg-slate-950/25 p-3.5 space-y-2">
-            <div class="text-xs font-bold uppercase tracking-wider text-sky-100">Feature status key</div>
-            <div class="flex flex-wrap gap-2 text-xs">
-              <span class="px-2.5 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/40 text-emerald-100">Available to try now</span>
-              <span class="px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-300/40 text-amber-100">Included in the planned pilot</span>
-              <span class="px-2.5 py-1 rounded-full bg-slate-400/15 border border-slate-300/30 text-slate-100">Future development</span>
-            </div>
-          </div>
-
           <!-- Key Pitch Deck Metrics Bar -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-sky-400/20">
             <div>
@@ -1867,7 +1858,7 @@
           { label: 'Cloudy water', prompt: 'My pool water is cloudy.' },
           { label: 'Discolored water', prompt: 'My pool water is discolored.' },
           { label: 'Flow / circulation issue', prompt: 'My pool has a flow or circulation issue.' },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ],
         'Water Help — Identify Issue',
         'Asked whether the reported water problem is cloudiness, discoloration, or pool circulation/flow.'
@@ -1883,7 +1874,7 @@
         [
           { label: 'Green', prompt: 'The discolored pool water is green.' },
           { label: 'Another color', prompt: 'My pool water is a color other than green.' },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ],
         'Water Help — Identify Water Color',
         'Asked the customer to distinguish green water from other discoloration.'
@@ -1912,7 +1903,7 @@
         `Customer wording: ${String(userMsg || '').slice(0, 500)}. Initial Water Help issue: ${originalWaterHelpSymptom}.`,
         'Use applicable PoolDocAI water-quality procedures and the Supabase knowledge base first. A generic water-balancing record is not automatically a cloudy-water troubleshooting procedure.',
         'If internal sources do not provide a relevant, source-bearing next step, perform the configured live Google Search fallback and cite genuine returned sources. Give one safe, applicable next troubleshooting/observation step. Do not assume cloudy water is algae, invent chemical doses, or tell the user to mix products. Ask for specific test results if the verified procedure requires them.',
-        'If no reliable, applicable procedure can be verified from the database or internet search, explicitly state PoolDocAI is unsure of the best next step and offer Request Service Technician.'
+        'If no reliable, applicable procedure can be verified from the database or internet search, explicitly state PoolDocAI is unsure of the best next step and offer Request a Pool Service Technician.'
       ].join('\n');
       await requestSupabaseTroubleshootingTurn(request, 'troubleshoot', 'Cloudy water troubleshooting — source lookup');
     }
@@ -1972,7 +1963,7 @@
           { label: 'Cloudy water', prompt: 'My pool water is cloudy.' },
           { label: 'Discolored water', prompt: 'My pool water is discolored.' },
           { label: 'Flow / circulation issue', prompt: 'My pool has a flow or circulation issue.' },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ], 'Water Help — Identify Issue');
         return;
       }
@@ -1985,8 +1976,8 @@
         if (isNoWaterTestResultsResponse(text)) {
           resetWaterHelpState();
           setWaterQualitySessionContext('Pool water is discolored a color other than green.', 'No water test results available', 'Water Quality / Unusual Color', 'Discolored Water Assessment');
-          pushWaterQualityTurn(q, 'Without water-test results, I cannot responsibly narrow down the cause of this discoloration or recommend a chemical treatment. You can request a service technician to test the water and assess the pool.', [
-            { label: '📋 Request Service Technician', action: 'escalate' },
+          pushWaterQualityTurn(q, 'Without water-test results, I cannot responsibly narrow down the cause of this discoloration or recommend a chemical treatment. You can request a qualified pool service technician to test the water and assess the pool.', [
+            { label: '📞 Request a Pool Service Technician', action: 'escalate' },
             { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
           ], 'Other Water Color — Technician Recommended');
           return;
@@ -2011,9 +2002,9 @@
         setWaterQualitySessionContext(`Pool water is discolored a color other than green. Initial Water Help report: ${originalWaterHelpSymptom}.`, results, 'Water Quality / Unusual Color', 'Discolored Water Assessment');
         sessionContext.ruledOut.push(noResults ? 'No water test results available for the unusual water color.' : `Customer supplied reported test values for an unusual water color: ${q.slice(0, 450)}`);
         pushWaterQualityTurn(q, noResults
-          ? 'Thanks for confirming. **PoolDocAI is unsure of the cause and best treatment for this water color without testing.** Please request a service technician to test the water and inspect the pool before adding chemicals.'
+          ? 'Thanks for confirming. **PoolDocAI is unsure of the cause and best treatment for this water color without testing.** Please request a qualified pool service technician to test the water and inspect the pool before adding chemicals.'
           : `Thank you. I recorded these customer-reported results for the technician: **${q.slice(0, 650)}**. Because the water is an unusual color and its cause is not established, PoolDocAI recommends a technician verify the readings and assess the pool before treatment.`, [
-          { label: '📋 Request Service Technician', action: 'escalate' },
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' },
           { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
         ], 'Other Water Color — Technician Recommended', 'Recorded reported water test results and offered technician assessment instead of guessing at water treatment.');
         return;
@@ -2086,7 +2077,7 @@
               { label: 'Yes — flow/circulation is good', prompt: 'My pool flow and circulation are good.' },
               { label: 'No — flow/circulation is poor', prompt: 'My pool flow and circulation are not good.' },
               { label: "I'm not sure about circulation", prompt: "I'm not sure whether my pool circulation is good." },
-              { label: '📋 Request Service Technician', action: 'escalate' }
+              { label: '📞 Request a Pool Service Technician', action: 'escalate' }
             ],
             'Green Pool — Confirm Circulation',
             'Confirmed suspected algae and asked about pool circulation before chemistry intake.'
@@ -2120,7 +2111,7 @@
           { label: 'Yes — flow/circulation is good', prompt: 'My pool flow and circulation are good.' },
           { label: 'No — flow/circulation is poor', prompt: 'My pool flow and circulation are not good.' },
           { label: "I'm not sure about circulation", prompt: "I'm not sure whether my pool circulation is good." },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ], 'Green Pool — Confirm Circulation');
         return;
       }
@@ -2975,7 +2966,7 @@
         : '';
 
       const escalationReply = [
-        `📋 **Request Service Technician / Call a Licensed Professional**`,
+        `📋 **Request a Pool Service Technician / Call a Licensed Professional**`,
         `Here is your complete **Pre-Job Summary** and step-by-step instructions to prepare for the technician's arrival:`,
         `**1. Pre-Job Summary:**\n• **Equipment / Context:** ${equipLabel}\n• **Reported Issue:** ${primaryIssue}\n• **Completed & Ruled-Out Checks (${sessionContext.ruledOut.length}):**\n${checksSummaryText}${waterResultsLine ? `\n\n${waterResultsLine}` : ''}`,
         `**2. How to Prepare for the Visit:**\n• **Step 1 — Secure the Equipment:** ${safetyPrepStep}\n• **Step 2 — Snap 2 Quick Photos:** Take a clear photo of the equipment **model/serial nameplate label** and a wide photo of the **equipment pad / plumbing** (plus any active error code on the display).\n• **Step 3 — Clear Pad Access:** Unlock side gates, secure pets indoors, and clear any items blocking access to the equipment pad and breaker sub-panel.\n• **Step 4 — Send Your Pre-Job Summary Below:** Enter your **Name, Phone Number, and Email Address** below so the licensed technician receives this summary and brings the right parts on the first visit:`
@@ -3597,7 +3588,7 @@
           : normalizeSupabaseChoices(payload);
         if (/^Water Quality\b/i.test(String(sessionContext.category || ''))) {
           if (!objChoices.some(choice => choice.action === 'escalate' || /request (?:a )?(?:service )?technician|green-to-clean/i.test(String(choice.label || '')))) {
-            objChoices.push({ label: sessionContext.category === 'Water Quality / Algae' ? '📋 Request Technician / Green-to-Clean Service' : '📋 Request Service Technician', action: 'escalate' });
+            objChoices.push({ label: sessionContext.category === 'Water Quality / Algae' ? '📋 Request Technician / Green-to-Clean Service' : '📞 Request a Pool Service Technician', action: 'escalate' });
           }
           if (sessionContext.category === 'Water Quality / Algae' && !objChoices.some(choice => /enter water chemistry|water balancing calculator|calculate (?:a )?(?:shock|treatment) dose/i.test(String(choice.label || '')))) {
             objChoices.push(algaeTriageState.stage !== 'idle'
@@ -3632,7 +3623,7 @@
           citation: 'Connection status: Limited general guidance',
           choices: /^Water Quality\b/i.test(String(sessionContext.category || ''))
             ? [
-                { label: sessionContext.category === 'Water Quality / Algae' ? '📋 Request Technician / Green-to-Clean Service' : '📋 Request Service Technician', action: 'escalate' },
+                { label: sessionContext.category === 'Water Quality / Algae' ? '📋 Request Technician / Green-to-Clean Service' : '📞 Request a Pool Service Technician', action: 'escalate' },
                 ...(sessionContext.category === 'Water Quality / Algae' ? [{ label: '🧪 Enter Water Chemistry', prompt: 'Enter water chemistry for my green pool.' }] : []),
                 { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
               ]
