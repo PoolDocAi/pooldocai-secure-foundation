@@ -646,7 +646,13 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   const query = textValue(body.query ?? body.message ?? body.userMessage ?? body.user_message ?? body.question ?? body.input ?? body.prompt, 5000);
   const action = textValue(body.action ?? body.action_type, 80).toLowerCase();
-  if (!query && action !== "save_technician_job" && action !== "capture_learning_case" && action !== "public_page_view" && action !== "photo_recognition" && action !== "process_company_manual" && action !== "import_company_webpage" && action !== "set_manual_learning_consent" && action !== "review_learning_case" && action !== "list_learning_review_queue") return jsonResponse({ error: "A non-empty query or message is required.", code: "QUERY_REQUIRED" }, 400);
+  const noQueryActions = new Set([
+    "save_technician_job", "capture_learning_case", "public_page_view", "photo_recognition",
+    "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
+    "review_learning_case", "list_learning_review_queue", "review_company_document",
+    "invite_company_member", "platform_list_account_statuses"
+  ]);
+  if (!query && !noQueryActions.has(action)) return jsonResponse({ error: "A non-empty query or message is required.", code: "QUERY_REQUIRED" }, 400);
 
   const contextRaw = body.sessionContext ?? body.session_context ?? body.context ?? body.equipment_context ?? body.equipmentContext;
   const context = objectValue(contextRaw) ?? {};
@@ -686,6 +692,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   let authenticatedCompanyId: string | null = null;
   let authenticatedUserId: string | null = null;
   let authenticatedRole: string | null = null;
+  let authenticatedPermissions: { canViewJobNotes: boolean; canEditJobNotes: boolean; canUploadDocuments: boolean; canReviewDocuments: boolean } | null = null;
   if (body.authenticatedApp === true) {
     const authHeader = req.headers.get("authorization") || "";
     const bearer = authHeader.match(/^Bearer\s+(.+)$/i)?.[1] || "";
@@ -693,16 +700,162 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     const { data: authData, error: authError } = await supabase.auth.getUser(bearer);
     if (authError || !authData.user) return jsonResponse({ error: "Please sign in with an active company account.", code: "AUTH_REQUIRED" }, 401);
     authenticatedUserId = authData.user.id;
-    const { data: memberships, error: membershipError } = await supabase.from("company_members").select("company_id,role,companies(status)").eq("user_id", authenticatedUserId).eq("status", "active");
+    const { data: memberships, error: membershipError } = await supabase.from("company_members")
+      .select("company_id,role,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,companies(status,seat_limit)")
+      .eq("user_id", authenticatedUserId).eq("status", "active");
     const requestedCompanyId = textValue(body.companyId, 80);
+    if (membershipError) {
+      console.error("Membership lookup failed", { code: membershipError.code });
+      return jsonResponse({ error: "Could not verify company membership. Apply the company-access migration and retry.", code: "MEMBERSHIP_LOOKUP_FAILED" }, 500);
+    }
     const validMembership = (memberships || []).find((m: any) => (!requestedCompanyId || m.company_id === requestedCompanyId) && ["active", "pilot"].includes(String((m.companies as any)?.status || "")));
     if (validMembership) {
       authenticatedCompanyId = validMembership.company_id;
       authenticatedRole = String((validMembership as any).role || "");
+      authenticatedPermissions = {
+        canViewJobNotes: authenticatedRole === "company_admin" || (validMembership as any).can_view_job_notes === true,
+        canEditJobNotes: authenticatedRole === "company_admin" || (validMembership as any).can_edit_job_notes === true,
+        canUploadDocuments: authenticatedRole === "company_admin" || (validMembership as any).can_upload_documents === true,
+        canReviewDocuments: authenticatedRole === "company_admin" || (validMembership as any).can_review_documents === true,
+      };
       await supabase.from("platform_usage_events").insert({ company_id: authenticatedCompanyId, user_id: authenticatedUserId, event_type: action || "troubleshoot", units: 1, metadata: { authenticated: true } });
-    } else if (!(["review_learning_case", "list_learning_review_queue"].includes(action))) {
+    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
       return jsonResponse({ error: "This login has no active membership for the selected company.", code: "COMPANY_MEMBERSHIP_REQUIRED" }, 403);
     }
+  }
+
+  // Platform-owner account status view. Auth user details are never returned to company admins.
+  if (action === "platform_list_account_statuses") {
+    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({ error: "Sign in with a platform-owner account.", code: "AUTH_REQUIRED" }, 401);
+    const { data: owner, error: ownerError } = await supabase.from("platform_admins").select("user_id").eq("user_id", authenticatedUserId).maybeSingle();
+    if (ownerError || !owner) return jsonResponse({ error: "Only a PoolDocAI platform owner can view global account status.", code: "PLATFORM_OWNER_REQUIRED" }, 403);
+    const allUsers: AnyRecord[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const { data: userPage, error: usersError } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+      if (usersError) return jsonResponse({ error: "Could not load authentication account statuses.", code: "ACCOUNT_STATUS_LOAD_FAILED" }, 500);
+      const batch = (userPage?.users || []) as unknown as AnyRecord[];
+      allUsers.push(...batch);
+      if (batch.length < 1000) break;
+    }
+    const { data: memberships, error: membershipsError } = await supabase.from("company_members")
+      .select("id,company_id,user_id,role,status,display_name,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,created_at")
+      .order("created_at", { ascending: false }).limit(5000);
+    if (membershipsError) return jsonResponse({ error: "Could not load company membership statuses.", code: "MEMBERSHIP_STATUS_LOAD_FAILED" }, 500);
+    const { data: companies, error: companiesError } = await supabase.from("companies").select("id,name,status,plan_name,seat_limit");
+    if (companiesError) return jsonResponse({ error: "Could not load company statuses.", code: "COMPANY_STATUS_LOAD_FAILED" }, 500);
+    const userMap = new Map(allUsers.map((u: AnyRecord) => [String(u.id), u]));
+    const companyMap = new Map((companies || []).map((c: AnyRecord) => [String(c.id), c]));
+    const { data: platformOwners, error: platformOwnersError } = await supabase.from("platform_admins").select("user_id");
+    if (platformOwnersError) return jsonResponse({ error: "Could not load platform-owner account statuses.", code: "PLATFORM_OWNER_STATUS_LOAD_FAILED" }, 500);
+    const platformOwnerIds = new Set((platformOwners || []).map((row: AnyRecord) => String(row.user_id)));
+    const now = Date.now();
+    const statusFor = (u: AnyRecord) => {
+      const bannedUntil = u.banned_until ? Date.parse(String(u.banned_until)) : NaN;
+      return u.deleted_at ? "deleted" : (Number.isFinite(bannedUntil) && bannedUntil > now ? "banned" : (!u.email_confirmed_at ? "invitation_pending" : "active"));
+    };
+    const accounts: AnyRecord[] = (memberships || []).map((m: AnyRecord) => {
+      const u = userMap.get(String(m.user_id)) || {};
+      const company = companyMap.get(String(m.company_id)) || {};
+      return { company_id:m.company_id, company_name:company.name || "Unknown company", company_status:company.status || "unknown", plan_name:company.plan_name || "unknown", seat_limit:company.seat_limit ?? null, user_id:m.user_id, email:u.email || null, display_name:m.display_name || null, role:m.role, platform_admin_registered:platformOwnerIds.has(String(m.user_id)), membership_status:m.status, auth_status:statusFor(u), email_confirmed:Boolean(u.email_confirmed_at), last_sign_in_at:u.last_sign_in_at || null, can_view_job_notes:m.can_view_job_notes, can_edit_job_notes:m.can_edit_job_notes, can_upload_documents:m.can_upload_documents, can_review_documents:m.can_review_documents, membership_created_at:m.created_at };
+    });
+    const membershipUserIds = new Set((memberships || []).map((m: AnyRecord) => String(m.user_id)));
+    for (const u of allUsers) {
+      const uid = String(u.id);
+      if (membershipUserIds.has(uid)) continue;
+      accounts.push({ company_id:null, company_name:"—", company_status:"—", plan_name:"—", seat_limit:null, user_id:uid, email:u.email || null, display_name:u.user_metadata?.full_name || u.user_metadata?.name || null, role:platformOwnerIds.has(uid) ? "platform_owner" : "no_company_membership", platform_admin_registered:platformOwnerIds.has(uid), membership_status:"not_assigned", auth_status:statusFor(u), email_confirmed:Boolean(u.email_confirmed_at), last_sign_in_at:u.last_sign_in_at || null, can_view_job_notes:false, can_edit_job_notes:false, can_upload_documents:false, can_review_documents:false, membership_created_at:u.created_at || null });
+    }
+    await supabase.from("platform_usage_events").insert({ company_id:null, user_id:authenticatedUserId, event_type:"platform_account_status_view", units:1, metadata:{ memberships_returned:memberships?.length || 0, accounts_returned:accounts.length } });
+    return jsonResponse({ ok:true, accounts, returned:accounts.length, truncated:allUsers.length >= 10000 || (memberships || []).length >= 5000 }, 200);
+  }
+
+  // Company seat provisioning. Auth invitation and membership creation are performed server-side.
+  if (action === "invite_company_member") {
+    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({ error: "Sign in before managing company seats.", code: "AUTH_REQUIRED" }, 401);
+    const email = textValue(body.email, 254).toLowerCase();
+    const displayName = scrubPII(textValue(body.displayName, 120));
+    const role = textValue(body.role, 40);
+    const targetCompanyId = textValue(body.companyId, 80) || authenticatedCompanyId || "";
+    if (!targetCompanyId || !/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)) return jsonResponse({ error: "Choose a company and enter a valid email address.", code: "INVITE_INPUT_INVALID" }, 400);
+    if (!["company_admin", "technician", "read_only"].includes(role)) return jsonResponse({ error: "Choose a supported company role.", code: "INVITE_ROLE_INVALID" }, 400);
+    const { data: callerPlatformAdmin } = await supabase.from("platform_admins").select("user_id").eq("user_id", authenticatedUserId).maybeSingle();
+    const isPlatformActor = Boolean(callerPlatformAdmin);
+    if (!isPlatformActor && (authenticatedCompanyId !== targetCompanyId || authenticatedRole !== "company_admin")) return jsonResponse({ error: "Only this company's active administrator can invite or manage seats.", code: "COMPANY_ADMIN_REQUIRED" }, 403);
+    const { data: company, error: companyError } = await supabase.from("companies").select("id,name,status,seat_limit").eq("id", targetCompanyId).maybeSingle();
+    if (companyError || !company) return jsonResponse({ error: "Company not found.", code: "COMPANY_NOT_FOUND" }, 404);
+    if (!["pilot", "active"].includes(String(company.status))) return jsonResponse({ error: "This company is not active for new seats.", code: "COMPANY_NOT_ACTIVE" }, 403);
+    const { count: seatCount, error: seatCountError } = await supabase.from("company_members").select("id", { count:"exact", head:true }).eq("company_id", targetCompanyId).eq("status", "active");
+    if (seatCountError) return jsonResponse({ error: "Could not verify available seats.", code: "SEAT_CHECK_FAILED" }, 500);
+    if ((seatCount || 0) >= Number(company.seat_limit)) return jsonResponse({ error: `This plan has no unused seats (${seatCount || 0}/${company.seat_limit}). Ask the PoolDocAI platform owner about a subscription seat increase.`, code: "SEAT_LIMIT_REACHED" }, 409);
+    const permissionInput = objectValue(body.permissions) || {};
+    const permissions = {
+      can_view_job_notes: role === "company_admin" || permissionInput.canViewJobNotes !== false,
+      can_edit_job_notes: role === "company_admin" || (permissionInput.canEditJobNotes === undefined ? role === "technician" : permissionInput.canEditJobNotes === true),
+      can_upload_documents: role === "company_admin" || permissionInput.canUploadDocuments === true,
+      can_review_documents: role === "company_admin" || permissionInput.canReviewDocuments === true,
+    };
+    // Find an existing Auth user first. If none exists, send a Supabase Auth invitation.
+    let authUser: AnyRecord | null = null;
+    let listError: AnyRecord | null = null;
+    for (let page = 1; page <= 10; page++) {
+      const { data: usersPage, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) { listError = error as unknown as AnyRecord; break; }
+      const batch = (usersPage?.users || []) as unknown as AnyRecord[];
+      authUser = batch.find((u: AnyRecord) => String(u.email || "").toLowerCase() === email) || null;
+      if (authUser || batch.length < 1000) break;
+    }
+    if (listError) return jsonResponse({ error: "Could not check whether the email already has a PoolDocAI account.", code: "AUTH_USER_LOOKUP_FAILED" }, 500);
+    let invitationSent = false;
+    if (!authUser) {
+      const { data: inviteResult, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, { data: { display_name: displayName || email.split("@")[0], invited_company_name: company.name } });
+      if (inviteError || !inviteResult?.user) return jsonResponse({ error: inviteError?.message || "Supabase could not send the invitation. Check Auth email settings and try again.", code: "AUTH_INVITE_FAILED" }, 502);
+      authUser = inviteResult.user as unknown as AnyRecord;
+      invitationSent = true;
+    }
+    const { data: previous, error: previousError } = await supabase.from("company_members").select("id,status").eq("company_id", targetCompanyId).eq("user_id", String(authUser.id)).maybeSingle();
+    if (previousError) {
+      if (invitationSent) await supabase.auth.admin.deleteUser(String(authUser.id));
+      return jsonResponse({ error: "Could not check existing membership.", code: "MEMBERSHIP_CHECK_FAILED" }, 500);
+    }
+    if (previous?.status === "active") {
+      if (invitationSent) await supabase.auth.admin.deleteUser(String(authUser.id));
+      return jsonResponse({ error: "That account already has an active seat in this company.", code: "MEMBER_ALREADY_ACTIVE" }, 409);
+    }
+    let membershipResult: AnyRecord | null = null;
+    let membershipError: AnyRecord | null = null;
+    if (previous?.id) {
+      const update = await supabase.from("company_members").update({ role, status:"active", display_name:displayName || null, ...permissions }).eq("id", previous.id).select("id,company_id,user_id,role,status,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents").single();
+      membershipResult = update.data as unknown as AnyRecord | null;
+      membershipError = update.error as unknown as AnyRecord | null;
+    } else {
+      const insert = await supabase.from("company_members").insert({ company_id:targetCompanyId, user_id:String(authUser.id), role, status:"active", display_name:displayName || null, ...permissions }).select("id,company_id,user_id,role,status,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents").single();
+      membershipResult = insert.data as unknown as AnyRecord | null;
+      membershipError = insert.error as unknown as AnyRecord | null;
+    }
+    if (membershipError || !membershipResult) {
+      if (invitationSent) await supabase.auth.admin.deleteUser(String(authUser.id));
+      const details = String((membershipError as AnyRecord | null)?.message || "");
+      return jsonResponse({ error: /seat|limit/i.test(details) ? "This company has reached its subscription seat limit." : "Could not create this company membership. The database rejected the change.", code: /seat|limit/i.test(details) ? "SEAT_LIMIT_REACHED" : "MEMBERSHIP_CREATE_FAILED" }, 409);
+    }
+    await supabase.from("technician_invitation_requests").insert({ company_id:targetCompanyId, requested_by:authenticatedUserId, invite_email:email, display_name:displayName || null, requested_role:role, status:"sent" });
+    await supabase.from("company_member_access_audit").insert({ company_id:targetCompanyId, member_id:membershipResult.id, subject_user_id:authUser.id, actor_user_id:authenticatedUserId, event_type:previous?.id ? "member_reactivated" : "member_added", before_state:previous ? {status:previous.status} : null, after_state:membershipResult });
+    await supabase.from("platform_usage_events").insert({ company_id:targetCompanyId, user_id:authenticatedUserId, event_type:previous?.id ? "seat_reactivated" : "seat_added", units:1, metadata:{ member_user_id:authUser.id, role, invited:invitationSent } });
+    return jsonResponse({ ok:true, member:membershipResult, invitationSent, existingAccount:!invitationSent, seatUsage:{ active:(seatCount || 0)+1, limit:company.seat_limit }, message:invitationSent ? "Invitation sent and seat assigned. The teammate should accept the email and sign in." : "Existing account added to this company as an active seat." }, 200);
+  }
+
+  // Inspect an extracted private document. Only the same company, an authorized reviewer, or platform owner may request it.
+  if (action === "review_company_document") {
+    if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({ error: "Sign in before reviewing company documents.", code: "AUTH_REQUIRED" }, 401);
+    const targetCompanyId = textValue(body.companyId, 80) || authenticatedCompanyId || "";
+    const manualId = textValue(body.manualId, 80);
+    const { data: owner } = await supabase.from("platform_admins").select("user_id").eq("user_id", authenticatedUserId).maybeSingle();
+    const isPlatformActor = Boolean(owner);
+    if (!targetCompanyId || !manualId) return jsonResponse({ error: "Company and document IDs are required.", code: "DOCUMENT_REVIEW_INPUT_INVALID" }, 400);
+    if (!isPlatformActor && (targetCompanyId !== authenticatedCompanyId || (authenticatedRole !== "company_admin" && authenticatedPermissions?.canReviewDocuments !== true))) return jsonResponse({ error: "Your account does not have permission to review extracted documents for this company.", code: "DOCUMENT_REVIEW_PERMISSION_REQUIRED" }, 403);
+    const { data: manual, error: manualError } = await supabase.from("company_manuals").select("id,company_id,title,extraction_status,extraction_error,extracted_char_count,chunk_count,processed_at,source_url,original_filename").eq("id", manualId).eq("company_id", targetCompanyId).maybeSingle();
+    if (manualError || !manual) return jsonResponse({ error: "Document not found in this company library.", code: "MANUAL_NOT_FOUND" }, 404);
+    const { data: chunks, error: chunkError } = await supabase.from("company_manual_chunks").select("title,content_text,page_number,chunk_index,source_url").eq("manual_id", manualId).eq("company_id", targetCompanyId).order("chunk_index", {ascending:true}).limit(8);
+    if (chunkError) return jsonResponse({ error: "Could not load extracted document text.", code: "DOCUMENT_TEXT_LOAD_FAILED" }, 500);
+    return jsonResponse({ ok:true, manual, chunks:(chunks || []).map((ch: AnyRecord) => ({ title:textValue(ch.title,240), pageNumber:ch.page_number ?? null, chunkIndex:ch.chunk_index, sourceUrl:ch.source_url || null, text:scrubPII(textValue(ch.content_text,3500)) })) }, 200);
   }
 
   // Shared knowledge approval is reserved to PoolDocAI platform owners, never company admins.
@@ -753,12 +906,19 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     return jsonResponse({ error: "Sign in with an individual company account before saving technician job notes.", code: "AUTH_REQUIRED" }, 401);
   }
 
-  // Company document ingestion is delegated to the separately deployed Node worker.
-  // Only company admins/platform owners may ingest or change a document's learning consent.
+  // Company document ingestion uses the private worker. Upload and review are independently delegated.
   if (["process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action)) {
-    if (body.authenticatedApp !== true || !authenticatedCompanyId || !authenticatedUserId) return jsonResponse({ error: "Sign in with a company account first.", code: "AUTH_REQUIRED" }, 401);
+    if (body.authenticatedApp !== true || !authenticatedUserId) return jsonResponse({ error: "Sign in with a company account first.", code: "AUTH_REQUIRED" }, 401);
     const { data: platformAdmin } = await supabase.from("platform_admins").select("user_id").eq("user_id", authenticatedUserId).maybeSingle();
-    if (authenticatedRole !== "company_admin" && !platformAdmin) return jsonResponse({ error: "Only a company administrator can manage company documents.", code: "COMPANY_ADMIN_REQUIRED" }, 403);
+    const isPlatformActor = Boolean(platformAdmin);
+    const targetCompanyId = authenticatedCompanyId || (isPlatformActor ? textValue(body.companyId, 80) : "");
+    if (!targetCompanyId) return jsonResponse({ error: "Select a company you are authorized to manage.", code: "COMPANY_MEMBERSHIP_REQUIRED" }, 403);
+    if (!isPlatformActor && textValue(body.companyId, 80) && textValue(body.companyId, 80) !== authenticatedCompanyId) return jsonResponse({ error: "You cannot manage another company's documents.", code: "TENANT_MISMATCH" }, 403);
+    if (action === "set_manual_learning_consent") {
+      if (!isPlatformActor && authenticatedRole !== "company_admin") return jsonResponse({ error: "Only this company's administrator can change shared-learning consent.", code: "COMPANY_ADMIN_REQUIRED" }, 403);
+    } else if (!isPlatformActor && !(authenticatedRole === "company_admin" || authenticatedPermissions?.canUploadDocuments === true)) {
+      return jsonResponse({ error: "Your company seat does not have document-upload permission.", code: "DOCUMENT_UPLOAD_PERMISSION_REQUIRED" }, 403);
+    }
     const queueManual = async (manualId: string, forceReprocess = false) => {
       const { data, error } = await supabase.rpc("pooldocai_enqueue_document_job", { p_manual_id: manualId, p_requested_by: authenticatedUserId, p_force: forceReprocess });
       if (error || !data) throw new Error("Could not queue document processing. Check the document-jobs migration.");
@@ -768,23 +928,30 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (action === "import_company_webpage") {
       const url = textValue(body.url, 2000);
       if (!url) return jsonResponse({ error: "Enter a public webpage URL.", code: "WEBPAGE_URL_REQUIRED" }, 400);
+      // Shared-learning consent is a company-admin decision, even if a delegated uploader
+      // invokes this server-side path that uses the privileged Supabase client.
+      if (body.sharedLearningOptIn === true && !isPlatformActor && authenticatedRole !== "company_admin") {
+        return jsonResponse({ error: "Only a company administrator can opt a webpage into shared learning.", code: "COMPANY_ADMIN_REQUIRED" }, 403);
+      }
       try {
-        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({ company_id: authenticatedCompanyId, uploaded_by: authenticatedUserId, title: textValue(body.title,250) || new URL(url).hostname, storage_path: `${authenticatedCompanyId}/web-${crypto.randomUUID()}.html`, content_type: "text/html", file_size: 0, document_type: textValue(body.documentType,30) || "other", source_url: url, original_filename: new URL(url).hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: "queued" }).select("id,company_id").single();
+        const parsedUrl = new URL(url);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: "Only public HTTP or HTTPS webpages can be imported.", code: "WEBPAGE_URL_INVALID" }, 400);
+        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({ company_id: targetCompanyId, uploaded_by: authenticatedUserId, title: textValue(body.title,250) || parsedUrl.hostname, storage_path: `${targetCompanyId}/web-${crypto.randomUUID()}.html`, content_type: "text/html", file_size: 0, document_type: textValue(body.documentType,30) || "other", source_url: parsedUrl.toString(), original_filename: parsedUrl.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: "queued" }).select("id,company_id").single();
         if (registerError || !registered) return jsonResponse({ error: "Could not register the webpage source.", code: "WEBPAGE_REGISTER_FAILED" }, 500);
         return jsonResponse(await queueManual(registered.id), 202);
       } catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : "Webpage import failed.", code: "DOCUMENT_IMPORT_FAILED" }, 502); }
     }
     const manualId = textValue(body.manualId, 80);
     if (!manualId) return jsonResponse({ error: "Document ID is required.", code: "MANUAL_ID_REQUIRED" }, 400);
-    const { data: manual, error: manualError } = await supabase.from("company_manuals").select("id,company_id,shared_learning_opt_in").eq("id", manualId).eq("company_id", authenticatedCompanyId).maybeSingle();
+    const { data: manual, error: manualError } = await supabase.from("company_manuals").select("id,company_id,shared_learning_opt_in").eq("id", manualId).eq("company_id", targetCompanyId).maybeSingle();
     if (manualError || !manual) return jsonResponse({ error: "Document was not found in this company library.", code: "MANUAL_NOT_FOUND" }, 404);
     if (action === "set_manual_learning_consent") {
       const next = body.sharedLearningOptIn === true;
-      const { error: consentError } = await supabase.from("company_manuals").update({ shared_learning_opt_in: next, learning_consent_updated_at: new Date().toISOString() }).eq("id", manualId).eq("company_id", authenticatedCompanyId);
+      const { error: consentError } = await supabase.from("company_manuals").update({ shared_learning_opt_in: next, learning_consent_updated_at: new Date().toISOString() }).eq("id", manualId).eq("company_id", targetCompanyId);
       if (consentError) return jsonResponse({ error: "Could not update document consent.", code: "CONSENT_UPDATE_FAILED" }, 500);
-      await supabase.from("document_consent_audit").insert({ manual_id: manualId, company_id: authenticatedCompanyId, actor_user_id: authenticatedUserId, old_opt_in: Boolean(manual.shared_learning_opt_in), new_opt_in: next, reason: "Company administrator changed document learning consent" });
+      await supabase.from("document_consent_audit").insert({ manual_id: manualId, company_id: targetCompanyId, actor_user_id: authenticatedUserId, old_opt_in: Boolean(manual.shared_learning_opt_in), new_opt_in: next, reason: "Company administrator changed document learning consent" });
       if (!next) {
-        const { data: linkedQueue } = await supabase.from("learning_review_queue").select("id,case_id,status").eq("tenant_id", authenticatedCompanyId).eq("source_kind", "company_manual").contains("supporting_source_ids", [manualId]);
+        const { data: linkedQueue } = await supabase.from("learning_review_queue").select("id,case_id,status").eq("tenant_id", targetCompanyId).eq("source_kind", "company_manual").contains("supporting_source_ids", [manualId]);
         for (const queued of linkedQueue || []) {
           await supabase.from("shared_learning_knowledge").delete().eq("source_queue_id", queued.id);
           if (queued.status !== "rejected") {
@@ -860,7 +1027,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Technician close-out: persistent case data always requires individual Supabase Auth.
   if (action === "save_technician_job") {
-    if (!authenticatedCompanyId || !authenticatedUserId || !["company_admin", "technician"].includes(String(authenticatedRole))) return jsonResponse({ error: "Only an active company admin or technician can save job notes.", code: "TECHNICIAN_ROLE_REQUIRED" }, 403);
+    if (!authenticatedCompanyId || !authenticatedUserId || !(authenticatedRole === "company_admin" || authenticatedPermissions?.canEditJobNotes === true)) return jsonResponse({ error: "Your company account does not have permission to edit job notes. Ask the company admin to enable that seat permission.", code: "JOB_NOTE_EDIT_PERMISSION_REQUIRED" }, 403);
     const notes = textValue(body.diagnosticNotes, 4000);
     const resolution = textValue(body.resolution, 3000);
     const complaint = textValue(body.complaint, 1500);

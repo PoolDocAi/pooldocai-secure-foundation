@@ -1,8 +1,14 @@
+## Browser Supabase configuration
+
+This release includes `website/js/config.js` configured for project `owfeebydlyacssqpnmkq` with the supplied public publishable key. You can upload it as included. The publishable key is intentionally used in browser code; never replace it with an `sb_secret_` key, service-role credential, Gemini key, worker secret, or personal access token. Confirm the URL and key match the same Supabase project before deploying.
+
 # PoolDocAI — clean-install deployment guide
 
 This bundle is intended to be the full repository contents for a **new/empty** Supabase, GitHub and Vercel setup. It includes the public website, authenticated company portal and troubleshooter, technician PWA, Supabase migrations/Edge Function, a separate document worker, and a platform-owner learning review screen.
 
 > **Release status:** code and static checks are included, but this package has not been applied to your live Supabase project or deployed/verified end-to-end. Deploy first to a new staging project and complete `SECURITY_TEST_PLAN.md`. Do not put real customer data in it until those tests pass.
+
+> **Updating the existing PoolDocAI pilot?** Use [`README_UPDATE_20261021_EXISTING_INSTALL.md`](README_UPDATE_20261021_EXISTING_INSTALL.md). It explains how to merge migrations 008–011 and application updates into your existing repository. This release includes `website/js/config.js` preconfigured with your public publishable key for project `owfeebydlyacssqpnmkq`.
 
 ## What is included
 
@@ -19,8 +25,8 @@ This bundle is intended to be the full repository contents for a **new/empty** S
 
 1. Create a new Supabase project and save its project URL, project reference and public anon key.
 2. Keep the **service-role key** private. Never put it in website HTML, GitHub, Vercel client environment variables, or a screenshot.
-3. In SQL Editor, run each file under `supabase/migrations/` in ascending numeric order (`202610210001` through `202610210007`). Use a fresh project for this sequence; do not apply it blindly to an existing production schema.
-4. Run `supabase/tests/security_review.sql`. Review failures before continuing.
+3. In SQL Editor, run each file under `supabase/migrations/` in ascending numeric order (`202610210001` through `202610210011`). Use a fresh project for this sequence; do not apply it blindly to an existing production schema.
+4. The included GitHub Actions workflow starts local Supabase, applies all migrations, and runs `supabase/tests/security_review.sql` with `psql --file`. Review any failure before continuing.
 5. In Authentication settings, enable email/password sign-in. Turn off public sign-up unless you intentionally implement a reviewed invitation flow. Create individual user accounts for company admins/technicians.
 
 ### Provision the first company and platform owner
@@ -46,7 +52,10 @@ Replace all placeholders; never execute the sample unchanged. The platform-owner
 ## 2. Deploy the Edge Function
 
 1. Install the Supabase CLI and sign in, or use the GitHub Actions workflow after configuring its secrets.
-2. In Supabase Dashboard → Edge Functions → Secrets, set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) to your Gemini provider key. Hosted Edge Functions receive `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as Supabase-managed runtime variables; the dashboard rejects manually creating custom secrets with the reserved `SUPABASE_` prefix. Do not expose server-side credentials.
+2. Set Edge Function secrets in Supabase Dashboard → Edge Functions → Secrets:
+   - `SUPABASE_URL` — your project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` — server-side only
+   - `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) — provider key used by troubleshooting and OCR
 3. Deploy `supabase/functions/clever-handler/` as `clever-handler`.
 4. `supabase/config.toml` disables gateway JWT verification for this mixed public-demo/authenticated function; protected operations must therefore keep validating the bearer token and membership/role inside the function. Never remove those checks.
 
@@ -67,8 +76,8 @@ The worker polls the private queue and claims jobs using an atomic database func
 1. Create an empty GitHub repository and upload **the contents of this bundle's `PoolDocAI_Release_Bundle/` folder** to the repository root (not an extra nested folder).
 2. In GitHub repository Settings → Secrets and variables → Actions, add `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` if you want to use the included manual-dispatch deployment workflow. Restrict repository access.
 3. Import that repository into Vercel. The included `vercel.json` serves the `website/` directory as the static output. Deploy the first production build.
-4. In `website/js/config.js`, replace `REPLACE_WITH_SUPABASE_PUBLIC_KEY` with the **public publishable/anon key from this same Supabase project**. Do not use an `sb_secret_` key or the service-role key. All website pages read this shared configuration.
-5. Commit `website/js/config.js` and redeploy. Ensure Vercel's project root is the repository root.
+4. This release includes `website/js/config.js` already configured with the public publishable key for project `owfeebydlyacssqpnmkq`. The file is intentionally served to browsers. Never place an `sb_secret_` key, service-role key, Gemini key, worker secret, or personal access token in it.
+5. Commit the files and redeploy. Ensure Vercel's project root is the repository root.
 
 ## 5. Set up accounts and access
 
@@ -95,9 +104,4 @@ This bundle uses a static HTML/vanilla-JS frontend and can be migrated later, bu
 
 
 ### Reliability update (2026-10-21)
-The canonical Render service definition is `document-worker/render.yaml`; the redundant root-level `render.yaml` has been removed. The worker `/process` endpoint now requires an HMAC-SHA256 signature over `timestamp.rawBody` by default, with a 5-minute clock-skew window. Sign requests with `X-PoolDocAI-Timestamp` (Unix seconds) and `X-PoolDocAI-Signature` (lowercase hex HMAC-SHA256). Do not enable legacy shared-secret-only mode in production. The durable queue poller continues to process jobs internally. Apply migration `202610210007_reliability_review_safety.sql` after migrations 001–006.
-
-
-### Public demo allowance update
-
-Migration `202610210008_public_demo_eight_turns.sql` raises the server-side limit to eight turns per mode. Apply it after migrations 001–007 in the correct Supabase project. Homeowner Triage and Field Tech Mobile App use separate opaque session IDs and separate eight-turn counters. The public demo remains distinct from authenticated photo recognition and account features.
+The canonical Render service definition is `document-worker/render.yaml`; there is no redundant root Render definition. The worker uses Node.js 22 and the `/process` endpoint requires an HMAC-SHA256 signature over `timestamp.rawBody` by default with a five-minute clock-skew window. The private durable queue poller claims work atomically. Existing installations should apply migrations 008–011 after 001–007 as documented in `README_UPDATE_20261021_EXISTING_INSTALL.md`.

@@ -1,0 +1,6 @@
+// Copy this file to website/js/config.js and insert the public/publishable key from your Supabase project.
+// Never place sb_secret_*, service-role, Gemini, Render-worker, or Supabase personal access tokens here.
+window.POOLDOCAI_CONFIG = Object.freeze({
+  supabaseUrl: "https://owfeebydlyacssqpnmkq.supabase.co",
+  publicAnonKey: "REPLACE_WITH_SUPABASE_PUBLISHABLE_KEY"
+});

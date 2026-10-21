@@ -1,5 +1,8 @@
 # PoolDocAI — cost controls, triage tiers, learning loop, privacy and navigation
 
+## Existing pilot update
+For the current Oct 21 update (8-turn public demos, CI SQL runner fix, company-level permission flags, seat management and platform account status), follow [`README_UPDATE_20261021_EXISTING_INSTALL.md`](README_UPDATE_20261021_EXISTING_INSTALL.md). Preserve your existing `website/js/config.js` during file merge.
+
 ## Files
 - `website/`: six HTML pages, friendlier consistent nav labels.
 - `supabase/functions/clever-handler/index.ts`: Edge Function source with PII scrubbing, tiered model routing, photo recognition and session quota guard.
@@ -30,11 +33,11 @@ The handler removes common PII patterns and common identity/contact keys before 
 3. Commit to `main`. Vercel should deploy automatically. Check Deployments and confirm the commit is the latest.
 
 ## Deploy Supabase Edge Function from GitHub
-A GitHub URL alone does not deploy an Edge Function. The workflow deploys it when configured.
+A GitHub URL alone does not deploy an Edge Function. The workflow deploys it when configured. The security workflow uses `psql --file` so the multi-statement SQL smoke test is executed as a script, not sent as one prepared statement.
 1. Add `supabase/functions/clever-handler/index.ts` and `supabase/migrations/202610210001_learning_loop_privacy.sql` to the repository.
 2. Add `.github/workflows/deploy-supabase.yml`. Review it before enabling.
 3. In GitHub repository Settings → Secrets and variables → Actions, add `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`. Never commit API keys or service-role keys.
-4. In Supabase Dashboard → Edge Functions → Secrets, set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). Supabase provides its reserved `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` runtime variables automatically; do not attempt to add custom `SUPABASE_` secrets.
+4. In Supabase Dashboard → Edge Functions → Secrets, set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). Supabase reserves `SUPABASE_*` Edge Function variables and provides `SUPABASE_URL` and legacy `SUPABASE_SERVICE_ROLE_KEY` in the hosted function environment; do not attempt to create reserved-name secrets manually.
 5. Apply the migration using Supabase SQL Editor or `supabase db push`. Back up production first.
 6. Run GitHub Actions workflow and verify deployment logs.
 7. Test the deployed endpoint with no personal data, then verify quotas, RLS, redaction, chemistry validation and model fallback behavior.
@@ -62,24 +65,24 @@ New files and migration:
 - `website/admin.html` — Supabase Auth sign-in, company overview, plan/billing metadata, service requests, technician notes, customer records, member roles, invitation-request queue, private manuals/SOP uploads, and platform-owner analytics.
 - `website/app.html` — authenticated full troubleshooting workspace. The Edge Function validates the Supabase bearer token and active company membership when `authenticatedApp: true` is sent.
 - `supabase/migrations/202610210003_company_admin_portal.sql` — tenant tables, RLS policies, seat-limit trigger, private `company-manuals` storage bucket, and page-view analytics table.
-- Public demo now permits 8 troubleshooting turns per demo mode and browser session. Public photo upload does not send the image; it displays the waitlist callout.
+- Public demo now permits 3 troubleshooting turns per browser session. Public photo upload does not send the image; it displays the waitlist callout.
 
 ### Required deployment steps
 1. Copy the website files to the Vercel/GitHub repository, including `admin.html` and `app.html`.
 2. Apply migrations in numerical order in Supabase SQL Editor, including `202610210003_company_admin_portal.sql`. Review the SQL against your existing schema before production.
-3. Set `GEMINI_API_KEY` as a Supabase Edge Function secret, deploy the updated `clever-handler` function, and keep all service-role/secret keys server-side. Supabase supplies its reserved `SUPABASE_` runtime variables automatically.
-4. In `website/js/config.js`, replace `REPLACE_WITH_SUPABASE_PUBLIC_KEY` with the public publishable/anon key from the correct Supabase project. Never use a service-role or `sb_secret_` key in browser code.
+3. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as Supabase Edge Function secrets (existing setup), deploy the updated `clever-handler` function, and keep all service-role keys server-side.
+4. In `website/admin.html`, `website/app.html`, and `website/technician.html`, replace `REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY` with the **public anon key** from Supabase Settings → API. Never use a service-role key in browser code.
 5. Create each company and its first admin using a trusted administrative process. Create individual Supabase Auth users, then insert their `company_members` row. Add your own user ID to `platform_admins` from the SQL Editor after confirming the correct Auth user UUID. Never allow public sign-up to assign platform-admin role.
 6. Ensure email/password auth and password-reset email templates are configured. Invitation requests are queued in the portal; sending an Auth invite requires a trusted server-side function using the service-role key.
 7. Billing fields in this release are account metadata only. Connect a billing provider and verified webhooks before accepting payments or treating billing status as authoritative.
 8. Test company A vs company B, technician vs company admin, suspended member, seat-limit overrun, unauthenticated API call, password reset, file access, public demo 4th turn, and public photo selection before production.
 
 ### Important limitations
-- The company portal reads/writes the new tenant tables and uploads files to private storage once configured, but does not yet send Auth invitations automatically. The invitation queue requires a trusted server-side invite workflow.
+- Company seat provisioning uses the authenticated `invite_company_member` Edge Function action to send Auth invitations or assign existing Auth users, subject to company role, status and seat limit. Confirm Auth email delivery is configured before enabling company invitations.
 - Billing is not connected to Stripe or another payment provider. No payment card data is collected.
 - Page analytics record page path, referrer hostname, and a session hash; they do not capture raw IP addresses or full referrer URLs. They are basic traffic counts, not a full analytics suite.
 - The technician PWA uses individual Supabase Auth accounts; unauthenticated/shared-code saves are denied.
-- A public demo's eight-turn limit is enforced in the website client and is intended as a demo friction limit, not a hard anti-abuse boundary. The API session quotas remain separate.
+- Each public demo mode has an eight-turn allowance enforced both in the website client and by the server. This is a friction/cost control, not a guarantee that one person equals one browser session. The API session quotas remain separate.
 - This package has not been deployed to the live project. Verify all policies and run the QA checklist with real test accounts before storing customer data.
 
 
@@ -108,9 +111,4 @@ For a clean install, start with [README_START_HERE.md](README_START_HERE.md). Th
 
 
 ### Reliability update (2026-10-21)
-The canonical Render service definition is `document-worker/render.yaml`; the redundant root-level `render.yaml` has been removed. The worker `/process` endpoint now requires an HMAC-SHA256 signature over `timestamp.rawBody` by default, with a 5-minute clock-skew window. Sign requests with `X-PoolDocAI-Timestamp` (Unix seconds) and `X-PoolDocAI-Signature` (lowercase hex HMAC-SHA256). Do not enable legacy shared-secret-only mode in production. The durable queue poller continues to process jobs internally. Apply migration `202610210007_reliability_review_safety.sql` after migrations 001–006.
-
-
-### Public demo allowance update
-
-Migration `202610210008_public_demo_eight_turns.sql` raises the server-side limit to eight turns per mode. Apply it after migrations 001–007 in the correct Supabase project. Homeowner Triage and Field Tech Mobile App use separate opaque session IDs and separate eight-turn counters. The public demo remains distinct from authenticated photo recognition and account features.
+The canonical Render service definition is `document-worker/render.yaml`; the redundant root-level `render.yaml` has been removed. The worker `/process` endpoint now requires an HMAC-SHA256 signature over `timestamp.rawBody` by default, with a 5-minute clock-skew window. Sign requests with `X-PoolDocAI-Timestamp` (Unix seconds) and `X-PoolDocAI-Signature` (lowercase hex HMAC-SHA256). Do not enable legacy shared-secret-only mode in production. The durable queue poller continues to process jobs internally. Apply migrations 008–011 after 001–007 for existing installations; see `README_UPDATE_20261021_EXISTING_INSTALL.md`.
