@@ -17,7 +17,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>
 // Public anon key only. Never place a service-role key or payment secret in this file.
 const SUPABASE_URL='https://sborrkmwfhzqtuiodgje.supabase.co';
-const SUPABASE_ANON_KEY='REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY';
+const SUPABASE_ANON_KEY='sb_publishable_bdDNiZDoKWyhwqSp_ptj2Q_lkOd9w5-';
 let client=null,session=null,companies=[],selectedCompany=null,member=null,isPlatformAdmin=false;
 const $=id=>document.getElementById(id);function say(t,type=''){ $('status').textContent=t;$('status').className=type; }
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
