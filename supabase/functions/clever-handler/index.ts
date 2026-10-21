@@ -822,7 +822,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     return jsonResponse({ error: "Photo identification is available through the authenticated pilot. Join the waitlist for access.", code: "PHOTO_PILOT_ONLY" }, 403);
   }
 
-  // Enforce a maximum of three unique troubleshooting turns per public browser session.
+  // Enforce a maximum of eight unique troubleshooting turns per public browser session and mode.
   // Authenticated company requests are governed by account usage limits instead.
   if (body.authenticatedApp !== true && action !== "save_technician_job" && action !== "public_page_view") {
     const publicSession = textValue(body.sessionId, 160);
@@ -830,10 +830,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (!publicSession || !turnId) return jsonResponse({ error: "Public demo session is missing. Reload the demo and try again.", code: "DEMO_SESSION_REQUIRED" }, 400);
     const publicDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(publicSession));
     const publicHash = Array.from(new Uint8Array(publicDigest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const { data: demoData, error: demoError } = await supabase.rpc("pooldocai_consume_public_demo_turn", { p_session_hash: publicHash, p_turn_id: turnId, p_max_turns: 3, p_window_hours: 24 });
+    const { data: demoData, error: demoError } = await supabase.rpc("pooldocai_consume_public_demo_turn", { p_session_hash: publicHash, p_turn_id: turnId, p_max_turns: 8, p_window_hours: 24 });
     if (demoError) { console.error("Public demo quota check failed", { code: demoError.code }); return jsonResponse({ error: "Demo access protection is temporarily unavailable. Please join the waitlist for full access.", code: "DEMO_GUARD_UNAVAILABLE" }, 503); }
     const demoRow = Array.isArray(demoData) ? demoData[0] : demoData;
-    if (demoRow && demoRow.allowed === false) return jsonResponse({ error: "The public demo includes three troubleshooting turns. Join the waitlist for full access.", code: "DEMO_LIMIT_REACHED" }, 429);
+    if (demoRow && demoRow.allowed === false) return jsonResponse({ error: "The public demo allows up to eight turns in Homeowner Triage and a separate eight turns in the Field Tech Mobile App preview. Sign in or join the waitlist for full account access.", code: "DEMO_LIMIT_REACHED" }, 429);
   }
 
   // Server-enforced session budget. The client session token is opaque and only its

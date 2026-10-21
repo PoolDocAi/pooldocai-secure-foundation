@@ -5,7 +5,7 @@
 - Public navigation uses `/demo` for the public demo and `/app` for the authenticated full troubleshooter.
 - `/app` renders a sign-in gate first and only reveals the full troubleshooting UI after a valid Supabase session and active company membership in a `pilot` or `active` company are confirmed.
 - The authenticated troubleshooting UI preserves the existing diagnostic workflow, water chemistry assistance, and photo identification control (`poolEquipmentPhotoInput`). Photo identification sends an authenticated request and remains unavailable in the public demo.
-- `/demo` is labelled `PUBLIC DEMO · 3 TURNS`. It keeps the client-side three-turn indicator and the Edge Function enforces the three-turn backend limit. Photo identification is blocked there.
+- `/demo` is labelled `PUBLIC DEMO · 8 TURNS PER MODE`. Homeowner Triage and Field Tech Mobile App each have a distinct client counter and server-side session quota of eight turns. Public photo identification remains blocked. Photo identification is blocked there.
 - `/technician` is the separate technician field-notes/job-record workspace.
 - The technician service worker is scoped to `/technician` and only caches its own allowlisted paths. The app installer helper unregisters a known legacy root-scoped `technician-sw.js` worker and registers `app-sw.js` at `/`.
 - The account portal provides an install action from the Account Overview and Troubleshooter tab. The manifest launches at `/app`.

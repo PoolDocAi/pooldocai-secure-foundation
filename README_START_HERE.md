@@ -96,3 +96,8 @@ This bundle uses a static HTML/vanilla-JS frontend and can be migrated later, bu
 
 ### Reliability update (2026-10-21)
 The canonical Render service definition is `document-worker/render.yaml`; the redundant root-level `render.yaml` has been removed. The worker `/process` endpoint now requires an HMAC-SHA256 signature over `timestamp.rawBody` by default, with a 5-minute clock-skew window. Sign requests with `X-PoolDocAI-Timestamp` (Unix seconds) and `X-PoolDocAI-Signature` (lowercase hex HMAC-SHA256). Do not enable legacy shared-secret-only mode in production. The durable queue poller continues to process jobs internally. Apply migration `202610210007_reliability_review_safety.sql` after migrations 001–006.
+
+
+### Public demo allowance update
+
+Migration `202610210008_public_demo_eight_turns.sql` raises the server-side limit to eight turns per mode. Apply it after migrations 001–007 in the correct Supabase project. Homeowner Triage and Field Tech Mobile App use separate opaque session IDs and separate eight-turn counters. The public demo remains distinct from authenticated photo recognition and account features.

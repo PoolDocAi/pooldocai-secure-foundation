@@ -62,7 +62,7 @@
 - [ ] Confirm customer PII is not accessible to unauthenticated users or another company.
 - [ ] Upload a sample PDF SOP and verify only company members can open its signed URL.
 - [ ] Confirm `/app.html` requires login and the Edge Function rejects missing/invalid JWTs or inactive company membership.
-- [ ] Confirm the public demo permits three troubleshooting turns and then shows the waitlist callout.
+- [ ] Confirm the public demo permits eight troubleshooting turns per demo mode and then shows the waitlist callout.
 - [ ] Confirm selecting a photo on the public demo never sends the file and displays the waitlist callout.
 - [ ] Confirm page-view counts appear in the platform-owner dashboard after deployment.
 - [ ] Verify invitation queue workflow, billing-provider integration, and customer-data retention policy before production.
@@ -90,3 +90,8 @@
 - [ ] Authenticated troubleshooting returns company-specific source snippets where relevant.
 - [ ] Cross-company retrieval test returns no chunks from another tenant.
 - [ ] Invalid/private webpage URLs and redirects are rejected; worker secrets never appear in browser source or logs.
+
+- [ ] Confirm the public demo counter displays the remaining turns for the selected mode and updates when switching modes.
+- [ ] Confirm Homeowner Triage allows eight unique turns and blocks turn nine.
+- [ ] Confirm Field Tech Mobile App allows its own eight unique turns and blocks turn nine, independent of Homeowner Triage usage.
+- [ ] Confirm the header includes a Demo link and Account Login, no unauthenticated Technician Troubleshooter link, and evenly spaced navigation tabs.

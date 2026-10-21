@@ -16,6 +16,31 @@ begin
   if (select public.is_platform_admin()) is null then raise exception 'is_platform_admin unexpectedly null'; end if;
 end $$;
 
+-- Verify public demo cap is eight turns and a separate mode-specific session gets its own allowance.
+do $$
+declare
+  homeowner_hash text := 'ci-demo-homeowner-' || md5(clock_timestamp()::text || random()::text);
+  fieldtech_hash text := 'ci-demo-fieldtech-' || md5(clock_timestamp()::text || random()::text);
+  r record;
+  i integer;
+begin
+  for i in 1..8 loop
+    select * into r from public.pooldocai_consume_public_demo_turn(homeowner_hash, 'turn-' || i::text, 8, 24);
+    if not r.allowed then raise exception 'Homeowner demo was blocked before turn % of 8', i; end if;
+  end loop;
+  select * into r from public.pooldocai_consume_public_demo_turn(homeowner_hash, 'turn-9', 8, 24);
+  if r.allowed then raise exception 'Homeowner demo allowed a ninth turn'; end if;
+
+  for i in 1..8 loop
+    select * into r from public.pooldocai_consume_public_demo_turn(fieldtech_hash, 'turn-' || i::text, 8, 24);
+    if not r.allowed then raise exception 'Field Tech demo was blocked before turn % of 8', i; end if;
+  end loop;
+  select * into r from public.pooldocai_consume_public_demo_turn(fieldtech_hash, 'turn-9', 8, 24);
+  if r.allowed then raise exception 'Field Tech demo allowed a ninth turn'; end if;
+
+  delete from public.public_demo_sessions where session_hash in (homeowner_hash, fieldtech_hash);
+end $$;
+
 -- Inspect tenant-aware policies for the main private tables.
 select schemaname, tablename, policyname, roles, cmd, qual, with_check
 from pg_policies

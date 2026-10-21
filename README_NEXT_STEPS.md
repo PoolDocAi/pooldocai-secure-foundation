@@ -62,7 +62,7 @@ New files and migration:
 - `website/admin.html` — Supabase Auth sign-in, company overview, plan/billing metadata, service requests, technician notes, customer records, member roles, invitation-request queue, private manuals/SOP uploads, and platform-owner analytics.
 - `website/app.html` — authenticated full troubleshooting workspace. The Edge Function validates the Supabase bearer token and active company membership when `authenticatedApp: true` is sent.
 - `supabase/migrations/202610210003_company_admin_portal.sql` — tenant tables, RLS policies, seat-limit trigger, private `company-manuals` storage bucket, and page-view analytics table.
-- Public demo now permits 3 troubleshooting turns per browser session. Public photo upload does not send the image; it displays the waitlist callout.
+- Public demo now permits 8 troubleshooting turns per demo mode and browser session. Public photo upload does not send the image; it displays the waitlist callout.
 
 ### Required deployment steps
 1. Copy the website files to the Vercel/GitHub repository, including `admin.html` and `app.html`.
@@ -79,7 +79,7 @@ New files and migration:
 - Billing is not connected to Stripe or another payment provider. No payment card data is collected.
 - Page analytics record page path, referrer hostname, and a session hash; they do not capture raw IP addresses or full referrer URLs. They are basic traffic counts, not a full analytics suite.
 - The existing technician PWA pilot access-code workflow remains a separate legacy route. Use the authenticated `/app.html` for the company troubleshooting workspace. Production rollout should move technician job saving entirely to per-user authenticated requests.
-- A public demo's three-turn limit is enforced in the website client and is intended as a demo friction limit, not a hard anti-abuse boundary. The API session quotas remain separate.
+- A public demo's eight-turn limit is enforced in the website client and is intended as a demo friction limit, not a hard anti-abuse boundary. The API session quotas remain separate.
 - This package has not been deployed to the live project. Verify all policies and run the QA checklist with real test accounts before storing customer data.
 
 
@@ -112,3 +112,8 @@ on conflict (user_id) do nothing;
 ## Document extraction pipeline (new in this bundle)
 
 For a clean install, follow `README_START_HERE.md` and apply all migrations `202610210001` through `202610210006` in order. Deploy the Edge Function and `document-worker`; set worker secrets in Render and Edge Function secrets in Supabase. The worker polls the durable database queue; `DOC_WORKER_URL` is not required by the current Edge Function.
+
+
+### Public demo allowance update
+
+Migration `202610210008_public_demo_eight_turns.sql` raises the server-side limit to eight turns per mode. Apply it after migrations 001–007 in the correct Supabase project. Homeowner Triage and Field Tech Mobile App use separate opaque session IDs and separate eight-turn counters. The public demo remains distinct from authenticated photo recognition and account features.

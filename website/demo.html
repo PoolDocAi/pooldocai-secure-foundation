@@ -166,8 +166,8 @@
   <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">PUBLIC DEMO · 3 TURNS</span>
-        <span class="font-medium">Try up to 3 troubleshooting turns in this public demo. Join the waitlist for full access.</span>
+        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">PUBLIC DEMO · 8 TURNS PER MODE</span>
+        <span class="font-medium">Try 8 turns in Homeowner Triage and a separate 8 turns in the Field Tech Mobile App preview. Join the waitlist for full account access.</span>
       </div>
       <div class="flex items-center gap-4">
         <a href="demo.html#interactive-demo" class="text-white hover:text-sky-200 font-semibold text-xs flex items-center gap-1">Try Live Demo &rarr;</a>
@@ -189,12 +189,13 @@
         </div>
       </a>
 
-      <nav class="hidden xl:flex items-center gap-5 text-sm font-medium text-slate-600">
-        <a href="index.html#top" class="hover:text-sky-600 transition">Home</a>
-        <a href="how-it-works.html#solution-section" class="hover:text-sky-600 transition">How It Works</a>
-        <a href="demo.html#interactive-demo" class="hover:text-sky-600 transition">Try the Demo</a> <a href="/app" class="nav-link">Technician Troubleshooter</a> <a href="/admin.html" class="nav-link">Account Login</a>
-        <a href="pricing.html#pricing-roi-section" class="hover:text-sky-600 transition">Pricing</a>
-        <a href="faq.html#faq-section" class="hover:text-sky-600 transition">Help &amp; Safety</a>
+      <nav class="hidden xl:flex items-center gap-1.5 text-sm font-medium text-slate-600" aria-label="Primary navigation">
+        <a href="index.html#top" class="px-2.5 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Home</a>
+        <a href="how-it-works.html#solution-section" class="px-2.5 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">How It Works</a>
+        <a href="demo.html#interactive-demo" class="px-2.5 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Demo</a>
+        <a href="pricing.html#pricing-roi-section" class="px-2.5 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Pricing</a>
+        <a href="faq.html#faq-section" class="px-2.5 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Help &amp; Safety</a>
+        <a href="/admin.html" class="px-2.5 py-2 rounded-lg whitespace-nowrap font-bold text-sky-700 hover:bg-sky-50 transition">Account Login</a>
       </nav>
 
       <div class="flex items-center gap-2">
@@ -300,7 +301,7 @@
                   <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-xs font-bold">Available to try now</span>
                 </div>
                 <p class="text-slate-300 leading-relaxed">
-                  The field-tech workflow is available as a preview in this demo. Dedicated technician accounts and a production mobile app are planned; proposed Tech-Only plans start at <strong class="text-white">$49/mo</strong>, with Complete plans starting at <strong class="text-white">$99/mo</strong>.
+                  The Field Tech Mobile App preview is available through the same live demo; it has its own separate 8-turn allowance. Dedicated technician accounts and a production mobile app are planned; proposed Tech-Only plans start at <strong class="text-white">$49/mo</strong>, with Complete plans starting at <strong class="text-white">$99/mo</strong>.
                 </p>
               </div>
 
@@ -448,6 +449,10 @@
             🔧 Field Tech Mobile App
           </button>
         </div>
+      </div>
+      <div class="mt-3 text-center space-y-1" aria-live="polite">
+        <p id="publicDemoTurnMeter" class="text-sm font-bold text-sky-200">Homeowner Triage demo: 8 of 8 turns remaining (0/8 used).</p>
+        <p class="text-xs text-slate-400">Homeowner Triage and Field Tech Mobile App each have a separate allowance of 8 turns in this browser session.</p>
       </div>
 
       <!-- Expanded 2-Column Conversational Interface -->
@@ -1147,10 +1152,30 @@
     const TROUBLESHOOTER_ENDPOINT = `${window.POOLDOCAI_CONFIG.supabaseUrl}/functions/v1/clever-handler`;
     const SUPABASE_ANON_KEY = window.POOLDOCAI_CONFIG.publicAnonKey;
     const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
-    const PUBLIC_DEMO_TURN_LIMIT = 3;
-    const PUBLIC_DEMO_COUNT_KEY = 'pooldocai_public_demo_turns_v1';
-    function publicDemoTurns(){ return Number(sessionStorage.getItem(PUBLIC_DEMO_COUNT_KEY)||0); }
-    function getPublicDemoSessionId(){let id=sessionStorage.getItem('pooldocai_public_demo_session');if(!id){id=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem('pooldocai_public_demo_session',id);}return id;}
+    const PUBLIC_DEMO_TURN_LIMIT = 8;
+    // Homeowner and field-tech demos each receive their own 8-turn allowance per browser tab/session.
+    // Distinct opaque session IDs ensure the server-side quota is independently enforced for each mode.
+    function publicDemoModeSlug(mode = currentSurfaceMode) { return mode === 'tech' ? 'field-tech' : 'homeowner'; }
+    function publicDemoCountKey(mode = currentSurfaceMode) { return `pooldocai_public_demo_turns_v2_${publicDemoModeSlug(mode)}`; }
+    function publicDemoTurns(mode = currentSurfaceMode) { return Number(sessionStorage.getItem(publicDemoCountKey(mode)) || 0); }
+    function getPublicDemoSessionId(mode = currentSurfaceMode) {
+      const key = `pooldocai_public_demo_session_v2_${publicDemoModeSlug(mode)}`;
+      let id = sessionStorage.getItem(key);
+      if (!id) {
+        id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random());
+        sessionStorage.setItem(key, id);
+      }
+      return id;
+    }
+    function updatePublicDemoTurnMeter() {
+      const meter = document.getElementById('publicDemoTurnMeter');
+      if (!meter) return;
+      const mode = currentSurfaceMode === 'tech' ? 'field-tech' : 'homeowner';
+      const used = Math.min(publicDemoTurns(currentSurfaceMode), PUBLIC_DEMO_TURN_LIMIT);
+      const remaining = Math.max(0, PUBLIC_DEMO_TURN_LIMIT - used);
+      const label = mode === 'field-tech' ? 'Field Tech Mobile App demo' : 'Homeowner Triage demo';
+      meter.textContent = `${label}: ${remaining} of ${PUBLIC_DEMO_TURN_LIMIT} turns remaining (${used}/${PUBLIC_DEMO_TURN_LIMIT} used).`;
+    }
     let activePublicDemoTurnId='';
     function showDemoWaitlistNotice(reason='You have reached the public demo limit.') {
       let n=document.getElementById('demoLimitNotice'); if(!n){ n=document.createElement('div'); n.id='demoLimitNotice'; n.className='demo-limit-notice'; n.setAttribute('role','dialog'); n.setAttribute('aria-live','polite'); n.innerHTML='<strong>That’s the end of the public demo.</strong><p id="demoLimitText" class="mt-2 text-sm"></p><p class="text-sm mt-2">For the full troubleshooting tool and photo identification, join the PoolDocAI early-access waitlist.</p><a href="waitlist.html#interest-section">Join the Waitlist</a><button type="button" id="demoLimitClose">Close</button>'; document.body.appendChild(n); n.querySelector('#demoLimitClose').addEventListener('click',()=>n.remove()); } n.querySelector('#demoLimitText').textContent=reason; n.scrollIntoView({block:'nearest'});
@@ -3393,7 +3418,7 @@
     }
 
     async function requestSupabaseTroubleshootingTurn(userText, action = 'troubleshoot', displayText = '', retryLevel = 0) {
-      if (retryLevel === 0) { if (publicDemoTurns() >= PUBLIC_DEMO_TURN_LIMIT) { showDemoWaitlistNotice('You have used the 3 troubleshooting turns included in this public demo.'); return; } sessionStorage.setItem(PUBLIC_DEMO_COUNT_KEY, String(publicDemoTurns()+1)); activePublicDemoTurnId=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random()); }
+      if (retryLevel === 0) { if (publicDemoTurns() >= PUBLIC_DEMO_TURN_LIMIT) { showDemoWaitlistNotice(`You have used all 8 turns in the ${currentSurfaceMode === 'tech' ? 'Field Tech Mobile App' : 'Homeowner Triage'} demo. The other demo mode has its own separate 8-turn allowance.`); return; } sessionStorage.setItem(publicDemoCountKey(), String(publicDemoTurns()+1)); updatePublicDemoTurnMeter(); activePublicDemoTurnId=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random()); }
       const shownText = displayText || userText;
       lastTurnRequest = { userText, action, displayText };
       const sendBtn = document.getElementById('liveDemoSendBtn');
@@ -4795,6 +4820,7 @@
     document.addEventListener('click', function (e) {
       if (e.target.closest('#modeHomeownerBtn')) {
         currentSurfaceMode = 'homeowner';
+        updatePublicDemoTurnMeter();
         document.getElementById('modeHomeownerBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer";
         document.getElementById('modeTechBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
         document.getElementById('walkthroughHeaderTitle').textContent = "PoolDocAI — 24/7 Homeowner Troubleshooting Assistant";
@@ -4805,6 +4831,7 @@
 
       if (e.target.closest('#modeTechBtn')) {
         currentSurfaceMode = 'tech';
+        updatePublicDemoTurnMeter();
         document.getElementById('modeTechBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer";
         document.getElementById('modeHomeownerBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
         document.getElementById('walkthroughHeaderTitle').textContent = "PoolDocAI — Field Technician Mobile Copilot";
@@ -5067,6 +5094,7 @@
       if (Array.isArray(chat.history) && chat.history.length && typeof conversationHistory !== 'undefined') {
         conversationHistory = chat.history;
         if (chat.currentSurfaceMode) currentSurfaceMode = chat.currentSurfaceMode;
+        if (typeof updatePublicDemoTurnMeter === 'function') updatePublicDemoTurnMeter();
         if (chat.sessionContext) sessionContext = chat.sessionContext;
         if (chat.waterHelpState) waterHelpState = chat.waterHelpState;
         if (chat.algaeTriageState) algaeTriageState = chat.algaeTriageState;
@@ -5087,8 +5115,19 @@
         const homeownerBtn = document.getElementById('modeHomeownerBtn');
         const techBtn = document.getElementById('modeTechBtn');
         if (homeownerBtn && techBtn) {
-          homeownerBtn.setAttribute('aria-pressed', String(currentSurfaceMode !== 'tech'));
-          techBtn.setAttribute('aria-pressed', String(currentSurfaceMode === 'tech'));
+          const homeownerSelected = currentSurfaceMode !== 'tech';
+          homeownerBtn.setAttribute('aria-pressed', String(homeownerSelected));
+          techBtn.setAttribute('aria-pressed', String(!homeownerSelected));
+          homeownerBtn.className = homeownerSelected
+            ? "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer"
+            : "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
+          techBtn.className = !homeownerSelected
+            ? "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer"
+            : "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
+          const modeTitle = document.getElementById('walkthroughHeaderTitle');
+          if (modeTitle) modeTitle.textContent = homeownerSelected
+            ? "PoolDocAI — 24/7 Homeowner Troubleshooting Assistant"
+            : "PoolDocAI — Field Technician Mobile Copilot";
         }
       }
       restoreForm(snapshot.waitlist);
@@ -5140,6 +5179,7 @@
   const saved = safeRead();
   if (saved) applyState(saved);
   else saveState();
+  if (typeof updatePublicDemoTurnMeter === 'function') updatePublicDemoTurnMeter();
 })();
 </script>
 <script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
