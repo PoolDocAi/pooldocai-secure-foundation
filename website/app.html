@@ -1142,7 +1142,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const SECURE_SUPABASE_URL='https://sborrkmwfhzqtuiodgje.supabase.co';
+    const SECURE_SUPABASE_URL='https://owfeebydlyacssqpnmkq.supabase.co';
     const SECURE_SUPABASE_ANON_KEY='sb_publishable_bdDNiZDoKWyhwqSp_ptj2Q_lkOd9w5-';
     const secureClient=(window.supabase&&SECURE_SUPABASE_ANON_KEY&&!SECURE_SUPABASE_ANON_KEY.startsWith('REPLACE_'))?window.supabase.createClient(SECURE_SUPABASE_URL,SECURE_SUPABASE_ANON_KEY):null;
     async function revealSecureApp(session){ if(!session)return; APP_SESSION=session; const {data,error}=await secureClient.from('company_members').select('company_id,role,companies(status)').eq('user_id',session.user.id).eq('status','active'); if(error||!data?.length){document.getElementById('secureLoginStatus').textContent='This login has no active company membership. Contact your company administrator.'; await secureClient.auth.signOut();return;} document.body.classList.remove('app-auth-required');document.getElementById('secureLoginGate').style.display='none'; }
@@ -1152,7 +1152,7 @@
     // =========================================================================
     // 0. SUPABASE TROUBLESHOOTER CONFIGURATION
     // =========================================================================
-    const TROUBLESHOOTER_ENDPOINT = 'https://sborrkmwfhzqtuiodgje.supabase.co/functions/v1/clever-handler';
+    const TROUBLESHOOTER_ENDPOINT = 'https://owfeebydlyacssqpnmkq.supabase.co/functions/v1/clever-handler';
     const SUPABASE_ANON_KEY = 'REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY';
     const SECURE_APP_MODE = true;
     let APP_SESSION = null;

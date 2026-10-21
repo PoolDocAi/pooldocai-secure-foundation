@@ -17,11 +17,11 @@
 </form><div class="footer">PoolDocAI Technician PWA · Add to your home screen for quick field access. Use typed notes if voice recognition is unavailable. Do not rely on this tool as a substitute for manufacturer procedures or company safety rules.</div>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>
-const SUPABASE_URL='https://sborrkmwfhzqtuiodgje.supabase.co';
+const SUPABASE_URL='https://owfeebydlyacssqpnmkq.supabase.co';
 const SUPABASE_ANON_KEY='REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY';
 const authClient=(window.supabase&&SUPABASE_ANON_KEY&&!SUPABASE_ANON_KEY.startsWith('REPLACE_'))?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 let authSession=null;
-const ENDPOINT='https://sborrkmwfhzqtuiodgje.supabase.co/functions/v1/clever-handler';
+const ENDPOINT='https://owfeebydlyacssqpnmkq.supabase.co/functions/v1/clever-handler';
 const $=id=>document.getElementById(id);let unlocked=false,voiceUsed=false,recognition=null,installPrompt=null;
 function status(message,type=''){const el=$('status');el.textContent=message;el.className=type;}
 function updateSyncIndicator(message){const el=$('syncIndicator');if(!el)return;const hasDraft=!!localStorage.getItem('pooldocai_tech_draft');if(message){el.textContent=message;el.style.background=hasDraft?'#fff7d6':'#e9f8ef';el.style.borderColor=hasDraft?'#9a6700':'#287447';el.style.color=hasDraft?'#4b3500':'#155b36';return;}if(!navigator.onLine){el.textContent=hasDraft?'Offline: 1 local draft waiting to be manually saved after reconnecting.':'Offline: no saved draft detected. Unsaved form entries may be lost if you close this page.';}else if(hasDraft){el.textContent='1 local draft on this device — NOT synced to your company database. Reconnect if needed, review it, then press Save job to database.';}else{el.textContent='Online. No local draft waiting. A job is synced only after the server confirms a successful save.';el.style.background='#e9f8ef';el.style.borderColor='#287447';el.style.color='#155b36';return;}el.style.background='#fff7d6';el.style.borderColor='#9a6700';el.style.color='#4b3500';}
