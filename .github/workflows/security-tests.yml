@@ -29,8 +29,8 @@ jobs:
 
       - name: Validate Edge Function TypeScript syntax
         run: |
-          npx --yes esbuild supabase/functions/clever-handler/index.ts --format=esm --outfile=/tmp/clever-handler-check.js --external:npm:*
-          npx --yes esbuild supabase/functions/stripe-webhook/index.ts --format=esm --outfile=/tmp/stripe-webhook-check.js --external:npm:*
+          npx --yes esbuild supabase/functions/clever-handler/index.ts --bundle --format=esm --outfile=/tmp/clever-handler-check.js --external:npm:*
+          npx --yes esbuild supabase/functions/stripe-webhook/index.ts --bundle --format=esm --outfile=/tmp/stripe-webhook-check.js --external:npm:*
 
       - name: Start clean local Supabase and apply all migrations
         run: |

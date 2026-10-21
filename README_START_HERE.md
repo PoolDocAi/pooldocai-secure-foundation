@@ -4,6 +4,10 @@
 
 Read [`README_FEATURE_EXPANSION_20261021.md`](README_FEATURE_EXPANSION_20261021.md). That guide provides the current exact steps for applying only missing migrations, copying files to your existing GitHub repository through GitHub Desktop, running the workflows, and configuring Supabase, Render, Vercel, invitations, Stripe preparation, usage, offline sync and retrieval.
 
+## CI syntax-check fix
+
+The security workflow runs esbuild with `--bundle` because esbuild requires bundling when `--external` is used. This is a workflow validation fix; it does not change the live database or apply migrations.
+
 ## Before uploading
 
 - Copy the **contents** of `PoolDocAI_Release_Bundle/` into your existing GitHub repository root, not the outer folder.
