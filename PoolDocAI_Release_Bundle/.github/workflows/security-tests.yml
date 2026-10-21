@@ -1,0 +1,30 @@
+name: PoolDocAI security and migration tests
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  migration-and-worker-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate document worker syntax
+        run: node --check document-worker/src/server.js
+      - name: Start clean local Supabase and apply all migrations
+        run: |
+          supabase start
+          supabase db reset
+      - name: Run SQL security smoke tests
+        run: |
+          supabase db query --local --file supabase/tests/security_review.sql
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup

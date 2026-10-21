@@ -1,0 +1,7 @@
+project_id = "pooldocai"
+
+[functions.clever-handler]
+# This function serves both the limited public demo and authenticated company features.
+# It manually validates Supabase bearer tokens for every protected action. Keep all
+# service-role and provider secrets in Supabase Edge Function secrets only.
+verify_jwt = false

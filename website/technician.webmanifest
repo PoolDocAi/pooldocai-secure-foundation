@@ -1,0 +1,11 @@
+{
+  "name": "PoolDocAI Technician",
+  "short_name": "PoolDocAI Tech",
+  "description": "Field technician diagnostic notes and job close-out",
+  "start_url": "/technician.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f7fb",
+  "theme_color": "#0f2b46",
+  "icons": [{"src":"/technician-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}

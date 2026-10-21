@@ -1,0 +1,17 @@
+{
+  "name": "pooldocai-document-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node src/server.js", "check": "node --check src/server.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
+    "cheerio": "^1.1.2",
+    "heic-convert": "^2.1.0",
+    "mammoth": "^1.10.0",
+    "pdf-parse": "^1.1.1",
+    "sharp": "^0.34.3",
+    "word-extractor": "^1.0.4"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "outputDirectory": "website",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "headers": [
+    { "source": "/learning-review", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" }, { "key": "Cache-Control", "value": "no-store" }] },
+    { "source": "/admin", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+    { "source": "/app", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+    { "source": "/technician", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+  ]
+}

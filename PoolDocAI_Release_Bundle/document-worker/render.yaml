@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: pooldocai-document-worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./document-worker/Dockerfile
+    dockerContext: ./document-worker
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DOC_WORKER_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MAX_DOWNLOAD_BYTES
+        value: "26214400"
+      - key: GEMINI_OCR_MODEL
+        value: gemini-3.8-flash
