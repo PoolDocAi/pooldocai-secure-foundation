@@ -22,9 +22,14 @@ jobs:
         run: |
           supabase start
           supabase db reset
+      -      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
       - name: Run SQL security smoke tests
         run: |
-          supabase db query --local --file supabase/tests/security_review.sql
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" --set ON_ERROR_STOP=1 --file supabase/tests/security_review.sql
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
