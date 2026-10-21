@@ -41,4 +41,8 @@ $('newBtn').addEventListener('click',()=>{if(!confirm('Start a new job? Save a d
 const saved=localStorage.getItem('pooldocai_tech_draft');updateSyncIndicator();if(saved){try{const d=JSON.parse(saved);for(const [id,key] of [['jobRef','jobRef'],['category','equipmentCategory'],['manufacturer','manufacturer'],['model','model'],['complaint','complaint'],['notes','diagnosticNotes'],['resolution','resolution'],['outcome','outcome'],['relatedCase','relatedCaseId']])if(d[key]!==undefined)$(id).value=d[key];if(d.repairSteps?.length){$('steps').innerHTML='';d.repairSteps.forEach(addStep);}voiceUsed=!!d.voiceTranscribed;status('A local draft was restored. Review it and save to the database when ready.','ok');}catch{}}
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').classList.remove('hidden')});$('installBtn').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('installBtn').classList.add('hidden')});if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/technician-sw.js').catch(()=>{}));
 </script><script src="/js/core.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body></html>
