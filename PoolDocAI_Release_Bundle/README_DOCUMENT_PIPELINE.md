@@ -77,3 +77,8 @@ Copy the updated `website` folder contents into the actual Vercel project root (
 
 ### Reliability update (2026-10-21)
 The canonical Render service definition is `document-worker/render.yaml`; the redundant root-level `render.yaml` has been removed. The worker `/process` endpoint now requires an HMAC-SHA256 signature over `timestamp.rawBody` by default, with a 5-minute clock-skew window. Sign requests with `X-PoolDocAI-Timestamp` (Unix seconds) and `X-PoolDocAI-Signature` (lowercase hex HMAC-SHA256). Do not enable legacy shared-secret-only mode in production. The durable queue poller continues to process jobs internally. Apply migration `202610210007_reliability_review_safety.sql` after migrations 001–006.
+
+
+### Existing-install administration and public demo fix
+
+For an existing project, use `README_FEATURE_EXPANSION_20261021.md` and apply only missing migrations (008–014), one full file per fresh SQL Editor query. Migration 011 repairs the server-side eight-turn quota function; migrations 012–014 add invitations, Stripe-ready billing, usage, vector retrieval, offline-sync hardening and industry activation guards.

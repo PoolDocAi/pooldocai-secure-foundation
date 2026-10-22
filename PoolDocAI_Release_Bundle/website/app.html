@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PoolDocAI Secure Troubleshooter</title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="manifest" href="/app.webmanifest">
   <meta name="description" content="Authenticated PoolDocAI troubleshooting workspace for subscribed companies." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏊%3C/text%3E%3C/svg%3E" />
   <meta property="og:title" content="PoolDocAI — Cut Unbillable Callbacks &amp; Diagnose Faster on the First Visit" />
@@ -159,15 +161,70 @@
     @media (max-width:639px){.hero-gradient::before{animation:none;filter:none;opacity:.45}}
     @media (max-width:1023px){#dispatchNoteContent{display:none}#dispatchNoteContent.dispatch-summary-open{display:block}}
   </style>
+  <script src="/js/config.js"></script>
+
+  <style id="secure-workspace-styles">
+    .secure-login-gate{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:22px;background:radial-gradient(900px 500px at 15% 0%,#164b6b 0%,transparent 65%),linear-gradient(140deg,#071b2d,#0e3b57);overflow:auto}
+    .secure-login-card{width:min(100%,480px);background:#fff;border:1px solid #bfdae8;border-radius:22px;padding:clamp(22px,5vw,38px);box-shadow:0 24px 80px #00162788;color:#102a40}
+    .secure-login-mark,.secure-app-mark{display:inline-grid;place-items:center;width:46px;height:46px;border-radius:13px;background:linear-gradient(140deg,#0878b9,#38bdea);font-weight:900;color:#fff;box-shadow:0 6px 18px #0878b933}
+    .secure-eyebrow{margin:16px 0 8px!important;color:#0878b9!important;font-weight:800!important;font-size:.75rem!important;letter-spacing:.1em}
+    #secureLoginTitle{font-size:clamp(1.7rem,5vw,2.25rem);font-weight:900;letter-spacing:-.035em;line-height:1.1;margin:0 0 12px;color:#0c2d46}
+    .secure-login-copy{color:#4d6172!important;font-size:.96rem!important;line-height:1.6!important;margin:0 0 18px}
+    #secureLoginForm label{display:block;font-weight:750;color:#243d50;margin:13px 0 6px}
+    #secureLoginForm input{width:100%;padding:13px 14px;border:1px solid #b9cedc;border-radius:10px;background:#fff;color:#0b2437;font:inherit}
+    #secureLoginSubmit{width:100%;margin-top:18px;background:#0878b9;color:white;border:0;border-radius:11px;padding:13px;font-weight:850;cursor:pointer}
+    .secure-login-status{min-height:1.5em;color:#38546a!important;font-size:.9rem!important;margin:13px 0 5px}
+    .secure-login-links{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid #e1eaf0;font-size:.85rem;font-weight:700}
+    .secure-login-links a{color:#086eaa;text-decoration:underline;text-underline-offset:3px}
+    .secure-app-toolbar{display:none;position:sticky;top:0;z-index:5000;background:#071d30;color:#fff;padding:10px clamp(12px,3vw,30px);gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;box-shadow:0 8px 28px #00132144}
+    .secure-app-brand{display:flex;align-items:center;gap:10px}.secure-app-brand strong{display:block;font-size:1rem;line-height:1.2}.secure-app-brand small{display:block;color:#c4e5f4;font-size:.72rem;max-width:46vw;overflow-wrap:anywhere}
+    .secure-app-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.secure-app-actions a,.secure-app-actions button{display:inline-block;padding:9px 11px;border:1px solid #35546a;border-radius:9px;color:#f4fbff;background:#143751;text-decoration:none;font-size:.82rem;font-weight:750;cursor:pointer}.secure-app-actions button.secure-signout{background:#f3f7fb;color:#122a3c;border-color:#f3f7fb}
+    body[data-site-page="secure-app"] #interactive-demo{display:none}
+    body[data-site-page="secure-app"].secure-app-ready > *:not(#secureLoginGate):not(#secureAppToolbar):not(#interactive-demo):not(#onboardingModal):not(#waitlistSuccessModal):not(#privacyModal):not(script):not(style){display:none!important}
+    body[data-site-page="secure-app"].secure-app-ready #secureAppToolbar{display:flex!important}
+    body[data-site-page="secure-app"].secure-app-ready #interactive-demo{display:block!important;padding:26px 0 36px!important}
+    body[data-site-page="secure-app"].secure-app-ready #interactive-demo > .max-w-7xl{max-width:1500px}
+    body[data-site-page="secure-app"].secure-app-ready #interactive-demo .max-w-3xl.mx-auto.text-center.space-y-3 span{color:#7dd3fc!important}
+    body[data-site-page="secure-app"].secure-app-ready #walkthroughHeaderTitle{color:#fff}
+    @media(max-width:650px){.secure-app-toolbar{align-items:flex-start}.secure-app-actions{width:100%}.secure-app-actions a,.secure-app-actions button{flex:1;text-align:center}.secure-app-brand small{max-width:75vw}}
+  </style>
+
 </head>
-<body data-site-page="demo" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
+<body data-site-page="secure-app" class="app-auth-required bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
+  <div id="secureLoginGate" class="secure-login-gate" role="main" aria-labelledby="secureLoginTitle">
+    <div class="secure-login-card">
+      <div class="secure-login-mark" aria-hidden="true">PD</div>
+      <p class="secure-eyebrow">POOLDOC AI · COMPANY WORKSPACE</p>
+      <h1 id="secureLoginTitle">Sign in to the full troubleshooter</h1>
+      <p class="secure-login-copy">Use your PoolDocAI company account to access full troubleshooting, equipment photo identification, and private company-specific references. The public demo is separate and limited.</p>
+      <form id="secureLoginForm" autocomplete="on">
+        <label for="secureEmail">Work email</label>
+        <input id="secureEmail" type="email" autocomplete="username" required placeholder="you@company.com">
+        <label for="securePassword">Password</label>
+        <input id="securePassword" type="password" autocomplete="current-password" required placeholder="Your password">
+        <button type="submit" id="secureLoginSubmit">Sign in and open troubleshooter</button>
+      </form>
+      <p id="secureLoginStatus" class="secure-login-status" role="status" aria-live="polite">Sign in using your provisioned company account.</p>
+      <div class="secure-login-links"><a href="/admin">Back to account portal</a><a href="/demo">Try the 8-turn-per-mode public demo</a></div>
+    </div>
+  </div>
+  <nav id="secureAppToolbar" class="secure-app-toolbar" aria-label="Secure workspace navigation">
+    <div class="secure-app-brand"><span class="secure-app-mark">PD</span><span><strong>PoolDocAI</strong><small id="secureAppIdentity">Authenticated troubleshooting workspace</small></span></div>
+    <div class="secure-app-actions">
+      <a href="/admin">Account portal</a>
+      <a href="/technician">Technician field notes</a>
+      <button type="button" data-install-pooldocai-app>Install app</button>
+      <button type="button" id="secureAppSignOut" class="secure-signout">Sign out</button>
+    </div>
+  </nav>
+
 
   <!-- TOP VALIDATION & WAITLIST BANNER -->
   <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Live demo available</span>
-        <span class="font-medium">Try up to 3 troubleshooting turns in this public demo. Join the waitlist for full access.</span>
+        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Sign-in required · Full workspace</span>
+        <span class="font-medium">Try 8 turns in Homeowner Triage and a separate 8 turns in the Field Tech Mobile App public preview. Sign in for full account access.</span>
       </div>
       <div class="flex items-center gap-4">
         <a href="demo.html#interactive-demo" class="text-white hover:text-sky-200 font-semibold text-xs flex items-center gap-1">Try Live Demo &rarr;</a>
@@ -189,12 +246,13 @@
         </div>
       </a>
 
-      <nav class="hidden xl:flex items-center gap-5 text-sm font-medium text-slate-600">
-        <a href="index.html#top" class="hover:text-sky-600 transition">Home</a>
-        <a href="how-it-works.html#solution-section" class="hover:text-sky-600 transition">How It Works</a>
-        <a href="demo.html#interactive-demo" class="hover:text-sky-600 transition">Try the Demo</a> <a href="/technician.html" class="nav-link">Technician Panel</a> <a href="/admin.html" class="nav-link">Account Portal</a> <a href="/admin.html" class="nav-link">Account Login</a>
-        <a href="pricing.html#pricing-roi-section" class="hover:text-sky-600 transition">Pricing</a>
-        <a href="faq.html#faq-section" class="hover:text-sky-600 transition">Help &amp; Safety</a>
+      <nav class="hidden xl:flex items-center gap-2.5 text-sm font-medium text-slate-600" aria-label="Primary navigation">
+        <a href="index.html#top" class="px-3 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Home</a>
+        <a href="how-it-works.html#solution-section" class="px-3 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">How It Works</a>
+        <a href="demo.html#interactive-demo" class="px-3 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Demo</a>
+        <a href="pricing.html#pricing-roi-section" class="px-3 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Pricing</a>
+        <a href="faq.html#faq-section" class="px-3 py-2 rounded-lg whitespace-nowrap hover:bg-sky-50 hover:text-sky-700 transition">Help &amp; Safety</a>
+        <a href="/admin.html" class="px-3 py-2 rounded-lg whitespace-nowrap font-bold text-sky-700 hover:bg-sky-50 transition">Account Login</a>
       </nav>
 
       <div class="flex items-center gap-2">
@@ -240,15 +298,6 @@
           <div class="flex flex-wrap items-center gap-3.5 pt-1">
             <a href="demo.html#interactive-demo" class="inline-flex items-center justify-center px-6 py-3.5 rounded-xl text-sm sm:text-base font-extrabold text-slate-950 bg-emerald-300 hover:bg-emerald-200 shadow-lg transition">Try the Live Demo &rarr;</a>
             <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-5 py-3.5 rounded-xl text-sm sm:text-base font-bold text-white bg-white/10 hover:bg-white/20 border border-white/35 transition">Join the Early-Access Pilot</a>
-          </div>
-
-          <div class="rounded-xl border border-white/20 bg-slate-950/25 p-3.5 space-y-2">
-            <div class="text-xs font-bold uppercase tracking-wider text-sky-100">Feature status key</div>
-            <div class="flex flex-wrap gap-2 text-xs">
-              <span class="px-2.5 py-1 rounded-full bg-emerald-400/15 border border-emerald-300/40 text-emerald-100">Available to try now</span>
-              <span class="px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-300/40 text-amber-100">Included in the planned pilot</span>
-              <span class="px-2.5 py-1 rounded-full bg-slate-400/15 border border-slate-300/30 text-slate-100">Future development</span>
-            </div>
           </div>
 
           <!-- Key Pitch Deck Metrics Bar -->
@@ -417,7 +466,7 @@
           </div>
           <h3 class="text-xl font-bold text-slate-900">Field Technician Workflow Preview</h3>
           <ul class="space-y-2 text-xs sm:text-sm text-slate-600 list-disc list-inside">
-            <li><strong>Tech Mode preview:</strong> The demo previews a technician-focused troubleshooting conversation. Model-specific tests and references depend on validated source material; the technician field-notes PWA is available at the Technician Panel.</li>
+            <li><strong>Technician workspace:</strong> The authenticated troubleshooter supports company-account access and equipment photo identification. Technician Field Notes is a separate job-record tool.</li>
             <li><strong>Company-specific procedures:</strong> Adding a company’s manuals and procedures is planned as an early-access onboarding capability. The demo’s available references vary by equipment and issue; not every answer has a verified manufacturer source.</li>
             <li><strong>Team access:</strong> Technician accounts, shared case access, and job close-out tracking depend on the production pilot setup and are not provisioned by this public demo.</li>
             <li><strong>Bonus sessions:</strong> Not active in the current public demo.</li>
@@ -431,10 +480,10 @@
   <section id="interactive-demo" class="py-16 sm:py-20 bg-slate-900 text-white border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="max-w-3xl mx-auto text-center space-y-3">
-        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Live Conversational PoolDocAI Troubleshooter</span>
-        <h2 class="text-2xl sm:text-4xl font-extrabold">Have a Natural Troubleshooting Conversation with PoolDocAI</h2>
+        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">AUTHENTICATED · FULL TROUBLESHOOTING WORKSPACE</span>
+        <h2 class="text-2xl sm:text-4xl font-extrabold">Diagnose equipment with your company workspace</h2>
         <p class="text-slate-300 text-xs sm:text-base">
-          Start with a symptom or choose one of the eight categories below. PoolDocAI guides the intake, runs an illustrative water-balancing calculator, and prepares a Pre-Job Summary for review. This is a demo; it does not book or dispatch a technician.
+          Start with a symptom or choose an equipment category. This authenticated workspace supports equipment photo identification, sequential troubleshooting, water-balance assistance, a Pre-Job Summary, and case capture. Guidance remains subject to company permissions and account usage limits.
         </p>
       </div>
 
@@ -459,7 +508,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2.5">
                 <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — 24/7 Homeowner Troubleshooting Assistant</span>
+                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — Secure Troubleshooting Workspace</span>
               </div>
               <button id="restartScenarioBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer">
                 ↻ New Conversation
@@ -493,8 +542,8 @@
                   placeholder="Type your symptom, water test value, or observation (e.g., 'balance my pool water', 'my pump won't turn on', 'water leaking at motor')..."
                   class="flex-1 px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-400"
                 />
-                <label for="poolEquipmentPhotoInput" class="px-3 py-3 rounded-xl border border-slate-600 text-sky-200 text-xs font-bold cursor-pointer hover:bg-slate-800 text-center">📷 Add photo</label>
-                <input id="poolEquipmentPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" aria-label="Upload pool equipment photo" />
+                <label for="poolEquipmentPhotoInput" class="px-3 py-3 rounded-xl border border-slate-600 text-sky-200 text-xs font-bold cursor-pointer hover:bg-slate-800 text-center">📷 Add equipment photo</label>
+                <input id="poolEquipmentPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="hidden" aria-label="Upload pool equipment photo" />
                 <button
                   id="liveDemoSendBtn"
                   type="submit"
@@ -1142,18 +1191,62 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const SECURE_SUPABASE_URL='https://sborrkmwfhzqtuiodgje.supabase.co';
-    const SECURE_SUPABASE_ANON_KEY='REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY';
+    const SECURE_SUPABASE_URL=window.POOLDOCAI_CONFIG.supabaseUrl;
+    const SECURE_SUPABASE_ANON_KEY=window.POOLDOCAI_CONFIG.publicAnonKey;
     const secureClient=(window.supabase&&SECURE_SUPABASE_ANON_KEY&&!SECURE_SUPABASE_ANON_KEY.startsWith('REPLACE_'))?window.supabase.createClient(SECURE_SUPABASE_URL,SECURE_SUPABASE_ANON_KEY):null;
-    async function revealSecureApp(session){ if(!session)return; APP_SESSION=session; const {data,error}=await secureClient.from('company_members').select('company_id,role,companies(status)').eq('user_id',session.user.id).eq('status','active'); if(error||!data?.length){document.getElementById('secureLoginStatus').textContent='This login has no active company membership. Contact your company administrator.'; await secureClient.auth.signOut();return;} document.body.classList.remove('app-auth-required');document.getElementById('secureLoginGate').style.display='none'; }
-    document.addEventListener('DOMContentLoaded',()=>{const form=document.getElementById('secureLoginForm');form.addEventListener('submit',async e=>{e.preventDefault();const status=document.getElementById('secureLoginStatus');if(!secureClient){status.textContent='Setup required: replace the public anon key in app.html. Never use the service-role key.';return;}const {data,error}=await secureClient.auth.signInWithPassword({email:document.getElementById('secureEmail').value.trim(),password:document.getElementById('securePassword').value});if(error){status.textContent=error.message;return;}APP_SESSION=data.session;await revealSecureApp(data.session);});if(!secureClient){document.getElementById('secureLoginStatus').textContent='Administrator setup required: configure the Supabase public anon key.';return;}secureClient.auth.getSession().then(({data})=>revealSecureApp(data.session));secureClient.auth.onAuthStateChange((_e,s)=>{if(s){APP_SESSION=s;revealSecureApp(s);}else{APP_SESSION=null;document.body.classList.add('app-auth-required');document.getElementById('secureLoginGate').style.display='flex';}});});
+    let secureRevealBusy = false;
+    async function revealSecureApp(session){
+      if(!session || !secureClient || secureRevealBusy) return;
+      secureRevealBusy = true;
+      const status = document.getElementById('secureLoginStatus');
+      try {
+        const {data:members,error} = await secureClient.from('company_members')
+          .select('company_id,role,status,companies(status,name)')
+          .eq('user_id',session.user.id).eq('status','active');
+        const isUsable = !error && Array.isArray(members) && members.some(m => {
+          const company = Array.isArray(m.companies) ? m.companies[0] : m.companies;
+          return m.status === 'active' && company && ['pilot','active'].includes(String(company.status||'').toLowerCase());
+        });
+        if(!isUsable){
+          status.textContent = error ? 'Could not verify company access: '+error.message : 'This login does not have an active membership in a pilot/active company. Ask your company administrator to check account access.';
+          await secureClient.auth.signOut();
+          return;
+        }
+        APP_SESSION = session;
+        document.body.classList.remove('app-auth-required');
+        document.body.classList.add('secure-app-ready');
+        document.getElementById('secureLoginGate').style.display='none';
+        document.getElementById('secureAppIdentity').textContent = `${session.user.email || 'Signed in'} · ${members[0].role.replace('_',' ')}`;
+      } catch(err) { status.textContent = err?.message || 'Could not verify your company access.'; }
+      finally { secureRevealBusy=false; }
+    }
+    document.addEventListener('DOMContentLoaded',()=>{
+      const form=document.getElementById('secureLoginForm');
+      const status=document.getElementById('secureLoginStatus');
+      if(!secureClient){status.textContent='Setup required: set the correct public Supabase key in website/js/config.js. Never use a secret/service-role key.';return;}
+      form.addEventListener('submit',async e=>{
+        e.preventDefault();
+        const btn=document.getElementById('secureLoginSubmit'); btn.disabled=true; btn.textContent='Signing in…'; status.textContent='Checking account and company access…';
+        try { const {data,error}=await secureClient.auth.signInWithPassword({email:document.getElementById('secureEmail').value.trim(),password:document.getElementById('securePassword').value});
+          if(error){status.textContent=error.message;return;}
+          await revealSecureApp(data.session);
+        } catch(err){status.textContent=err?.message||'Sign-in failed. Try again.';}
+        finally {btn.disabled=false;btn.textContent='Sign in and open troubleshooter';}
+      });
+      document.getElementById('secureAppSignOut').addEventListener('click',async()=>{await secureClient.auth.signOut();});
+      secureClient.auth.getSession().then(({data,error})=>{if(error)status.textContent=error.message; if(data?.session)void revealSecureApp(data.session);});
+      secureClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>{
+        if(session) void revealSecureApp(session);
+        else { APP_SESSION=null; document.body.classList.remove('secure-app-ready'); document.body.classList.add('app-auth-required'); document.getElementById('secureLoginGate').style.display='flex'; }
+      },0));
+    });
   </script>
   <script>
     // =========================================================================
     // 0. SUPABASE TROUBLESHOOTER CONFIGURATION
     // =========================================================================
-    const TROUBLESHOOTER_ENDPOINT = 'https://sborrkmwfhzqtuiodgje.supabase.co/functions/v1/clever-handler';
-    const SUPABASE_ANON_KEY = 'REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY';
+    const TROUBLESHOOTER_ENDPOINT = `${window.POOLDOCAI_CONFIG.supabaseUrl}/functions/v1/clever-handler`;
+    const SUPABASE_ANON_KEY = window.POOLDOCAI_CONFIG.publicAnonKey;
     const SECURE_APP_MODE = true;
     let APP_SESSION = null;
     function secureAuthHeaders(){ if(!APP_SESSION?.access_token) throw new Error('Your login session expired. Sign in again.'); return {'Content-Type':'application/json','Accept':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+APP_SESSION.access_token}; }
@@ -1162,12 +1255,6 @@
       try { const headers=secureAuthHeaders(); await fetch(TROUBLESHOOTER_ENDPOINT,{method:'POST',headers,keepalive:true,body:JSON.stringify({action:'capture_learning_case',authenticatedApp:true,sessionId:APP_SESSION.user?.id?('account-'+APP_SESSION.user.id):'',issue:String(issue).slice(0,1200),answer:String(answer).slice(0,1200),category:sessionContext.category||'',manufacturer:sessionContext.brand||'',model:sessionContext.model||'',caseStatus:actionName==='resolved'?'resolved':'open'})}); } catch(err) { console.warn('Learning-loop capture will need retry:',err?.message||'network issue'); }
     }
     const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
-    const PUBLIC_DEMO_TURN_LIMIT = 3;
-    const PUBLIC_DEMO_COUNT_KEY = 'pooldocai_public_demo_turns_v1';
-    function publicDemoTurns(){ return Number(sessionStorage.getItem(PUBLIC_DEMO_COUNT_KEY)||0); }
-    function showDemoWaitlistNotice(reason='You have reached the public demo limit.') {
-      let n=document.getElementById('demoLimitNotice'); if(!n){ n=document.createElement('div'); n.id='demoLimitNotice'; n.className='demo-limit-notice'; n.setAttribute('role','dialog'); n.setAttribute('aria-live','polite'); n.innerHTML='<strong>That’s the end of the public demo.</strong><p id="demoLimitText" class="mt-2 text-sm"></p><p class="text-sm mt-2">For the full troubleshooting tool and photo identification, join the PoolDocAI early-access waitlist.</p><a href="waitlist.html#interest-section">Join the Waitlist</a><button type="button" id="demoLimitClose">Close</button>'; document.body.appendChild(n); n.querySelector('#demoLimitClose').addEventListener('click',()=>n.remove()); } n.querySelector('#demoLimitText').textContent=reason; n.scrollIntoView({block:'nearest'});
-    }
 
     function openWaitlistSuccessPopup(customTitle, customBody) {
       const modal = document.getElementById('waitlistSuccessModal');
@@ -1632,7 +1719,7 @@
         choices: [
           { label: waterBalanceMode.waterQualityContext ? '🧪 Enter Water Chemistry Again' : '🔄 Run Another Water Balance Test', prompt: waterBalanceMode.waterQualityContext ? 'Enter water chemistry for my green pool.' : 'Balance my pool water' },
           { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' },
-          { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
         ]
       });
       const surfMap = { g: 'Gunite/Pebble', f: 'Fiberglass', v: 'Vinyl' };
@@ -1856,7 +1943,7 @@
           { label: 'Cloudy water', prompt: 'My pool water is cloudy.' },
           { label: 'Discolored water', prompt: 'My pool water is discolored.' },
           { label: 'Flow / circulation issue', prompt: 'My pool has a flow or circulation issue.' },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ],
         'Water Help — Identify Issue',
         'Asked whether the reported water problem is cloudiness, discoloration, or pool circulation/flow.'
@@ -1872,7 +1959,7 @@
         [
           { label: 'Green', prompt: 'The discolored pool water is green.' },
           { label: 'Another color', prompt: 'My pool water is a color other than green.' },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ],
         'Water Help — Identify Water Color',
         'Asked the customer to distinguish green water from other discoloration.'
@@ -1901,7 +1988,7 @@
         `Customer wording: ${String(userMsg || '').slice(0, 500)}. Initial Water Help issue: ${originalWaterHelpSymptom}.`,
         'Use applicable PoolDocAI water-quality procedures and the Supabase knowledge base first. A generic water-balancing record is not automatically a cloudy-water troubleshooting procedure.',
         'If internal sources do not provide a relevant, source-bearing next step, perform the configured live Google Search fallback and cite genuine returned sources. Give one safe, applicable next troubleshooting/observation step. Do not assume cloudy water is algae, invent chemical doses, or tell the user to mix products. Ask for specific test results if the verified procedure requires them.',
-        'If no reliable, applicable procedure can be verified from the database or internet search, explicitly state PoolDocAI is unsure of the best next step and offer Request Service Technician.'
+        'If no reliable, applicable procedure can be verified from the database or internet search, explicitly state PoolDocAI is unsure of the best next step and offer Request a Pool Service Technician.'
       ].join('\n');
       await requestSupabaseTroubleshootingTurn(request, 'troubleshoot', 'Cloudy water troubleshooting — source lookup');
     }
@@ -1961,7 +2048,7 @@
           { label: 'Cloudy water', prompt: 'My pool water is cloudy.' },
           { label: 'Discolored water', prompt: 'My pool water is discolored.' },
           { label: 'Flow / circulation issue', prompt: 'My pool has a flow or circulation issue.' },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ], 'Water Help — Identify Issue');
         return;
       }
@@ -1974,8 +2061,8 @@
         if (isNoWaterTestResultsResponse(text)) {
           resetWaterHelpState();
           setWaterQualitySessionContext('Pool water is discolored a color other than green.', 'No water test results available', 'Water Quality / Unusual Color', 'Discolored Water Assessment');
-          pushWaterQualityTurn(q, 'Without water-test results, I cannot responsibly narrow down the cause of this discoloration or recommend a chemical treatment. You can request a service technician to test the water and assess the pool.', [
-            { label: '📋 Request Service Technician', action: 'escalate' },
+          pushWaterQualityTurn(q, 'Without water-test results, I cannot responsibly narrow down the cause of this discoloration or recommend a chemical treatment. You can request a qualified pool service technician to test the water and assess the pool.', [
+            { label: '📞 Request a Pool Service Technician', action: 'escalate' },
             { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
           ], 'Other Water Color — Technician Recommended');
           return;
@@ -2000,9 +2087,9 @@
         setWaterQualitySessionContext(`Pool water is discolored a color other than green. Initial Water Help report: ${originalWaterHelpSymptom}.`, results, 'Water Quality / Unusual Color', 'Discolored Water Assessment');
         sessionContext.ruledOut.push(noResults ? 'No water test results available for the unusual water color.' : `Customer supplied reported test values for an unusual water color: ${q.slice(0, 450)}`);
         pushWaterQualityTurn(q, noResults
-          ? 'Thanks for confirming. **PoolDocAI is unsure of the cause and best treatment for this water color without testing.** Please request a service technician to test the water and inspect the pool before adding chemicals.'
+          ? 'Thanks for confirming. **PoolDocAI is unsure of the cause and best treatment for this water color without testing.** Please request a qualified pool service technician to test the water and inspect the pool before adding chemicals.'
           : `Thank you. I recorded these customer-reported results for the technician: **${q.slice(0, 650)}**. Because the water is an unusual color and its cause is not established, PoolDocAI recommends a technician verify the readings and assess the pool before treatment.`, [
-          { label: '📋 Request Service Technician', action: 'escalate' },
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' },
           { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
         ], 'Other Water Color — Technician Recommended', 'Recorded reported water test results and offered technician assessment instead of guessing at water treatment.');
         return;
@@ -2046,7 +2133,7 @@
         [
           { label: '🧪 Enter Water Chemistry', prompt: 'Enter water chemistry for my green pool.' },
           { label: "I don't have water test results", prompt: "I don't have any water test results right now." },
-          ...(uncertainCause ? [] : [{ label: '📋 Request Technician / Green-to-Clean Service', action: 'escalate' }])
+          ...(uncertainCause ? [] : [{ label: '📞 Request Pool Service / Green-to-Clean Help', action: 'escalate' }])
         ],
         uncertainCause ? 'Awaiting Water Test Results — Technician Recommended' : 'Algae Triage — Water Chemistry',
         'Requested water-test results before any chemistry-specific treatment recommendation.'
@@ -2075,7 +2162,7 @@
               { label: 'Yes — flow/circulation is good', prompt: 'My pool flow and circulation are good.' },
               { label: 'No — flow/circulation is poor', prompt: 'My pool flow and circulation are not good.' },
               { label: "I'm not sure about circulation", prompt: "I'm not sure whether my pool circulation is good." },
-              { label: '📋 Request Service Technician', action: 'escalate' }
+              { label: '📞 Request a Pool Service Technician', action: 'escalate' }
             ],
             'Green Pool — Confirm Circulation',
             'Confirmed suspected algae and asked about pool circulation before chemistry intake.'
@@ -2109,7 +2196,7 @@
           { label: 'Yes — flow/circulation is good', prompt: 'My pool flow and circulation are good.' },
           { label: 'No — flow/circulation is poor', prompt: 'My pool flow and circulation are not good.' },
           { label: "I'm not sure about circulation", prompt: "I'm not sure whether my pool circulation is good." },
-          { label: '📋 Request Service Technician', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician', action: 'escalate' }
         ], 'Green Pool — Confirm Circulation');
         return;
       }
@@ -2122,7 +2209,7 @@
           pushWaterQualityTurn(q,
             'Without water-test readings, I cannot responsibly recommend a chemistry-specific algae treatment or dose. A pool professional can test the water and determine whether this is algae or another water-quality issue.',
             [
-              { label: '📋 Request Technician / Green-to-Clean Service', action: 'escalate' },
+              { label: '📞 Request Pool Service / Green-to-Clean Help', action: 'escalate' },
               { label: '🧪 Open Water Balancing Calculator', prompt: 'Open the water balancing calculator for my pool.' }
             ],
             'Water Test Results Unavailable — Technician Recommended'
@@ -2163,7 +2250,7 @@
             ? 'Thanks for confirming. Because we cannot establish whether this is algae without test results, PoolDocAI recommends a professional water-quality assessment rather than guessing at treatment. You can request service below; the Pre-Job Summary will note that test results are not available.'
             : `Thank you. I have recorded these customer-reported readings for the technician: **${q}**. Because the cause is still uncertain, PoolDocAI recommends a professional water-quality assessment rather than guessing at chemical treatment. Choose the technician option below to prepare your water-quality-specific Pre-Job Summary.`,
           [
-            { label: '📋 Request Technician / Green-to-Clean Service', action: 'escalate' },
+            { label: '📞 Request Pool Service / Green-to-Clean Help', action: 'escalate' },
             { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
           ],
           'Water Quality Assessment — Technician Recommended',
@@ -2195,15 +2282,21 @@
     }
 
     function detectCategoryFromText(qLower) {
-      if (/\b(multiport|spider gasket|waste port|backwash valve|valve handle|key stem|vari-?flo)\b/.test(qLower)) {
+      // The category router is a convenience, not a rigid menu. Normalize common
+      // conversational spelling/contraction variants before attempting to classify.
+      qLower = normalizeConversationalText(qLower);
+      if (/\b(multiport|spider gasket|waste port|backwash valve|valve handle|key stem|vari-?flo|actuator stuck|valve stuck|valve is stuck|valve won't|valve wont|valve not moving)\b/.test(qLower)) {
         return 'Valves';
       }
       // Classify heat-pump heaters before the broad pump keyword can capture the word "pump".
-      if (/\b(heater|heat pump|heatpump|heating|igniter|ignition|flue|hls|jxi|jxiq|mastertemp|max-e-therm|versatemp|raypak|thermal|burner)\b/.test(qLower)) {
+      if (/\b(heater|heat pump|heatpump|heating|not heating|won't heat|doesn't heat|water isn't warming|pool won't heat|pool not warming|won't stay on|igniter|ignition|flue|hls|jxi|jxiq|mastertemp|max-e-therm|versatemp|raypak|thermal|burner)\b/.test(qLower)) {
         return 'Heater';
       }
       if (/\b(pool pump|pump housing|pump and motor|pump\/motor|water leaking from (?:the )?pump|leak(?:ing)? at (?:the )?equipment pad|equipment pad leak)\b/.test(qLower)) {
         return 'Pump';
+      }
+      if (/\b(?:water chemistry|water quality|water help|help with (?:my )?(?:pool )?water|balance (?:my )?(?:pool )?water|water balance|pool water|green water|green pool|cloudy water|cloudy pool|water looks (?:green|cloudy|milky|brown|yellow|dirty|murky|foamy)|water (?:is|seems|turned|turning) (?:green|cloudy|milky|brown|yellow|dirty|murky|foamy|off)|pool (?:looks|is|turned) (?:green|cloudy|milky|brown|yellow|dirty|murky)|algae|ph\s*(?:is|[:=])|free chlorine|total alkalinity|cyanuric acid|\bcya\b|calcium hardness|chlorine level|water test results|chemistry is off)\b/.test(qLower)) {
+        return 'Water Quality / General';
       }
       if (/\b(chlorine|sanitizer|salt|cell|aquarite|aquapure|intellichlor|chlorinator|turbocell|truchlor|tablet|tablets|feeder|ppm|172|125|120|144|low salt|inspect cell)\b/.test(qLower)) {
         return 'Sanitizer / Chlorine';
@@ -2211,13 +2304,13 @@
       if (/\b(pump|prime|priming|impeller|strainer|motor|vsf|intelliflo|flopro|epump|suction|whisperflo|superflo|tristar|super pump|maxflo|shaft seal|bearings|screech|grinding)\b/.test(qLower)) {
         return 'Pump';
       }
-      if (/\b(filter|psi|pressure|cartridge|backwash|gauge|relief|clean & clear|swimclear|sand.*floor|lateral|debris.*return)\b/.test(qLower)) {
+      if (/\b(filter|psi|pressure|cartridge|backwash|gauge|relief|clean & clear|swimclear|sand.*floor|lateral|debris.*return|won't filter|wont filter|not filtering|dirt comes back|dirty water returns|weak return|return flow is low)\b/.test(qLower)) {
         return 'Filter';
       }
-      if (/\b(cleaner|polaris|robot|freedom|280|climbing|tracks|wheels)\b/.test(qLower)) {
+      if (/\b(cleaner|pool cleaner|pool robot|polaris|dolphin|robot|robotic|pool vac|freedom|280|climbing|tracks|wheels|won't move|wont move|not moving|won't clean|stopped cleaning|leaves debris)\b/.test(qLower)) {
         return 'Cleaner';
       }
-      if (/\b(panel|automation|controller|aqualink|prologic|omnilogic|easytouch|intellicenter|relay|schedule)\b/.test(qLower)) {
+      if (/\b(panel|automation|controller|aqualink|prologic|omnilogic|easytouch|intellicenter|relay|schedule|timer|program won't run|program wont run|not following schedule|schedule not running|schedule missed|schedule skipped|equipment didn't run|equipment did not run|app not connecting|controller offline)\b/.test(qLower)) {
         return 'Automation';
       }
       if (/\b(light|lights|led|bulb|lens|watercolor|flicker|intellibrite)\b/.test(qLower)) {
@@ -2244,22 +2337,75 @@
       return m ? m[1] : null;
     }
 
+    // Normalize everyday contractions and common omitted apostrophes before routing.
+    // Keep the user's original wording elsewhere so it remains available to the AI.
+    // Shared, per-turn normalization: applied to the initial description and every later reply.
+    // The raw message is retained for the transcript; normalized text is only a routing/retrieval aid.
+    function normalizeConversationalText(rawText) {
+      return String(rawText || '').toLowerCase().replace(/[’‘]/g, "'")
+        .replace(/\bcan not\b/g, "can't").replace(/\bcant\b/g, "can't").replace(/\bcannot\b/g, "can't")
+        .replace(/\bwill not\b/g, "won't").replace(/\bwont\b/g, "won't").replace(/\bwillnt\b/g, "won't")
+        .replace(/\bdoes not\b/g, "doesn't").replace(/\bdoesnt\b/g, "doesn't")
+        .replace(/\bdid not\b/g, "didn't").replace(/\bdidnt\b/g, "didn't")
+        .replace(/\bdont\b/g, "don't").replace(/\bcould not\b/g, "couldn't").replace(/\bcouldnt\b/g, "couldn't")
+        .replace(/\bshouldnt\b/g, "shouldn't").replace(/\bshould not\b/g, "shouldn't")
+        .replace(/\bisnt\b/g, "isn't").replace(/\barent\b/g, "aren't").replace(/\bwasnt\b/g, "wasn't")
+        .replace(/\bwerent\b/g, "weren't").replace(/\bwouldnt\b/g, "wouldn't")
+        // Frequent pool-equipment spelling mistakes, including words in follow-up observations.
+        .replace(/\b(?:pmp|puump|pumpp)\b/g, 'pump')
+        .replace(/\b(?:filtre|fliter|fliter|filtr|filtter)\b/g, 'filter')
+        .replace(/\b(?:presure|pressur|pressuree|preasure)\b/g, 'pressure')
+        .replace(/\b(?:hihg|hgh|highh)\b/g, 'high').replace(/\b(?:loew|loww|lowe)\b/g, 'low')
+        .replace(/\b(?:heeter|heatter|hetr|heatr|heeter)\b/g, 'heater')
+        .replace(/\b(?:cleener|clener|cleanr|clenaer)\b/g, 'cleaner')
+        .replace(/\b(?:schdule|schedual|scedule|skedule|sheddule|schedul)\b/g, 'schedule')
+        .replace(/\b(?:autmation|automatoin|automtion|automaion)\b/g, 'automation')
+        .replace(/\b(?:clorine|chlorne|chloorine|clhorine)\b/g, 'chlorine')
+        .replace(/\b(?:chemstry|chmistry|chemsitry|chemestry)\b/g, 'chemistry')
+        .replace(/\b(?:clowdy|clody|cloudly|clowdy)\b/g, 'cloudy')
+        .replace(/\b(?:vlave|valv|valev)\b/g, 'valve')
+        .replace(/\b(?:lgiht|ligt|lighht)\b/g, 'light')
+        .replace(/\b(?:strat|starrt|statr)\b/g, 'start')
+        .replace(/\b(?:tun on|turnon)\b/g, 'turn on')
+        .replace(/\bswtich\b/g, 'switch')
+        .replace(/\b(?:movng|movin)\b/g, 'moving')
+        .replace(/\b(?:heting|heeting|heatin)\b/g, 'heating')
+        .replace(/\b(?:skiping|skippingg)\b/g, 'skipping')
+        .replace(/\b(?:wroking|workign)\b/g, 'working')
+        .replace(/\b(?:dident|didntt)\b/g, "didn't")
+        .replace(/\b(?:doesntt)\b/g, "doesn't")
+        .replace(/\b(?:startin|strating)\b/g, 'starting')
+        .replace(/\b(?:gass|gasss)\b/g, 'gas')
+        .replace(/\b(?:sparrking|sparkingg|saprking)\b/g, 'sparking')
+        .replace(/\b(?:shok|shcok)\b/g, 'shock')
+        .replace(/\b(?:smok|smokee)\b/g, 'smoke')
+        .replace(/\b(?:fummes|fumeses)\b/g, 'fumes')
+        .replace(/\b(?:burnng|burnign)\b/g, 'burning');
+    }
+
     function detectSubTypeOrDetailFromText(qLower, category) {
+      qLower = normalizeConversationalText(qLower);
       const cat = category || null;
       const inCat = (...names) => !cat || names.includes(cat);
 
       if (inCat('Sanitizer / Chlorine')) {
+        if (/\b(low chlorine|no chlorine|chlorine is low|not making chlorine|not generating chlorine)\b/.test(qLower)) return 'Low / No Chlorine Output';
+        if (/\b(low salt|check salt|inspect cell|cell light|clean cell|error code|fault code)\b/.test(qLower)) return 'Salt System Indicator / Code';
         if (/\b(tablet|tablets|puck|pucks|feeder|trichlor|erosion|truchlor|liquid)\b/.test(qLower)) return 'Tablet Feeder';
-        if (/\b(salt|saltwater|cell|aquarite|intellichlor|aquapure|turbocell|172|125|120|low salt|inspect cell)\b/.test(qLower)) return 'Salt Chlorinator';
+        if (/\b(salt|saltwater|cell|aquarite|intellichlor|aquapure|turbocell|172|125|120)\b/.test(qLower)) return 'Salt Chlorinator';
       }
       if (inCat('Heater')) {
+        if (/\b(won't heat|doesn't heat|isn't heating|not heating|water isn't warming|pool won't heat|pool not warming|not getting warm|no heat)\b/.test(qLower)) return 'Heating / No Heat';
         if (/\b(hls|high limit|check h2o flow|check flow|no flow|low flow|flow switch|pressure switch)\b/.test(qLower) && !/\b(no spark|won't light|wont light|igniter|no ignition|flame)\b/.test(qLower)) return 'Flow / High Limit';
         if (/\b(no spark|won't light|wont light|clicks|igniter|no ignition|flame)\b/.test(qLower)) return 'No Ignition';
         if (/\b(hls|high limit|check h2o flow|check flow|no flow|low flow)\b/.test(qLower)) return 'Flow / High Limit';
       }
       if (inCat('Pump')) {
-        if (/\b(silent|dead|dark|no sound|no light|nothing|quiet|blank)\b/.test(qLower)) return 'Silent / No Power';
-        if (/\b(hum|hums|humming|buzz|buzzes|buzzing|clicks off|trips)\b/.test(qLower)) return 'Humming / Thermal Trip';
+        // Explicit sound/electrical observations outrank a broad no-start description.
+        // A pump that will not start is NOT assumed silent unless the user says so.
+        if (/\b(hum|hums|humming|buzz|buzzes|buzzing|it just hums|it is humming|it\s+\w{0,4}\s+click|clicks off|trips(?: the)? breaker|breaker keeps tripping)\b/.test(qLower)) return 'Humming / Thermal Trip';
+        if (/\b(silent|dead|dark|no sound|no power|no light|nothing happens|quiet|blank|completely off)\b/.test(qLower)) return 'Silent / No Power';
+        if (/\b(?:can't|cannot|won't|doesn't|isn't|unable to|not able to|fails? to|not)\s+(?:turn on|turning on|start|starting|power on|come on|run|running|switch on)\b|\bnot starting\b|\bno[- ]start\b|\b(?:won't|doesn't|can't|isn't)\s+come on\b|\bcan't get (?:it|the pump|the motor) to (?:start|run)\b|\bwill not\s+(?:turn on|turning on|start|starting|power on|come on|run)\b|\b(?:not kicking on|won't kick on|not powering up|won't fire up)\b/.test(qLower)) return "Won't Start (Sound Not Yet Confirmed)";
         if (/\b(prime|priming|bubble|bubbles|air)\b/.test(qLower)) return 'Losing Prime';
         if (/\b(leak|leaking|dripping|shaft seal)\b/.test(qLower)) return 'Water Leak';
         if (/\b(grind|grinding|screech|whine|bearing)\b/.test(qLower)) return 'Motor Bearing Noise';
@@ -2274,20 +2420,58 @@
       }
       if (inCat('Valves')) {
         if (/\b(waste|backwash|discharg|leak)\b/.test(qLower)) return 'Waste Port / Valve Leak';
+        if (/\b(won't turn|won't switch|doesn't switch|isn't switching|not switching|not moving|actuator|not reaching position)\b/.test(qLower)) return 'Valve / Actuator Position Issue';
         if (/\b(stiff|hard to turn|handle|stuck)\b/.test(qLower)) return 'Handle / Stem Issue';
       }
-      if (!cat || !['Pump','Heater','Sanitizer / Chlorine','Valves'].includes(cat)) {
-        if (/\b(silent|dead|dark|no sound|no light|nothing|quiet|blank)\b/.test(qLower)) return 'Silent / No Power';
+      if (inCat('Filter')) {
+        if (/\b(high pressure|pressure (?:is )?(?:(?:still|way) )?(?:high|too high|way up)|psi (?:is )?(?:high|too high)|pressure keeps (?:rising|climbing)|pressure is climbing|pressure is through the roof)\b/.test(qLower)) return 'High Filter Pressure';
+        if (/\b(low pressure|pressure (?:is )?(?:low|too low)|psi (?:is )?(?:low|too low)|low return flow|weak return|poor circulation|low flow|returns are weak|barely any flow|hardly any flow)\b/.test(qLower)) return 'Low Flow / Pressure';
+        if (/\b(leak|leaking|dripping|water coming out|backwash line)\b/.test(qLower)) return 'Filter / Backwash Leak';
+        if (/\b(not filtering|won't filter|wont filter|cloudy after filtering|debris returning|dirt coming back|dirt comes back|dirt is coming back|still dirty after filtering)\b/.test(qLower)) return 'Poor Filtration';
+      }
+      if (inCat('Automation')) {
+        if (/\b(schedule|scheduled|timer|program|calendar|run time|runtime)\b/.test(qLower) && /\b(won't|can't|doesn't|didn't|not|never|missed|skip|skipped|skipping|wrong time|late|early|off|keeps failing|not doing what i set|way off)\b/.test(qLower)) return 'Schedule / Timer Not Running';
+        if (/\b(control|controller|panel|app|wifi|wi-?fi|offline|communication|not responding|won't respond)\b/.test(qLower)) return 'Controller / Communication Issue';
+        if (/\b(relay|pump won't turn on|pump wont turn on|equipment won't turn on)\b/.test(qLower)) return 'Equipment Command Not Starting';
+      }
+      if (inCat('Cleaner')) {
+        if (/\b(won't move|doesn't move|isn't moving|not moving|stopped moving|won't start|won't turn on|doesn't turn on|isn't turning on|no power|not powering up)\b/.test(qLower)) return "Cleaner Won't Start / Move";
+        if (/\b(stuck|not climbing|won't climb|wont climb|stays in one spot)\b/.test(qLower)) return 'Movement / Climbing Issue';
+        if (/\b(not picking up|leaves debris|misses dirt|poor cleaning|not cleaning)\b/.test(qLower)) return 'Poor Cleaning';
+        if (/\b(hose|cable|cord|tangled|twisted|split|cracked)\b/.test(qLower)) return 'Hose / Cable Observation';
+      }
+      if (inCat('Lighting')) {
+        if (/\b(won't turn on|wont turn on|doesn't turn on|isn't turning on|not turning on|not powering up|no light|dark|not lighting)\b/.test(qLower)) return "Light Won't Turn On";
+        if (/\b(flicker|flickering|flashing|blinking|changes color|wrong color)\b/.test(qLower)) return 'Flicker / Color Issue';
+        if (/\b(water inside|moisture inside|lens cracked|cracked lens)\b/.test(qLower)) return 'Visible Light / Lens Damage';
+      }
+      if (inCat('Sanitizer / Chlorine')) {
+        if (/\b(low chlorine|no chlorine|chlorine is low|not making chlorine|not generating chlorine)\b/.test(qLower)) return 'Low / No Chlorine Output';
+        if (/\b(low salt|check salt|inspect cell|cell light|clean cell|error code|fault code)\b/.test(qLower)) return 'Salt System Indicator / Code';
+      }
+      if (inCat('Valves')) {
+        if (/\b(won't turn|won't switch|stuck|not moving|actuator|not reaching position)\b/.test(qLower)) return 'Valve / Actuator Position Issue';
+      }
+      if (inCat('Water Quality / General') || inCat('Water Quality / Algae') || inCat('Water Quality / Unusual Color')) {
+        if (/\b(green|algae|slimy)\b/.test(qLower)) return 'Green Water / Possible Algae';
+        if (/\b(cloudy|hazy|milky|can't see the bottom|cannot see the bottom)\b/.test(qLower)) return 'Cloudy Water';
+        if (/\b(low chlorine|high chlorine|chlorine|\bph\b|alkalinity|calcium hardness|\bcya\b|stabilizer|stabiliser|salt level|water test|water chemistry|water balance|help with (?:my )?(?:pool )?water|water is off|chemistry is off)\b/.test(qLower)) return 'Water Chemistry / Test Results';
+      }
+      if (!cat || !['Pump','Heater','Sanitizer / Chlorine','Valves','Filter','Automation','Cleaner','Lighting'].includes(cat)) {
+        if (/\b(silent|dead|dark|no sound|no light|nothing happens|quiet|blank)\b/.test(qLower)) return 'Silent / No Power';
         if (/\b(leak|leaking|dripping)\b/.test(qLower)) return 'Water Leak';
+        if (/\b(won't start|wont start|can't start|cant start|cannot start|won't turn on|wont turn on|can't turn on|cant turn on|doesn't turn on|not starting|not moving)\b/.test(qLower)) return "Won't Start / Operate";
       }
       return null;
     }
 
     function isNotSureResponse(qLower) {
+      qLower = normalizeConversationalText(qLower);
       return /\b(not sure|i'm not sure|im not sure|don't know|dont know|don't have (?:the )?(?:model|model number)|dont have (?:the )?(?:model|model number)|can't find (?:the )?(?:model|model number)|cant find (?:the )?(?:model|model number)|can't read (?:the )?(?:model|model number)|cant read (?:the )?(?:model|model number)|unknown|unsure|no idea|continue troubleshooting|continue with general)\b/i.test(qLower);
     }
 
     function isNoScreenResponse(qLower) {
+      qLower = normalizeConversationalText(qLower);
       return /\b(no screen|doesn't have a screen|doesnt have a screen|no display|no lcd|no keypad|single speed|single-speed|there is no screen|without a screen|no buttons)\b/i.test(qLower);
     }
 
@@ -2323,7 +2507,7 @@
     }
 
     function isDeferringModelResponse(rawText) {
-      const q = String(rawText || '').toLowerCase();
+      const q = normalizeConversationalText(rawText);
       if (/\b[a-z]{1,5}[- ]?\d{2,}[a-z0-9-]*\b/i.test(q)) return false;
       return /\b(i('| wi)ll|let me|i can|i'm going to|im going to|gonna)\b[^.?!]{0,40}\b(provide|give|enter|type|check|read|find|look|get|send)\b[^.?!]{0,40}\b(model|label|nameplate|number)\b/.test(q)
         || /\bprovide the exact model\b/.test(q);
@@ -2356,7 +2540,7 @@
     }
 
     function isSpecificSymptomDescription(text, subType) {
-      const clean = String(text || '').trim().toLowerCase();
+      const clean = normalizeConversationalText(text).trim();
       // A filter-type answer classifies the equipment; it is not a reported fault symptom.
       if (/^(?:my )?(?:(?:pool )?filter (?:type )?(?:is )?)?(?:sand|cartridge|de|d\.?e\.?|diatomaceous earth)(?: filter)?[.! ]*$/i.test(clean)) return false;
       if (subType) return true;
@@ -2367,7 +2551,9 @@
 
     function updateSessionContextFromMessage(rawText) {
       const q = String(rawText || '').trim();
-      const qLower = q.toLowerCase();
+      const qLower = normalizeConversationalText(q);
+      sessionContext.lastUserObservation = q.slice(0, 600);
+      sessionContext.normalizedLatestUserMessage = qLower.slice(0, 600);
 
       const explicitTopicSwitch = /\b(different|another|new|separate|unrelated)\s+(issue|problem|question|equipment)\b|\b(start over|start again|reset|switch to)\b/i.test(q);
 
@@ -2385,6 +2571,8 @@
         sessionContext.isSilent = false;
         sessionContext.isHumming = false;
         sessionContext.symptom = null;
+        sessionContext.lastUserObservation = null;
+        sessionContext.normalizedLatestUserMessage = null;
         sessionContext.currentStep = 0;
         sessionContext.ruledOut = [];
         sessionContext.skippedSteps = [];
@@ -2437,7 +2625,7 @@
         }
       }
 
-      if (!sessionContext.makeConfirmed) {
+      if (!sessionContext.makeConfirmed || sessionContext.brand === 'Generic') {
         const newBrand = detectBrandFromText(qLower);
         if (newBrand) {
           sessionContext.brand = newBrand;
@@ -2727,7 +2915,7 @@
       const options = productOptions.map(([label, prompt]) => ({ label, prompt }));
 
       options.push({ label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the exact model; continue with general troubleshooting" });
-      options.push({ label: "📋 Request Technician / Call Licensed Pro", action: 'escalate' });
+      options.push({ label: "📞 Request a Pool Service Technician / Licensed Professional", action: 'escalate' });
       return options;
     }
 
@@ -2745,7 +2933,7 @@
           { label: "💊 Chlorine Tablet Feeder", prompt: "It's a Jandy TruChlor tablet feeder" },
           { label: "🧪 Run Water Balancing & Dosing Calculator", prompt: "Balance my pool water" },
           { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-          { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+          { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
         ]
       },
       'Pump': {
@@ -2756,7 +2944,7 @@
           { label: "It's a Hayward Pump", prompt: "It's a Hayward pump" },
           { label: "It's a Jandy Pump", prompt: "It's a Jandy pump" },
           { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-          { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+          { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
         ]
       },
       'Heater': {
@@ -2768,7 +2956,7 @@
           { label: "It's a Hayward Heater", prompt: "It's a Hayward heater" },
           { label: "It's a Raypak Heater", prompt: "It's a Raypak heater" },
           { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-          { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+          { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
         ]
       },
       'Filter': {
@@ -2780,7 +2968,7 @@
           { label: "D.E.", prompt: "My filter type is D.E." },
           { label: "Cartridge", prompt: "My filter type is Cartridge." },
           { label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure what type of filter I have; continue troubleshooting." },
-          { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+          { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
         ]
       },
       'Valves': {
@@ -2791,7 +2979,7 @@
           { label: "Pentair Multiport Valve", prompt: "It's a Pentair multiport valve" },
           { label: "Jandy Valve", prompt: "It's a Jandy valve" },
           { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-          { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+          { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
         ]
       },
       'Cleaner': {
@@ -2801,7 +2989,7 @@
           { label: "Polaris Freedom Cordless Cleaner", prompt: "My model is the Polaris Freedom." },
           { label: "Polaris 280 Pressure Cleaner", prompt: "My model is the Polaris 280." },
           { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-          { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+          { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
         ]
       },
       'Automation': {
@@ -2812,7 +3000,7 @@
           { label: "Hayward Automation (OmniLogic / ProLogic family)", prompt: "It's a Hayward automation controller." },
           { label: "Jandy Automation (AquaLink family)", prompt: "It's a Jandy automation controller." },
           { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-          { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+          { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
         ]
       }
     };
@@ -2964,7 +3152,7 @@
         : '';
 
       const escalationReply = [
-        `📋 **Request Service Technician / Call a Licensed Professional**`,
+        `📋 **Request a Pool Service Technician / Call a Licensed Professional**`,
         `Here is your complete **Pre-Job Summary** and step-by-step instructions to prepare for the technician's arrival:`,
         `**1. Pre-Job Summary:**\n• **Equipment / Context:** ${equipLabel}\n• **Reported Issue:** ${primaryIssue}\n• **Completed & Ruled-Out Checks (${sessionContext.ruledOut.length}):**\n${checksSummaryText}${waterResultsLine ? `\n\n${waterResultsLine}` : ''}`,
         `**2. How to Prepare for the Visit:**\n• **Step 1 — Secure the Equipment:** ${safetyPrepStep}\n• **Step 2 — Snap 2 Quick Photos:** Take a clear photo of the equipment **model/serial nameplate label** and a wide photo of the **equipment pad / plumbing** (plus any active error code on the display).\n• **Step 3 — Clear Pad Access:** Unlock side gates, secure pets indoors, and clear any items blocking access to the equipment pad and breaker sub-panel.\n• **Step 4 — Send Your Pre-Job Summary Below:** Enter your **Name, Phone Number, and Email Address** below so the licensed technician receives this summary and brings the right parts on the first visit:`
@@ -3245,7 +3433,8 @@
         const manuals = manualRaw.map(item => {
           if (typeof item === 'string') return item;
           const title = item?.title || item?.name || item?.fileName || item?.file_name || 'Internal manual';
-          const detail = [item?.modelFamily || item?.model_family, item?.page ? `p. ${item.page}` : ''].filter(Boolean).join(', ');
+          const pageLabel = item?.pageLabel || item?.page_label || (item?.pageStart || item?.pageEnd ? ((item?.pageStart && item?.pageEnd && item.pageStart !== item.pageEnd) ? `pp. ${item.pageStart}–${item.pageEnd}` : `p. ${item.pageStart || item.pageEnd}`) : (item?.page ? `p. ${item.page}` : ''));
+          const detail = [item?.modelFamily || item?.model_family, pageLabel].filter(Boolean).join(', ');
           const url = item?.url || item?.uri || '';
           return `${title}${detail ? ` (${detail})` : ''}${url ? ` — ${url}` : ''}`;
         }).filter(Boolean).slice(0, 4);
@@ -3295,7 +3484,7 @@
           prompt: `My model is the ${manufacturer} ${family}.`
         })).filter(btn => modelOptionFitsCategory(btn.label, category));
         modelButtons.push({ label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the exact model; continue with general troubleshooting" });
-        modelButtons.push({ label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' });
+        modelButtons.push({ label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' });
         return modelButtons;
       }
 
@@ -3307,7 +3496,7 @@
         if (/^(fixed|resolved|solved)$/i.test(action)) action = 'resolved';
         if (/^(technician|service|escalate|call_pro|licensed_pro)$/i.test(action) || /request.*technician|call.*professional|licensed pro/i.test(label)) {
           action = 'escalate';
-          label = '📋 Request Technician / Call Licensed Pro';
+          label = '📞 Request a Pool Service Technician / Licensed Professional';
         }
         if (/^(skip|skip_step|skip-step|alternative|alternative_step)$/i.test(action)) action = 'skip_step';
         const rawPrompt = typeof item === 'object' ? (item.prompt || item.message || item.query || '') : '';
@@ -3326,14 +3515,14 @@
         .filter(item => handledActionItem(item) || modelOptionFitsCategory(`${item.label} ${item.prompt}`, sessionContext.category));
 
       if (!normalized.some(c => c.action === 'escalate')) {
-        normalized.push({ label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' });
+        normalized.push({ label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' });
       }
 
       return normalized.length > 1 ? normalized : [
         { label: '➡ Continue to the Next Troubleshooting Step', action: 'next_kb_step' },
         { label: '✔ That Fixed It!', action: 'resolved' },
         { label: '⏭ Skip this check and try an alternative', action: 'skip_step' },
-        { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+        { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
       ];
     }
 
@@ -3375,6 +3564,8 @@
       }
       const symptomLines = String(c.symptom || '').split('\n').map(s => s.trim()).filter(Boolean);
       if (symptomLines[0]) parts.push(`primary reported symptom: ${symptomLines[0].slice(0, 220)}`);
+      if (c.lastUserObservation) parts.push(`latest customer observation (interpret naturally; preserve typo-tolerant meaning): ${String(c.lastUserObservation).slice(0, 220)}`);
+      if (c.normalizedLatestUserMessage) parts.push(`normalized latest-message routing aid: ${String(c.normalizedLatestUserMessage).slice(0, 220)}`);
       parts.push(`current diagnostic step index: Step ${(c.currentStep || 0) + 1}`);
       const done = (c.ruledOut || []).slice(-8);
       if (done.length) parts.push(`completed steps & customer observations (DO NOT REPEAT THESE): ${done.join(' | ')}`);
@@ -3395,14 +3586,41 @@
     }
 
     function getLocalTroubleshootingFallback(userText) {
-      const q = String(userText || '').toLowerCase();
-      if (sessionContext.category === 'Water Quality / Algae' || /algae|green pool|green water/.test(q)) return 'The live knowledge-base/web lookup is unavailable, so I cannot verify source-grounded algae treatment steps right now. Use only measured water-test results and the specific chemical product label; do not add a guessed dose or mix chemicals. Record FC, pH, CYA/stabilizer, total alkalinity and pool volume if available. If the cause is uncertain or the pool floor is not visible, keep swimmers out and request a qualified pool professional.';
-      if (/^Water Quality\b/i.test(String(sessionContext.category || '')) || /cloudy pool|cloudy water|discolored pool|discolou?red water/.test(q)) return 'The live knowledge-base/web lookup is unavailable, so I cannot verify a source-grounded next step for this pool-water issue. Do not assume the cause or add chemicals based on appearance alone. Record FC, pH, CYA/stabilizer and total alkalinity if available. Keep swimmers out if clarity or sanitizer safety is uncertain, and request a qualified service technician if the source lookup remains unavailable.';
-      if (/leak|leaking|water loss|losing water/.test(q)) return 'For now, note exactly where water appears, whether it happens only while the pump is running, and whether the pool water level is also dropping. Keep water away from electrical equipment. Do not open housings or attempt a repair without the correct procedure.';
-      if (/pump|motor|won.t start|humming|prime|flow/.test(q)) return 'For now, record any display/error code and whether the pump is silent, humming, or running with low flow. Check the pool water level visually. Do not open electrical compartments or touch wet wiring; follow the equipment manual before accessing baskets or lids.';
-      if (/filter|pressure|backwash|valve/.test(q)) return 'For now, record the filter pressure reading, whether return flow changed, and any visible leak location. Do not open a pressurized filter; follow the exact manufacturer pressure-relief procedure before service.';
-      if (/heater|gas|ignition|flame/.test(q)) return 'For now, record the exact displayed fault code and heater model from a safe distance. If you smell gas, see smoke/flame, or suspect carbon monoxide, leave the area and call 911 or the gas utility. Do not restart the heater.';
-      return 'For now, record the exact symptom, any displayed error code, and equipment make/model if readable without approaching a hazard. Limit checks to non-invasive observations and owner-manual instructions. Do not open electrical or gas compartments or mix chemicals.';
+      const q = normalizeConversationalText(userText || '');
+      const category = String(sessionContext.category || '').toLowerCase();
+      const symptom = String(sessionContext.symptom || userText || '');
+      if (category.includes('water quality') || /algae|green pool|green water|cloudy water|water chemistry|\bph\b|chlorine|alkalinity|\bcya\b/.test(q)) {
+        if (/algae|green pool|green water/.test(`${q} ${symptom.toLowerCase()}`)) return '**FIRST SAFE CHECK — GREEN / CLOUDY WATER (NO DOSING YET)**\n1. If you have a suitable pool test kit, record free chlorine (FC), pH, and CYA/stabilizer; also note total alkalinity and pool volume if known.\n2. Keep swimmers out if the water is cloudy or the pool floor is not clearly visible. Never mix products or guess a chemical dose.\n\nShare the measured readings so the next step can be selected safely. A complete algae-treatment plan still requires applicable verified guidance and the right pool/product details.';
+        return '**FIRST SAFE CHECK — WATER CHEMISTRY**\n1. Test and record free chlorine (FC), pH, and CYA/stabilizer; add total alkalinity and pool volume if available.\n2. Do not add chemicals based on appearance alone, and do not guess a dose or combine products.\n\nTell me the actual test readings. If the water may be unsafe or readings are outside product-label guidance, get qualified pool-service help.';
+      }
+      if (category.includes('pump') || category.includes('motor') || /pump|motor|won't start|can't turn on|humming|prime|flow/.test(q)) {
+        return '**FIRST SAFE CHECK — PUMP WILL NOT START**\n1. From a dry, safe location, look at the controller/timer and note whether it is asking the pump to run.\n2. Observe only visible status lights or messages; do not open a panel, touch wiring, remove the motor cover, or repeatedly reset a breaker.\n\n**Tell me what happens when it is commanded on:** completely silent, hums/buzzes, or trips a breaker. If it trips, smells burnt, sparks, or causes tingling/shock, stay away and request qualified service.';
+      }
+      if (category.includes('filter') || /filter|pressure|backwash/.test(q)) {
+        return '**FIRST SAFE CHECK — FILTER / LOW FLOW**\n1. If visible from a safe position, record the filter pressure gauge reading.\n2. Note whether water returning to the pool is weaker than normal, and compare the gauge with the usual clean-filter reading if known.\n\nDo not open the filter, remove a lid, or move a multiport valve while pressurized or while the pump is running. Tell me the pressure reading and whether return flow is normal, weak, or absent.';
+      }
+      if (category.includes('valve') || /valve|actuator|backwash handle/.test(q)) {
+        return '**FIRST SAFE CHECK — VALVE / ACTUATOR**\n1. Without touching or forcing anything, note the visible handle/actuator position.\n2. If there is a controller, compare the displayed command with the visible position.\n\nDo not move a multiport valve while the pump is running or plumbing is pressurized. Tell me whether the position matches the command or appears stuck/leaking.';
+      }
+      if (category.includes('heater') || /heater|ignition|won't heat|not heating|gas smell/.test(q)) {
+        return '**FIRST SAFE CHECK — POOL HEATER**\n1. From outside the heater cabinet, record any visible error text or status light.\n2. Note whether the circulation pump appears to be running normally.\n\nDo not open gas/electrical compartments or adjust gas controls. If you smell gas, see smoke/flame outside the burner, or suspect carbon monoxide, leave the area and contact emergency services or the gas utility.';
+      }
+      if (category.includes('automation') || /schedule|timer|controller|program/.test(q)) {
+        return '**FIRST SAFE CHECK — AUTOMATION / SCHEDULE**\n1. In the controller display or app only, check whether the schedule is enabled and the displayed date/time is correct.\n2. Note whether a next run time appears and whether the equipment missed it.\n\nDo not open the panel or touch wiring/relays. Does the schedule appear disabled/missing, or was a displayed run time missed?';
+      }
+      if (category.includes('cleaner') || /cleaner|robot|polaris|dolphin|pool vac/.test(q)) {
+        return '**FIRST SAFE CHECK — POOL CLEANER**\n1. Identify whether it is robotic, suction-side, or pressure-side.\n2. Observe only exterior status lights and visible hose/cable condition.\n\nDo not reach into moving parts or open the power supply. Stop using it if a plug, cable, hose, or housing looks damaged. Which cleaner type do you have, and what does it do when started?';
+      }
+      if (category.includes('lighting') || /pool light|spa light|light won't|light wont|flicker/.test(q)) {
+        return '**FIRST SAFE CHECK — POOL LIGHTING**\n1. From a dry location, note whether the controller/app shows a status and whether the light is dark, flickering, or changing color.\n2. Do not test the fixture if you suspect an electrical problem; keep hands and equipment dry.\n\nDo not open a junction box, transformer, or light niche. Suspected water intrusion or an electrical fault requires a qualified pool professional.';
+      }
+      if (category.includes('sanitizer') || /chlorinator|salt cell|salt system|low chlorine|feeder/.test(q)) {
+        return '**FIRST SAFE CHECK — SALT / CHLORINE SYSTEM**\n1. Record any visible controller indicator/error text.\n2. Note existing free-chlorine and salt test readings, if available; do not open the cell/feeder or guess a chemical dose.\n\nIf the system reports a fault or chlorine remains low, follow the exact product labels and request qualified pool-service help.';
+      }
+      if (/leak|leaking|water loss|losing water/.test(q)) {
+        return '**FIRST SAFE CHECK — LEAK / WATER LOSS**\n1. From a safe distance, note exactly where water appears and whether it happens only while equipment runs.\n2. Note whether the pool water level is also dropping, and keep water away from electrical equipment.\n\nDo not open a housing or tighten parts while the system is running or pressurized. If water is contacting electrical equipment, stay away and request qualified service.';
+      }
+      return '**FIRST SAFE OBSERVATION — ISSUE NOT YET CLASSIFIED**\n1. Without touching or opening equipment, note the visible status light/message, unusual sound, leak, flow change, or action that failed.\n2. Tell me the equipment type and what changed immediately before the issue began.\n\nDo not open electrical/gas compartments, touch wiring, open pressurized equipment, reach into moving parts, or mix chemicals. If you prefer hands-on help, request a qualified pool service technician.';
     }
 
     async function requestSupabaseTroubleshootingTurn(userText, action = 'troubleshoot', displayText = '', retryLevel = 0) {
@@ -3436,6 +3654,8 @@
         isSilent: Boolean(sessionContext.isSilent),
         isHumming: Boolean(sessionContext.isHumming),
         symptom: sessionContext.symptom,
+        lastUserObservation: String(sessionContext.lastUserObservation || '').slice(0, 600),
+        normalizedLatestUserMessage: String(sessionContext.normalizedLatestUserMessage || normalizeConversationalText(userText)).slice(0, 600),
         waterQualityIntent: /^Water Quality\b/i.test(String(sessionContext.category || '')),
         waterQualityConfirmedAlgae: algaeTriageState.causeConfirmed === true,
         waterQualityResults: String(sessionContext.waterQualityResults || algaeTriageState.waterQualityResults || '').slice(0, 1000),
@@ -3503,7 +3723,7 @@
       };
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 75000);
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
       try {
         const headers = secureAuthHeaders();
         const res = await fetch(TROUBLESHOOTER_ENDPOINT, {
@@ -3563,12 +3783,24 @@
         sessionContext.lastRecommendedStep = replyText;
 
         if (responseObj.requires_technician === true || responseObj.requiresTechnician === true || responseObj.escalate === true || /i'm not sure of the next step, let's get a technician involved/i.test(replyText)) {
-          const equipLabel = getSessionEquipmentLabel(' • ');
-          const turn = buildTechnicianEscalationTurn(shownText, equipLabel);
-          if (replyText && !/Pre-Job Summary/i.test(replyText)) turn.aiReply = `${replyText}\n\n---\n\n${turn.aiReply}`;
+          // Make a final technician recommendation visible before opening the handoff form.
+          const equipmentLabel = getSessionEquipmentLabel(' • ');
+          const clearServiceReply = replyText && !/technician is the recommended next step/i.test(replyText)
+            ? `**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**\n\n${replyText}`
+            : (replyText || '**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**');
+          const turn = {
+            userMsg: shownText,
+            backendMsg: userText,
+            aiReply: clearServiceReply,
+            citation: getSupabaseCitation(payload),
+            technicianRecommended: true,
+            choices: [{ label: '📞 REQUEST A POOL SERVICE TECHNICIAN', action: 'escalate' }],
+            type: 'technician_recommended',
+            equipment: equipmentLabel
+          };
           conversationHistory.push(turn);
           void captureTroubleshootingLearning(userText, replyText, action);
-          renderInteractiveConversation(turn.dispatchNote);
+          renderInteractiveConversation();
           return;
         }
 
@@ -3576,12 +3808,12 @@
         const objChoices = metadataOnlyResult
           ? [
               { label: '↻ Retry this troubleshooting question', action: 'retry_last' },
-              { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+              { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
             ]
           : normalizeSupabaseChoices(payload);
         if (/^Water Quality\b/i.test(String(sessionContext.category || ''))) {
           if (!objChoices.some(choice => choice.action === 'escalate' || /request (?:a )?(?:service )?technician|green-to-clean/i.test(String(choice.label || '')))) {
-            objChoices.push({ label: sessionContext.category === 'Water Quality / Algae' ? '📋 Request Technician / Green-to-Clean Service' : '📋 Request Service Technician', action: 'escalate' });
+            objChoices.push({ label: sessionContext.category === 'Water Quality / Algae' ? '📞 Request Pool Service / Green-to-Clean Help' : '📞 Request a Pool Service Technician', action: 'escalate' });
           }
           if (sessionContext.category === 'Water Quality / Algae' && !objChoices.some(choice => /enter water chemistry|water balancing calculator|calculate (?:a )?(?:shock|treatment) dose/i.test(String(choice.label || '')))) {
             objChoices.push(algaeTriageState.stage !== 'idle'
@@ -3600,7 +3832,9 @@
           choices: objChoices,
           type: responseObj.type || responseObj.turn_type || responseObj.status || undefined,
           responseType: responseObj.responseType || responseObj.response_type || undefined,
-          unlockedStep: responseObj.unlockedStep || responseObj.unlocked_step || undefined
+          unlockedStep: responseObj.unlockedStep || responseObj.unlocked_step || undefined,
+          technicianRecommended: responseObj.technicianRecommended === true || responseObj.technician_recommended === true,
+          serviceHelpAvailable: responseObj.serviceHelpAvailable === true || responseObj.service_help_available === true
         };
         conversationHistory.push(turn);
         void captureTroubleshootingLearning(userText, replyText, action);
@@ -3613,17 +3847,18 @@
         conversationHistory.push({
           userMsg: shownText,
           backendMsg: userText,
-          aiReply: `ℹ️ **PoolDocAI can’t complete the live troubleshooting response right now.**\n\n${fallback}\n\nPlease retry in a moment or prepare a Pre-Job Summary for a licensed technician. I won’t guess at model-specific readings or part numbers.`,
-          citation: 'Connection status: Limited general guidance',
+          aiReply: `⚠️ **LIVE TROUBLESHOOTING CONNECTION INTERRUPTED**\n\n${fallback}\n\nThe live manual/web lookup did not finish on this turn. The observation above is general safety guidance, not a verified model-specific procedure. You can retry, or choose the large technician-service option if you need hands-on help.`,
+          citation: 'Connection status: Live source verification did not complete',
+          serviceHelpAvailable: true,
           choices: /^Water Quality\b/i.test(String(sessionContext.category || ''))
             ? [
-                { label: sessionContext.category === 'Water Quality / Algae' ? '📋 Request Technician / Green-to-Clean Service' : '📋 Request Service Technician', action: 'escalate' },
+                { label: sessionContext.category === 'Water Quality / Algae' ? '📞 Request Pool Service / Green-to-Clean Help' : '📞 Request a Pool Service Technician', action: 'escalate' },
                 ...(sessionContext.category === 'Water Quality / Algae' ? [{ label: '🧪 Enter Water Chemistry', prompt: 'Enter water chemistry for my green pool.' }] : []),
                 { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
               ]
             : [
                 { label: '↻ Retry this question', action: 'retry_last' },
-                { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+                { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
               ]
         });
         renderInteractiveConversation({
@@ -3746,8 +3981,30 @@
       }
     }
 
+    // Remove only clauses explicitly forbidding a hazardous action before classifying
+    // whether a response actually instructs a homeowner to perform that action.
+    // This is for risk classification only; the original customer-facing text is unchanged.
+    function stripSafetyProhibitionsForRiskScan(rawText) {
+      return String(rawText || '')
+        .replace(/[*_`]/g, '')
+        .replace(/\b(?:never|do not|don't|must not|mustn't|should not|shouldn't|avoid|not safe to|unsafe to)\b[^.!?;\n]{0,220}(?=\b(?:but|however|instead|rather)\b|[.!?;\n]|$)/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    // A hazard noun on its own (for example, “capacitor” in “do not touch the capacitor”)
+    // is not an unsafe instruction. Require an affirmative action near a hazardous object.
+    function isHighRiskRepairInstruction(rawText) {
+      const text = stripSafetyProhibitionsForRiskScan(rawText);
+      const action = '(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|reset|work on|handle|short|energize|power up|recharge|purge|relight|use a multimeter to|use a meter to)';
+      const target = '(?:gas line|gas valve|gas leak|live wire|electrical panel|electrical wiring|motor wiring|pump motor|wiring|breaker(?: panel)?|voltage|continuity|amperage|capacitor|pressurized filter|filter lid|pump lid|heater housing|motor housing|control panel|pressure vessel|combustion|ignition assembly|burner|refrigerant|sealed system)';
+      const actionThenTarget = new RegExp('\\b' + action + '\\b.{0,70}\\b' + target + '\\b', 'i');
+      const targetThenAction = new RegExp('\\b' + target + '\\b.{0,55}\\b' + action + '\\b', 'i');
+      return actionThenTarget.test(text) || targetThenAction.test(text);
+    }
+
     function isCriticalPoolHazard(rawText) {
-      const text = String(rawText || '').toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, ' ')
+      const text = normalizeConversationalText(rawText).replace(/[’‘]/g, "'").replace(/\s+/g, ' ')
         // Safe instructions are not incident reports; a positive report like “I mixed acid and chlorine” still triggers.
         .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]?/gi, ' ')
         .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ');
@@ -3778,7 +4035,7 @@
     // Detect an affirmative instruction to combine incompatible pool chemicals, not a warning that says not to.
     // Keep this separate from the general hazard detector so safe algae-treatment cautions are not blocked.
     function isDangerousChemicalMixInstruction(rawText) {
-      const text = String(rawText || '').toLowerCase().replace(/[’‘]/g, "'");
+      const text = normalizeConversationalText(rawText).replace(/[’‘]/g, "'");
       const sentences = text.split(/(?<=[.!?;])\s+|\n+/).map(part => part.trim()).filter(Boolean);
       const chemicalA = /\b(?:muriatic acid|dry acid|sodium bisulfate|acid)\b/i;
       const chemicalB = /\b(?:chlorine|bleach|pool shock|shock|calcium hypochlorite|dichlor|trichlor)\b/i;
@@ -3804,7 +4061,7 @@
     async function runCustomLiveDemoQuery(rawText) {
       const q = String(rawText || '').trim().slice(0, 1800);
       if (!q) return;
-      const lower = q.toLowerCase();
+      const lower = normalizeConversationalText(q);
       // Starter chips are initial-intake choices, not persistent suggestions.
       // Only a deliberate new conversation/restart should reveal them again.
       hideSampleStartersBar();
@@ -3826,7 +4083,7 @@
           type: 'critical_stop',
           citation: 'Safety Engine: Client-side emergency stop.',
           outcomeBanner: 'NON-BYPASSABLE: Internal DIY troubleshooting is halted for this reported hazard.',
-          choices: [{ label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }]
+          choices: [{ label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }]
         });
         renderInteractiveConversation({
           customer: 'Urgent Safety Alert',
@@ -3910,7 +4167,7 @@
             { label: 'At the heater or other equipment', prompt: 'Water is leaking at my pool heater or other equipment.' },
             { label: 'The pool water level is dropping; location unknown', prompt: 'My pool is losing water and I do not know where the leak is.' },
             { label: "I'm not sure", prompt: "I'm not sure where the pool is leaking; continue troubleshooting." },
-            { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+            { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
           ]
         });
         renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Water Loss / Leak Intake', issue: q, stepsCompleted: 'Intake Step 1: Leak location', actionTaken: 'Asked user to identify the likely leak location before model-specific checks.', parts: 'Pending leak location and make/model', status: 'Leak location triage' });
@@ -3946,7 +4203,7 @@
             choices: [
               ...availableBrands.map(brand => ({ label: brand, prompt: `The brand of my ${typedHeatSource.toLowerCase()} pool heater is ${brand}.` })),
               { label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the heater brand; continue troubleshooting." },
-              { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+              { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
             ]
           });
           renderInteractiveConversation({
@@ -3964,15 +4221,23 @@
 
       updateSessionContextFromMessage(q);
 
-      // Heater triage must establish fuel/heat source before asking for make or model.
-      // Keep a typed answer in sessionContext so the source is never asked twice.
-      if (sessionContext.category === 'Heater' && !sessionContext.heatSource && !isNotSureResponse(lower)) {
+      // When a customer's own words already describe a specific issue, do not block progress
+      // behind symptom, brand, or model menus. Use general troubleshooting until details are
+      // volunteered; the backend can still ask one focused follow-up if safety or the next step
+      // genuinely depends on it. Do not treat an unknown make/model as a reason to stop.
+      if (sessionContext.category && sessionContext.initialTriageComplete && !isModelResolved()) {
+        sessionContext.genericMode = true;
+        sessionContext.model = sessionContext.model || 'General Model';
+      }
+
+      // Heater type is useful context, but a clear symptom can proceed through safe generic guidance.
+      if (sessionContext.category === 'Heater' && !sessionContext.heatSource && !sessionContext.initialTriageComplete && !isNotSureResponse(lower)) {
         const heatSourceChoices = [
           { label: 'Natural Gas', prompt: 'My pool heater uses Natural Gas.' },
           { label: 'Propane', prompt: 'My pool heater uses Propane.' },
           { label: 'Electric Heat Pump', prompt: 'My pool heater is an Electric Heat Pump.' },
           { label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure what type of heater I have; continue troubleshooting." },
-          { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
         ];
         conversationHistory.push({
           userMsg: q,
@@ -3994,13 +4259,13 @@
 
       // Filter triage must be ordered: filter type -> brand -> compatible model family.
       // Do not ask for type and brand in the same question, and accept typed answers like "sand filter".
-      if (sessionContext.category === 'Filter' && !sessionContext.subType && !isNotSureResponse(lower)) {
+      if (sessionContext.category === 'Filter' && !sessionContext.subType && !sessionContext.initialTriageComplete && !isNotSureResponse(lower)) {
         const typeChoices = [
           { label: 'Sand', prompt: 'My filter type is Sand.' },
           { label: 'D.E.', prompt: 'My filter type is D.E.' },
           { label: 'Cartridge', prompt: 'My filter type is Cartridge.' },
           { label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure what type of filter I have; continue troubleshooting." },
-          { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+          { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
         ];
         conversationHistory.push({
           userMsg: q,
@@ -4020,7 +4285,7 @@
         return;
       }
 
-      if (sessionContext.category === 'Pump' && !sessionContext.subType && !sessionContext.makeConfirmed) {
+      if (sessionContext.category === 'Pump' && !sessionContext.subType && !sessionContext.initialTriageComplete && !sessionContext.makeConfirmed) {
         conversationHistory.push({
           userMsg: q,
           aiReply: "I can help with the pump/motor. Which symptom best matches what you're seeing? I'll use your choice to keep the rest of the troubleshooting on the right path.",
@@ -4032,7 +4297,7 @@
             { label: 'Pump is losing prime / air in system', prompt: 'My pool pump keeps losing prime and has air in the system.' },
             { label: 'Grinding, screeching, or bearing noise', prompt: 'My pool pump motor is grinding or screeching.' },
             { label: 'Low flow / poor circulation', prompt: 'My pool pump is running but flow is low.' },
-            { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+            { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
           ]
         });
         renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Pump / Motor', issue: q, stepsCompleted: 'Intake Step 1: Pump symptom', actionTaken: 'Recorded equipment category and requested symptom selection.', parts: 'Pending symptom and make/model', status: 'Pump symptom triage' });
@@ -4040,7 +4305,7 @@
       }
 
       // Stage 1: Make / Brand Triage
-      if (sessionContext.category && !sessionContext.makeConfirmed && MAKE_TRIAGE_PROMPTS[sessionContext.category]) {
+      if (sessionContext.category && !sessionContext.makeConfirmed && !sessionContext.initialTriageComplete && MAKE_TRIAGE_PROMPTS[sessionContext.category]) {
         let triage = MAKE_TRIAGE_PROMPTS[sessionContext.category];
         if (sessionContext.category === 'Filter') {
           const filterType = sessionContext.subType || 'pool filter';
@@ -4056,7 +4321,7 @@
             choices: [
               ...availableBrands.map(brand => ({ label: brand, prompt: `The brand of my filter is ${brand}.` })),
               { label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the filter brand; continue troubleshooting." },
-              { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+              { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
             ]
           };
         }
@@ -4074,7 +4339,7 @@
             choices: [
               ...availableBrands.map(brand => ({ label: brand, prompt: `The brand of my ${heatSource.toLowerCase()} pool heater is ${brand}.` })),
               { label: "I'm not sure — continue with general troubleshooting", prompt: "I'm not sure of the heater brand; continue troubleshooting." },
-              { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+              { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
             ]
           };
         }
@@ -4090,7 +4355,7 @@
               { label: "🧂 Pentair Salt System", prompt: "It's a Pentair salt system" },
               { label: "🧂 Jandy Salt System", prompt: "It's a Jandy salt system" },
               { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-              { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+              { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
             ]
           };
         } else if (sessionContext.category === 'Sanitizer / Chlorine' && sessionContext.subType === 'Tablet Feeder') {
@@ -4100,7 +4365,7 @@
             choices: [
               { label: "💊 Jandy TruChlor Feeder", prompt: "My model is the Jandy TruChlor." },
               { label: "I'm not sure, continue troubleshooting", prompt: "I'm not sure, continue troubleshooting" },
-              { label: "📋 Request Technician / Call Licensed Pro", action: "escalate" }
+              { label: "📞 Request a Pool Service Technician / Licensed Professional", action: "escalate" }
             ]
           };
         }
@@ -4139,7 +4404,7 @@
       }
 
       // Stage 2: Model Triage
-      if (sessionContext.category && sessionContext.makeConfirmed && !isModelResolved()) {
+      if (sessionContext.category && sessionContext.makeConfirmed && !isModelResolved() && !sessionContext.initialTriageComplete) {
         const modelChoices = getModelOptionsForMakeAndCategory(sessionContext.brand, sessionContext.category);
         const hasCuratedModelFamilies = modelChoices.some(choice => !/not sure|general troubleshooting|request technician/i.test(choice.label));
         if (!hasCuratedModelFamilies) {
@@ -4283,14 +4548,17 @@
         const cautionText = `${step.aiReply || ''} ${step.unlockedStep || ''}`;
         // Remove explicit safety prohibitions before looking for unsafe instructions. A reply
         // that says “never mix acid and chlorine” is a safety warning, not an instruction to mix.
-        const cautionRiskText = cautionText
-          .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]?/gi, ' ')
-          .replace(/\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,40}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ');
-        const cautionIsHighRisk = /(gas line|gas valve|gas leak|gas.{0,40}(repair|adjust|test|disconnect|reconnect)|live wire|electrical (panel|work|repair|test|wiring|connection)|breaker panel|open.{0,25}(breaker|electrical|control) panel|reset.{0,20}breaker|voltage test|test.{0,30}(voltage|continuity|amperage)|capacitor|open.{0,20}(filter|pump|heater|motor|control panel)|pressuri[sz]ed|pressure vessel|filter tank|combustion|ignition assembly|burner|refrigerant|sealed system|remove.{0,20}(pressure|filter lid|pump lid)|repair.{0,30}(motor|heater|gas|electrical|wiring)|replace.{0,30}(capacitor|igniter|burner|refrigerant|electrical))/i.test(cautionRiskText) || isDangerousChemicalMixInstruction(cautionRiskText);
+        const cautionRiskText = stripSafetyProhibitionsForRiskScan(cautionText);
+        const cautionIsHighRisk = isHighRiskRepairInstruction(cautionText);
         const isLatest = index === conversationHistory.length - 1;
         let specialControlHtml = '';
+        const serviceCtaIsRecommended = step.technicianRecommended === true;
+        const serviceCtaIsAvailable = step.serviceHelpAvailable === true;
+        const showLargeTechnicianCta = (serviceCtaIsRecommended || serviceCtaIsAvailable) && isLatest;
         if (isCritical) {
           specialControlHtml = `<div class="mt-3 p-3 rounded-xl bg-rose-950 border border-rose-500/60 text-xs text-rose-200 space-y-1"><div>🚫 <strong>Non-bypassable safety stop:</strong> Do not approach or touch equipment, wiring, switches, gas valves, or breakers while a hazard may be present. Move to a safe location and contact emergency services or the appropriate utility/professional.</div><span class="inline-block px-2 py-0.5 rounded bg-rose-800 text-white font-bold text-xs">SAFETY STOP — NO OVERRIDE</span></div>`;
+        } else if (showLargeTechnicianCta) {
+          specialControlHtml = `<section role="status" aria-live="polite" class="mt-4 p-4 sm:p-5 rounded-2xl border border-sky-700/70 bg-slate-900 text-white shadow-sm space-y-3"><div class="inline-flex items-center rounded-lg bg-sky-950 px-3 py-1.5 text-sm sm:text-base font-semibold text-sky-100">${serviceCtaIsRecommended ? 'Recommended next step' : 'Technician help available'}</div><h3 class="text-xl sm:text-2xl font-semibold leading-snug">${serviceCtaIsRecommended ? 'Request a pool service technician' : 'Need help from a technician?'}</h3><p class="text-base leading-relaxed text-slate-100">${serviceCtaIsRecommended ? 'PoolDocAI could not verify a reliable next procedure from the available manuals and live search. A qualified pool service technician should inspect this issue rather than guess at a repair.' : 'The live troubleshooting connection did not finish. You can keep to the safe observation above, retry the question, or prepare a service summary for a qualified professional.'}</p><button type="button" data-followup-action="escalate" data-followup-label="Request a Pool Service Technician" class="demo-followup-btn w-full min-h-[56px] px-4 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white border border-sky-400 font-semibold text-base sm:text-lg leading-snug cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-300">Request a pool service technician</button><p class="text-sm leading-relaxed text-slate-300">This prepares a Pre-Job Summary. The public demo does not dispatch a technician or create an appointment.</p></section>`;
         } else if (isDrainChoice && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="drainSelectCheckbox" type="checkbox" class="mt-0.5 w-4 h-4 accent-amber-400" /><span>Select the optional partial-drain estimate for professional review. Selecting this option is not an instruction or authorization to start draining.</span></label><button id="openDrainRiskReviewBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Continue to Draining Risk Review</button><div class="text-xs text-amber-100">If you do not want to drain, choose “I don't want to drain my pool” below to continue with the rest of the balancing instructions.</div></div>`;
         } else if (isDrainAck && isLatest) {
@@ -4302,7 +4570,7 @@
         } else if (isServiceForm && isLatest) {
           specialControlHtml = `<form class="in-chat-service-request-form mt-3.5 p-4 rounded-2xl bg-slate-950 border border-sky-500/50 space-y-3"><input type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true" class="hidden" /><div class="text-xs font-extrabold text-sky-300 uppercase tracking-wider">📋 Demo Request — Record a Pre-Job Summary</div><div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5"><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Full Name *</label><input type="text" name="sr_name" required autocomplete="name" placeholder="Jane Doe" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Phone Number *</label><input type="tel" name="sr_phone" required autocomplete="tel" placeholder="(555) 234-5678" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Email Address *</label><input type="email" name="sr_email" required autocomplete="email" placeholder="jane@example.com" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div></div><label class="flex items-start gap-2.5 text-xs text-slate-200 cursor-pointer pt-1"><input type="checkbox" name="sr_waitlist_ack" required class="mt-0.5 w-4 h-4 rounded accent-sky-400 cursor-pointer" /><span><strong>I would like to join the PoolDocAI waitlist / request more information.</strong> This public demo records an inquiry only; it does not contact a local repair company or dispatch a technician. *</span></label><div class="sr-form-error hidden text-xs text-rose-400 font-semibold" role="alert"></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs sm:text-sm cursor-pointer">Submit Demo Request &amp; Join Waitlist &rarr;</button></form>`;
         }
-        const homeownerHighRiskInstruction = currentSurfaceMode !== 'tech' && /(?:\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring)\b)/i.test(cautionRiskText);
+        const homeownerHighRiskInstruction = currentSurfaceMode !== 'tech' && isHighRiskRepairInstruction(cautionText);
         const dangerousChemicalMixInstruction = isDangerousChemicalMixInstruction(cautionRiskText);
         const blockHomeownerInstruction = currentSurfaceMode !== 'tech' && (homeownerHighRiskInstruction || (isCaution && cautionIsHighRisk));
         const visibleAiReply = dangerousChemicalMixInstruction
@@ -4323,7 +4591,7 @@
 
       const switchButton = conversationHistory.length > 1 ? `<button type="button" data-followup-action="switch_new_issue" data-followup-label="Switch Equipment / New Issue" class="demo-followup-btn px-3.5 py-2 rounded-xl bg-sky-900 hover:bg-sky-700 text-white border border-sky-700 font-bold text-xs cursor-pointer">🔄 Switch Equipment / New Issue</button>` : '';
       const visibleChoices = latestStep && Array.isArray(latestStep.choices)
-        ? latestStep.choices.filter(c => !(latestStep.type === 'drain_choice' && c.action === 'water_drain_ack'))
+        ? latestStep.choices.filter(c => !(latestStep.type === 'drain_choice' && c.action === 'water_drain_ack') && !((latestStep.technicianRecommended === true || latestStep.serviceHelpAvailable === true) && c.action === 'escalate'))
         : [];
       const choicesHtml = visibleChoices.length > 0
         ? `<div class="text-xs font-bold uppercase tracking-wider text-emerald-400">Suggested Auto-Replies:</div><div class="flex flex-wrap gap-2">${visibleChoices.map(c => `<button type="button" data-wb-val="${escapeHtml(c.wbVal !== undefined ? c.wbVal : '')}" data-followup-action="${escapeHtml(c.action || '')}" data-followup-prompt="${escapeHtml(c.prompt || '')}" data-followup-label="${escapeHtml(c.label)}" class="demo-followup-btn px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-sky-500 hover:text-slate-950 text-sky-300 border border-slate-700 font-bold text-xs cursor-pointer">${escapeHtml(c.label)}</button>`).join('')}</div>` : '';
@@ -4354,7 +4622,7 @@
           if (!drainAck.checked || !waterBalanceMode.lastDrainPlan) return;
           waterBalanceMode.drainChoice = 'drain';
           const d = waterBalanceMode.lastDrainPlan;
-          conversationHistory.push({ userMsg: 'I acknowledge the risks and want to review the partial-dilution estimate.', aiReply: `**Estimate for professional review:** approximately ${d.drainPct}% (~${d.drainGal} gallons) to address ${d.why.join(', ')}. Do not begin draining based on this estimate alone. A qualified pool professional must verify pool construction, groundwater/hydrostatic conditions, local rules, and a safe procedure. After a professionally managed refill, circulate and retest before any chemical additions.`, citation: 'PoolDocAI illustrative dilution calculator; professional/site-specific assessment required.', outcomeBanner: 'Risk acknowledgement recorded in this browser session; it does not establish that draining is safe.', choices: [{ label: "I don't want to drain after all", action: 'water_no_drain' }, { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }, { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }] });
+          conversationHistory.push({ userMsg: 'I acknowledge the risks and want to review the partial-dilution estimate.', aiReply: `**Estimate for professional review:** approximately ${d.drainPct}% (~${d.drainGal} gallons) to address ${d.why.join(', ')}. Do not begin draining based on this estimate alone. A qualified pool professional must verify pool construction, groundwater/hydrostatic conditions, local rules, and a safe procedure. After a professionally managed refill, circulate and retest before any chemical additions.`, citation: 'PoolDocAI illustrative dilution calculator; professional/site-specific assessment required.', outcomeBanner: 'Risk acknowledgement recorded in this browser session; it does not establish that draining is safe.', choices: [{ label: "I don't want to drain after all", action: 'water_no_drain' }, { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }, { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }] });
           renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Water Test' : 'Homeowner Water Test', equipment: `${d.g.toLocaleString()} gal pool`, issue: `Potential dilution for ${d.why.join(', ')}`, stepsCompleted: 'Draining risk acknowledgement provided', actionTaken: 'Displayed estimated dilution for professional review only.', parts: `${d.drainPct}% estimated dilution`, status: 'Professional review required before draining' });
         });
       }
@@ -5168,6 +5436,7 @@
   else saveState();
 })();
 </script>
-<script src="/js/core.js" defer></script>
+<script src="/js/pwa-install.js" defer></script><script src="/js/core.js" defer></script>
+<script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
 </body>
 </html>

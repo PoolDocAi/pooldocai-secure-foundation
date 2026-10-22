@@ -68,7 +68,7 @@
 - [ ] Verify invitation queue workflow, billing-provider integration, and customer-data retention policy before production.
 
 ## Learning loop and manual consent additions
-- [ ] Apply migrations 001–006 in order on a clean staging project. Run `supabase/tests/security_review.sql` and complete `SECURITY_TEST_PLAN.md`.
+- [ ] Apply migrations 001–011 in order on a clean staging project. Run `supabase/tests/security_review.sql` and complete `SECURITY_TEST_PLAN.md`.
 - [ ] Upload a company manual with the shared-learning checkbox unchecked; verify `reference_enabled=true`, `shared_learning_opt_in=false` in `company_manuals`.
 - [ ] Opt the manual in and out; verify consent changes and that opting out never changes `reference_enabled`.
 - [ ] Save a technician PWA job; verify a `diagnostic_cases` row and pending `learning_review_queue` item are created with `source_kind='technician_job'` and the company tenant.
@@ -90,3 +90,13 @@
 - [ ] Authenticated troubleshooting returns company-specific source snippets where relevant.
 - [ ] Cross-company retrieval test returns no chunks from another tenant.
 - [ ] Invalid/private webpage URLs and redirects are rejected; worker secrets never appear in browser source or logs.
+
+- [ ] Verify eight server-enforced turns in Homeowner Triage and eight separate turns in Field Tech Mobile App preview; verify a ninth unique turn is rejected in each mode.
+- [ ] Verify active seats cannot exceed company seat limits, and company admins cannot alter the subscription seat_limit directly.
+- [ ] Verify delegated job-note and document upload/review flags are enforced by RLS/API, not only by hidden UI controls.
+- [ ] Verify the platform-owner account list includes unassigned Auth accounts and shows platform-admin status.
+
+
+## Natural-language troubleshooting regression check
+
+Run `node website/tests/troubleshooter-intent.test.cjs`. This checks ordinary typed pump descriptions (including `Cant turn on my pump` and `Wont turn on`), distinguishes reported silence from a no-start report whose sound is unknown, and confirms all mirrored customer-facing pages bypass duplicate symptom/brand/model selectors when the user's own description is already specific.

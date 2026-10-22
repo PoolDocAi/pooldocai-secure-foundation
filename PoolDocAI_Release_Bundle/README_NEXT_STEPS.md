@@ -40,8 +40,7 @@ A GitHub URL alone does not deploy an Edge Function. The workflow deploys it whe
 7. Test the deployed endpoint with no personal data, then verify quotas, RLS, redaction, chemistry validation and model fallback behavior.
 
 ## Important remaining work
-- Wire persistent case/step/outcome writes and approved-lesson retrieval into the live Edge Function; the migration alone only provides the storage layer.
-- Add an authenticated technician/admin learning-review interface.
+- Verify persistent case capture, approved-lesson retrieval, and the authenticated learning-review interface end-to-end against the deployed database.
 - Add robust PII detection/fail-closed checks for names in free text and personal content in images; audit all existing tables/logs and the waitlist/Formspree integration.
 - Add account/tenant quotas, CAPTCHA and provider-level spending alerts; session limits alone can be reset.
 - Run end-to-end QA and confirm all configured model IDs are available.
@@ -62,7 +61,7 @@ New files and migration:
 - `website/admin.html` — Supabase Auth sign-in, company overview, plan/billing metadata, service requests, technician notes, customer records, member roles, invitation-request queue, private manuals/SOP uploads, and platform-owner analytics.
 - `website/app.html` — authenticated full troubleshooting workspace. The Edge Function validates the Supabase bearer token and active company membership when `authenticatedApp: true` is sent.
 - `supabase/migrations/202610210003_company_admin_portal.sql` — tenant tables, RLS policies, seat-limit trigger, private `company-manuals` storage bucket, and page-view analytics table.
-- Public demo now permits 3 troubleshooting turns per browser session. Public photo upload does not send the image; it displays the waitlist callout.
+- Each public demo mode has an eight-turn allowance, enforced both in the UI and by the database-backed Edge Function. Homeowner Triage and Field Tech Mobile App use separate session counters.
 
 ### Required deployment steps
 1. Copy the website files to the Vercel/GitHub repository, including `admin.html` and `app.html`.
@@ -71,16 +70,16 @@ New files and migration:
 4. In `website/admin.html`, `website/app.html`, and `website/technician.html`, replace `REPLACE_WITH_SUPABASE_ANON_PUBLIC_KEY` with the **public anon key** from Supabase Settings → API. Never use a service-role key in browser code.
 5. Create each company and its first admin using a trusted administrative process. Create individual Supabase Auth users, then insert their `company_members` row. Add your own user ID to `platform_admins` from the SQL Editor after confirming the correct Auth user UUID. Never allow public sign-up to assign platform-admin role.
 6. Ensure email/password auth and password-reset email templates are configured. Invitation requests are queued in the portal; sending an Auth invite requires a trusted server-side function using the service-role key.
-7. Billing fields in this release are account metadata only. Connect a billing provider and verified webhooks before accepting payments or treating billing status as authoritative.
-8. Test company A vs company B, technician vs company admin, suspended member, seat-limit overrun, unauthenticated API call, password reset, file access, public demo 4th turn, and public photo selection before production.
+7. Stripe Checkout, Billing Portal, and a verified/idempotent webhook endpoint are prepared but fail closed until a real Stripe account, recurring Price IDs, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET` have been configured and tested in Test mode.
+8. Test company A vs company B, technician vs company admin, suspended member, seat-limit overrun, unauthenticated API call, password reset, file access, public demo ninth turn, and public photo selection before production.
 
 ### Important limitations
-- The company portal reads/writes the new tenant tables and uploads files to private storage once configured, but does not yet send Auth invitations automatically. The invitation queue requires a trusted server-side invite workflow.
-- Billing is not connected to Stripe or another payment provider. No payment card data is collected.
+- Company invitations are sent by the trusted `clever-handler` action through Supabase Auth. Reliable initial mail delivery requires SMTP setup; resend requires `RESEND_API_KEY` and `INVITATION_FROM_EMAIL` server secrets.
+- Stripe is prepared but remains disabled until the account, prices and webhook signature secret are configured. PoolDocAI never collects or stores payment card details.
 - Page analytics record page path, referrer hostname, and a session hash; they do not capture raw IP addresses or full referrer URLs. They are basic traffic counts, not a full analytics suite.
 - The existing technician PWA pilot access-code workflow remains a separate legacy route. Use the authenticated `/app.html` for the company troubleshooting workspace. Production rollout should move technician job saving entirely to per-user authenticated requests.
-- A public demo's three-turn limit is enforced in the website client and is intended as a demo friction limit, not a hard anti-abuse boundary. The API session quotas remain separate.
-- This package has not been deployed to the live project. Verify all policies and run the QA checklist with real test accounts before storing customer data.
+- Each public demo mode has an eight-turn limit enforced in the website client and by the database-backed Edge Function guard. This is a friction/cost control, not a guarantee that one person equals one browser session; the API session quotas remain separate.
+- This package must still pass end-to-end tests on the live project. Run the QA checklist with two companies and synthetic records before storing customer data.
 
 
 ### Manual first-account provisioning (SQL Editor template)
@@ -112,3 +111,7 @@ on conflict (user_id) do nothing;
 ## Document extraction pipeline (new in this bundle)
 
 For a clean install, follow `README_START_HERE.md` and apply all migrations `202610210001` through `202610210006` in order. Deploy the Edge Function and `document-worker`; set worker secrets in Render and Edge Function secrets in Supabase. The worker polls the durable database queue; `DOC_WORKER_URL` is not required by the current Edge Function.
+
+
+## Latest update (Oct 21, 2026)
+For the 8-turn-per-mode public demo, fixed SQL smoke test runner, company document upload/retrieval, platform-company/account/usage portal and seat-level permissions, follow `README_UPDATE_20261021_EXISTING_INSTALL.md`. Existing deployments should apply migrations 008–011 after 001–007 in numerical order. Migration 011 repairs the demo RPC update ambiguity and ensures platform-owner-only company creation. The workflow fix uses `psql --file` rather than `supabase db query --local --file` for the multi-statement security SQL.

@@ -1,0 +1,11 @@
+{
+  "name": "PoolDocAI Secure Troubleshooter",
+  "short_name": "PoolDocAI",
+  "description": "Authenticated pool equipment diagnostics and technician case handoff.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f7fb",
+  "theme_color": "#0f2b46",
+  "icons": [{ "src": "/pooldocai-app.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

@@ -19,6 +19,9 @@ const REQUIRE_HMAC = String(process.env.DOC_WORKER_REQUIRE_HMAC || 'true').toLow
 const MAX_CLOCK_SKEW_SECONDS = 300;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.8-flash';
+const GEMINI_EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
+const EMBEDDING_DIMENSIONS = 768;
+function utcMonthStartDate() { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
 if (!SUPABASE_URL || !SERVICE_KEY || !SECRET) throw new Error('Startup configuration error: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and DOC_WORKER_SECRET are required.');
 if (!/^https:\/\//i.test(SUPABASE_URL)) throw new Error('Startup configuration error: SUPABASE_URL must use HTTPS.');
 if (!process.env.GEMINI_API_KEY) console.warn('GEMINI_API_KEY is not configured; image/scanned-document OCR will fail until configured.');
@@ -44,6 +47,73 @@ function chunkText(input, size = 1200, overlap = 180) {
     if (end >= text.length) break; start = Math.max(start + 1, end - overlap);
   }
   return out;
+}
+function chunkPages(pages, size = 1200, overlap = 180) {
+  const out = [];
+  for (const page of pages || []) {
+    const pageNum = Number.isInteger(page.pageNumber) && page.pageNumber > 0 ? page.pageNumber : null;
+    for (const content of chunkText(page.text, size, overlap)) out.push({ content, pageNumber: pageNum, pageStart: pageNum, pageEnd: pageNum });
+    if (out.length >= 500) break;
+  }
+  return out.slice(0, 500);
+}
+async function recordUsageOnce(event) {
+  const { error } = await db.from('platform_usage_events').insert(event);
+  if (error && error.code !== '23505') {
+    // Usage telemetry must never turn a successful document extraction into a failed job.
+    // The unique source_event_key index quietly deduplicates a retry of the same job.
+    console.warn('Usage metering event could not be stored', { code: error.code, event_type: event.event_type });
+  }
+}
+
+async function estimateProviderCost(model, inputTokens, outputTokens = 0) {
+  const normalizedInput = Math.max(0, Number(inputTokens) || 0);
+  const normalizedOutput = Math.max(0, Number(outputTokens) || 0);
+  if (!model || (!normalizedInput && !normalizedOutput)) return { estimatedCostUsd: null, costSource: 'not_priced' };
+  try {
+    const { data: rates, error } = await db.from('pooldocai_model_rate_cards')
+      .select('input_usd_per_million_tokens,output_usd_per_million_tokens')
+      .eq('provider', 'google_gemini').eq('model', model).eq('active', true).is('valid_to', null)
+      .order('valid_from', { ascending: false }).limit(1);
+    const rate = rates?.[0];
+    if (error || !rate || rate.input_usd_per_million_tokens == null || rate.output_usd_per_million_tokens == null) {
+      return { estimatedCostUsd: null, costSource: 'not_priced' };
+    }
+    const cost = normalizedInput * Number(rate.input_usd_per_million_tokens) / 1_000_000
+      + normalizedOutput * Number(rate.output_usd_per_million_tokens) / 1_000_000;
+    return Number.isFinite(cost) ? { estimatedCostUsd: cost, costSource: 'rate_card_estimate' } : { estimatedCostUsd: null, costSource: 'not_priced' };
+  } catch {
+    return { estimatedCostUsd: null, costSource: 'not_priced' };
+  }
+}
+
+async function embedDocumentChunks(chunks) {
+  if (!GEMINI_KEY || !chunks.length) return [];
+  const all = [];
+  for (let offset = 0; offset < chunks.length; offset += 32) {
+    const batch = chunks.slice(offset, offset + 32);
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_EMBEDDING_MODEL)}:batchEmbedContents?key=${encodeURIComponent(GEMINI_KEY)}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(60000),
+      body: JSON.stringify({ requests: batch.map(item => ({ model: `models/${GEMINI_EMBEDDING_MODEL}`, content: { parts: [{ text: item.content.slice(0, 8000) }] }, taskType: 'RETRIEVAL_DOCUMENT', outputDimensionality: EMBEDDING_DIMENSIONS })) })
+    });
+    if (!response.ok) throw new Error(`Embedding service returned HTTP ${response.status}.`);
+    const data = await response.json();
+    const embeddings = Array.isArray(data.embeddings) ? data.embeddings : [];
+    if (embeddings.length !== batch.length) throw new Error('Embedding service returned an unexpected vector count.');
+    for (const item of embeddings) {
+      const values = item?.values;
+      if (!Array.isArray(values) || values.length !== EMBEDDING_DIMENSIONS || values.some(v => !Number.isFinite(v))) throw new Error('Embedding service returned an invalid vector.');
+      all.push(values);
+    }
+  }
+  return all;
+}
+function parseOcrPdfPages(text) {
+  const raw = String(text || '');
+  const marker = /(?:^|\n)\s*(?:={2,}\s*)?PAGE\s+(\d+)\s*(?:={2,})?\s*(?:\n|$)/gim;
+  const matches = [...raw.matchAll(marker)];
+  if (!matches.length) return [{ pageNumber: null, text: raw.trim() }];
+  return matches.map((m, i) => ({ pageNumber: Number(m[1]), text: raw.slice((m.index || 0) + m[0].length, i + 1 < matches.length ? matches[i + 1].index : raw.length).trim() })).filter(p => p.text);
 }
 function isPrivateAddress(ip) {
   if (net.isIPv4(ip)) { const p = ip.split('.').map(Number); return p[0] === 10 || p[0] === 127 || p[0] === 0 || (p[0] === 169 && p[1] === 254) || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 192 && p[1] === 168) || p[0] >= 224; }
@@ -86,16 +156,28 @@ async function geminiExtract(buffer, mimeType, prompt) {
     body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: buffer.toString('base64') } }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 8192 } })
   });
   if (!response.ok) throw new Error(`OCR service returned HTTP ${response.status}.`);
-  const data = await response.json(); return (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+  const data = await response.json(); return { text: (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim(), usage: data.usageMetadata || null, model: GEMINI_OCR_MODEL };
 }
 async function extractFile(buffer, filename, contentType) {
   const ext = filename.toLowerCase().split('.').pop();
   if (['txt','md','csv','json','xml','log'].includes(ext) || contentType.startsWith('text/')) return { text: buffer.toString('utf8'), title: filename };
   if (ext === 'pdf' || contentType === 'application/pdf') {
-    let text = '';
-    try { const result = await pdfParse(buffer); text = result.text || ''; } catch { /* scanned PDF OCR fallback below */ }
-    if (text.replace(/\s/g, '').length < 80) text = await geminiExtract(buffer, 'application/pdf', 'Extract all readable text from this PDF, preserving headings, tables, safety warnings, numbered procedures, model numbers, units, and page breaks when possible. Return extracted text only.');
-    return { text, title: filename };
+    let text = ''; const pageTexts = []; let usage = null; let model = null;
+    try {
+      const result = await pdfParse(buffer, { pagerender: async pageData => {
+        const content = await pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+        const pageText = (content.items || []).map(item => item.str || '').join(' ').replace(/\s+/g, ' ').trim();
+        pageTexts.push(pageText); return pageText;
+      }});
+      text = result.text || '';
+    } catch { /* scanned PDF OCR fallback below */ }
+    let pages = pageTexts.map((value, index) => ({ pageNumber: index + 1, text: value })).filter(page => page.text.length > 0);
+    if (text.replace(/\s/g, '').length < 80) {
+      const ocr = await geminiExtract(buffer, 'application/pdf', 'Extract all readable text from this PDF. Preserve safety warnings, headings, tables, model numbers, units and numbered procedures. You MUST start each page transcription with a standalone marker exactly like === PAGE 1 ===, === PAGE 2 ===, using the actual PDF page number. Do not merge pages. Return extracted text only.');
+      text = ocr.text; usage = ocr.usage; model = ocr.model; pages = parseOcrPdfPages(text);
+    }
+    if (!pages.length) pages = [{ pageNumber: null, text }];
+    return { text, title: filename, pages, usage, model };
   }
   if (['docx','docm'].includes(ext) || contentType.includes('wordprocessingml')) {
     const result = await mammoth.extractRawText({ buffer }); return { text: result.value || '', title: filename };
@@ -114,8 +196,8 @@ async function extractFile(buffer, filename, contentType) {
     } else {
       image = await sharp(buffer, { limitInputPixels: 80_000_000 }).rotate().jpeg({ quality: 88 }).toBuffer(); mime = 'image/jpeg';
     }
-    const text = await geminiExtract(image, mime, 'Read and transcribe all visible text from this image. Preserve headings, model/serial labels, error codes, units, tables and safety warnings. If no text is visible, describe the equipment and visible labels briefly. Do not infer hidden text.');
-    return { text, title: filename };
+    const ocr = await geminiExtract(image, mime, 'Read and transcribe all visible text from this image. Preserve headings, model/serial labels, error codes, units, tables and safety warnings. If no text is visible, describe the equipment and visible labels briefly. Do not infer hidden text.');
+    return { text: ocr.text, title: filename, usage: ocr.usage, model: ocr.model };
   }
   throw new Error('Unsupported file type. Upload JPEG, PNG, HEIC/HEIF, WebP, TIFF, BMP, GIF, PDF, DOC, DOCX, TXT, Markdown, CSV, JSON, XML, or HTML.');
 }
@@ -124,7 +206,9 @@ function classifyEquipment(title, text) {
   const sample = `${title || ''} ${String(text || '').slice(0, 12000)}`.toLowerCase();
   const brands = [['pentair', /\bpentair\b/], ['hayward', /\bhayward\b/], ['jandy/fluidra', /\bjandy\b|\bfluidra\b/], ['raypak', /\braypak\b/]];
   const categories = [['heater', /\bheater\b|\bheat pump\b|\bignition lockout\b/], ['pump', /\bpump\b|\bpriming\b|\bvariable[- ]speed\b/], ['filter', /\bfilter\b|\bbackwash\b/], ['salt system', /\bsalt cell\b|\bsalt system\b|\baquarite\b/], ['automation', /\bautomation\b|\bcontroller\b/], ['cleaner', /\bpool cleaner\b|\brobotic cleaner\b/], ['water chemistry', /\balkalinity\b|\bcalcium hardness\b|\bchlorine\b|\bcya\b|\bsaturation index\b/]];
-  return { manufacturer: brands.find(([,re])=>re.test(sample))?.[0] || null, category: categories.find(([,re])=>re.test(sample))?.[0] || null };
+  const expanded = [...categories, ['HVAC / furnace', /\bfurnace\b|\bair handler\b|\bcompressor\b|\bthermostat\b|\bevaporator\b|\bcondenser\b/], ['plumbing', /\bwater heater\b|\bdrain\b|\btoilet\b|\bwater pressure\b|\bpipe\b|\bsewer\b|\bbackflow\b|\bsump\b/]];
+  const genericBrands = ['trane','carrier','lennox','rheem','goodman','navien','rinnai','moen','kohler','zurn'];
+  return { manufacturer: brands.find(([,re])=>re.test(sample))?.[0] || genericBrands.find(b=>new RegExp('\\b'+b+'\\b','i').test(sample)) || null, category: expanded.find(([,re])=>re.test(sample))?.[0] || null };
 }
 
 async function queueManualForLearning(manual, chunks) {
@@ -151,7 +235,7 @@ async function queueManualForLearning(manual, chunks) {
   }
   return queued;
 }
-async function processManual(manualId) {
+async function processManual(manualId, processingJobId = null) {
   const { data: manual, error } = await db.from('company_manuals').select('*').eq('id', manualId).maybeSingle();
   if (error || !manual) throw new Error('Company document was not found.');
   await db.from('company_manuals').update({ extraction_status: 'processing', extraction_error: null }).eq('id', manual.id);
@@ -167,15 +251,36 @@ async function processManual(manualId) {
     const raw = String(extracted.text || '').replace(/\u0000/g, '').trim();
     if (raw.length < 20) throw new Error('No usable text could be extracted. Check that the document is readable and not password-protected.');
     if (raw.length > 1_500_000) throw new Error('Extracted text exceeds the 1.5 million character safety limit. Split the document into smaller files.');
-    const chunks = chunkText(raw);
+    const pageSource = Array.isArray(extracted.pages) && extracted.pages.length ? extracted.pages : [{ pageNumber: null, text: raw }];
+    const chunks = chunkPages(pageSource);
+    if (!chunks.length) throw new Error('No usable chunks could be produced from this document.');
+    const { data: company } = await db.from('companies').select('industry_key').eq('id', manual.company_id).maybeSingle();
+    const industryKey = String(company?.industry_key || manual.industry_key || 'pool');
     const equipmentTags = classifyEquipment(manual.title || extracted.title, raw);
+    let embeddings = [];
+    let embeddingModel = null;
+    try { embeddings = await embedDocumentChunks(chunks); embeddingModel = GEMINI_EMBEDDING_MODEL; }
+    catch (embeddingError) { console.warn('Semantic embedding was unavailable; keyword retrieval will remain enabled.', String(embeddingError?.message || '').slice(0,180)); }
     await db.from('company_manual_chunks').delete().eq('manual_id', manual.id).eq('company_id', manual.company_id);
-    const rows = chunks.map((content, i) => ({ company_id: manual.company_id, manual_id: manual.id, chunk_index: i, title: String(extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: null, content_text: content, content_redacted: scrub(content).slice(0, 1200) }));
-    for (let i=0; i<rows.length; i+=100) { const { error: chunkError } = await db.from('company_manual_chunks').insert(rows.slice(i,i+100)); if (chunkError) throw new Error(`Could not index document chunks (${chunkError.code}).`); }
-    const { error: updateError } = await db.from('company_manuals').update({ title: manual.title || extracted.title || 'Company document', manufacturer_normalized: equipmentTags.manufacturer, equipment_category: equipmentTags.category, extracted_char_count: raw.length, chunk_count: rows.length, extraction_status: 'ready', extraction_error: null, processed_at: new Date().toISOString() }).eq('id', manual.id);
+    const rows = chunks.map((chunk, i) => ({ company_id: manual.company_id, manual_id: manual.id, industry_key: industryKey, chunk_index: i, title: String(extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: chunk.pageNumber, page_start: chunk.pageStart, page_end: chunk.pageEnd, content_text: chunk.content, content_redacted: scrub(chunk.content).slice(0, 1200), embedding: embeddings[i] ? `[${embeddings[i].join(',')}]` : null, embedding_model: embeddings[i] ? embeddingModel : null, embedded_at: embeddings[i] ? new Date().toISOString() : null }));
+    for (let i=0; i<rows.length; i+=20) { const { error: chunkError } = await db.from('company_manual_chunks').insert(rows.slice(i,i+20)); if (chunkError) throw new Error(`Could not index document chunks (${chunkError.code}).`); }
+    const { error: updateError } = await db.from('company_manuals').update({ title: manual.title || extracted.title || 'Company document', industry_key: industryKey, manufacturer_normalized: equipmentTags.manufacturer, equipment_category: equipmentTags.category, extracted_char_count: raw.length, chunk_count: rows.length, extraction_status: 'ready', extraction_error: null, processed_at: new Date().toISOString() }).eq('id', manual.id);
     if (updateError) throw new Error('Document was extracted but its status could not be saved.');
     const queued = await queueManualForLearning({ ...manual, shared_learning_opt_in: Boolean(manual.shared_learning_opt_in) }, rows.map(r=>r.content_text));
-    return { manualId: manual.id, status: 'ready', chunks: rows.length, manufacturer: equipmentTags.manufacturer, equipmentCategory: equipmentTags.category, extractedCharacters: raw.length, queuedForLearningReview: queued, referenceEnabled: manual.reference_enabled !== false, sharedLearningOptIn: Boolean(manual.shared_learning_opt_in) };
+    const metricKey = processingJobId ? `document-job:${processingJobId}` : `document:${manual.id}:${crypto.randomUUID()}`;
+    const ocrInputTokens = Number(extracted.usage?.promptTokenCount || extracted.usage?.prompt_token_count || 0);
+    const ocrOutputTokens = Number(extracted.usage?.candidatesTokenCount || extracted.usage?.candidates_token_count || 0);
+    const ocrModel = extracted.model || null;
+    const ocrCost = await estimateProviderCost(ocrModel, ocrInputTokens, ocrOutputTokens);
+    await recordUsageOnce({ company_id: manual.company_id, user_id: manual.uploaded_by || null, event_type: 'document_extraction', units: 1, metric_type: 'document_characters', quantity: raw.length, quantity_unit: 'character', provider: extracted.usage ? 'google_gemini' : null, model: ocrModel, input_tokens: ocrInputTokens || null, output_tokens: ocrOutputTokens || null, estimated_cost_usd: ocrCost.estimatedCostUsd, cost_source: ocrCost.costSource, storage_bytes: Number(manual.file_size || 0), extracted_characters: raw.length, duration_ms: null, source_event_key: metricKey, period_start: utcMonthStartDate(), metadata: { manual_id: manual.id, queue_job_id: processingJobId, chunk_count: rows.length, embedded_chunks: embeddings.length, industry_key: industryKey, source_kind: manual.source_url ? 'webpage' : 'uploaded_file' } });
+    if (embeddings.length) {
+      // The embedding API does not return token usage in every response shape. Estimate
+      // input tokens conservatively from UTF-8 text length, and label the estimate clearly.
+      const estimatedEmbeddingInputTokens = chunks.reduce((total, item) => total + Math.max(1, Math.ceil(Buffer.byteLength(item.content, 'utf8') / 4)), 0);
+      const embeddingCost = await estimateProviderCost(GEMINI_EMBEDDING_MODEL, estimatedEmbeddingInputTokens, 0);
+      await recordUsageOnce({ company_id: manual.company_id, user_id: manual.uploaded_by || null, event_type: 'document_embedding', units: embeddings.length, metric_type: 'embedding_chunks', quantity: embeddings.length, quantity_unit: 'embedded_chunk', provider: 'google_gemini', model: GEMINI_EMBEDDING_MODEL, input_tokens: estimatedEmbeddingInputTokens, output_tokens: null, estimated_cost_usd: embeddingCost.estimatedCostUsd, cost_source: embeddingCost.estimatedCostUsd === null ? 'not_priced' : 'rate_card_estimate', source_event_key: `${metricKey}:embeddings`, period_start: utcMonthStartDate(), metadata: { manual_id: manual.id, queue_job_id: processingJobId, embedded_chunks: embeddings.length, dimension: EMBEDDING_DIMENSIONS, input_token_count_is_estimate: true } });
+    }
+    return { manualId: manual.id, status: 'ready', chunks: rows.length, embeddedChunks: embeddings.length, manufacturer: equipmentTags.manufacturer, equipmentCategory: equipmentTags.category, industryKey, extractedCharacters: raw.length, queuedForLearningReview: queued, referenceEnabled: manual.reference_enabled !== false, sharedLearningOptIn: Boolean(manual.shared_learning_opt_in) };
   } catch (error) {
     const message = String(error?.message || 'Document processing failed').slice(0,500);
     await db.from('company_manuals').update({ extraction_status: 'failed', extraction_error: message }).eq('id', manual.id);
@@ -187,7 +292,8 @@ async function createWebManual(body) {
   if (!companyId || !rawUrl) throw new Error('companyId and webpage URL are required.');
   const safe = await safeUrl(rawUrl);
   const title = String(body.title || safe.hostname).slice(0,250);
-  const { data, error } = await db.from('company_manuals').insert({ company_id: companyId, uploaded_by: body.userId || null, title, storage_path: `${companyId}/web-${crypto.randomUUID()}.html`, content_type: 'text/html', file_size: 0, document_type: body.documentType || 'other', source_url: safe.toString(), original_filename: safe.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: 'queued' }).select('*').single();
+  const { data: companyRow } = await db.from('companies').select('industry_key').eq('id', companyId).maybeSingle();
+  const { data, error } = await db.from('company_manuals').insert({ company_id: companyId, industry_key: companyRow?.industry_key || 'pool', uploaded_by: body.userId || null, title, storage_path: `${companyId}/web-${crypto.randomUUID()}.html`, content_type: 'text/html', file_size: 0, document_type: body.documentType || 'other', source_url: safe.toString(), original_filename: safe.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: 'queued' }).select('*').single();
   if (error) throw new Error(`Could not register webpage (${error.code}).`);
   const { data: job, error: queueError } = await db.rpc('pooldocai_enqueue_document_job', { p_manual_id: data.id, p_requested_by: body.userId || null, p_force: false });
   if (queueError || !job) throw new Error('Webpage was registered but could not be queued for extraction.');
@@ -223,7 +329,7 @@ async function pollQueue() {
       const job = Array.isArray(jobs) ? jobs[0] : jobs;
       if (!job) break;
       try {
-        await processManual(job.manual_id);
+        await processManual(job.manual_id, job.id);
         const { error: finishError } = await db.rpc('pooldocai_finish_document_job', { p_job_id: job.id, p_success: true, p_error: null });
         if (finishError) console.error('Could not finalize document job', { jobId: job.id, code: finishError.code });
       } catch (err) {
