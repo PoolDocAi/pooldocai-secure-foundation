@@ -26,3 +26,18 @@ The security workflow runs esbuild with `--bundle` because esbuild requires bund
 6. Follow `SECURITY_TEST_PLAN.md` with two test companies before real customer data is used.
 
 Stripe checkout is prepared but intentionally disabled until you have an actual Stripe account, recurring Price IDs and a webhook secret. Invitation resend needs the optional Resend configuration. HVAC and Plumbing are still planned; Pool is the active module.
+
+Latest conversational troubleshooting fix: see `README_CONVERSATIONAL_TROUBLESHOOTER_FIX.md`. This is a code-only update; it does not require an additional SQL migration.
+
+## Latest update: Universal conversational troubleshooting
+
+See `README_CONVERSATIONAL_TROUBLESHOOTER_FIX.md`. This update applies natural-language intent across equipment and water categories, reduces redundant intake gates, allows more time for source-grounded web fallback, and makes technician escalation large and high-contrast when recommended. It does not require a new SQL migration.
+
+## Latest universal troubleshooting and large-print escalation
+
+The newest conversational troubleshooting release treats ordinary wording and common typing errors as meaningful input across the pool-equipment and water-quality categories. If live sources cannot verify an applicable procedure, it gives a clearly labeled, numbered safe observation and displays a large technician-service card. The service handoff opens only after the user selects the prominent action. Run `node website/tests/troubleshooter-intent.test.cjs` after checkout.
+
+
+### All-turn language normalization (latest update)
+
+The same typo-tolerant conversational handling runs on initial descriptions and every continuation. It retains the raw user text, gives routing/retrieval a normalized copy, prioritizes the current observation in knowledge-base lookup, and carries the latest observation into backend context. No new database migration is required for this code update.

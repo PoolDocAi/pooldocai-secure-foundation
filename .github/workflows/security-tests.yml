@@ -27,6 +27,9 @@ jobs:
       - name: Validate document worker syntax
         run: node --check document-worker/src/server.js
 
+      - name: Test conversational troubleshooting routing
+        run: node website/tests/troubleshooter-intent.test.cjs
+
       - name: Validate Edge Function TypeScript syntax
         run: |
           npx --yes esbuild supabase/functions/clever-handler/index.ts --bundle --format=esm --outfile=/tmp/clever-handler-check.js --external:npm:*

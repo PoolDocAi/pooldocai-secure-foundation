@@ -95,3 +95,8 @@
 - [ ] Verify active seats cannot exceed company seat limits, and company admins cannot alter the subscription seat_limit directly.
 - [ ] Verify delegated job-note and document upload/review flags are enforced by RLS/API, not only by hidden UI controls.
 - [ ] Verify the platform-owner account list includes unassigned Auth accounts and shows platform-admin status.
+
+
+## Natural-language troubleshooting regression check
+
+Run `node website/tests/troubleshooter-intent.test.cjs`. This checks ordinary typed pump descriptions (including `Cant turn on my pump` and `Wont turn on`), distinguishes reported silence from a no-start report whose sound is unknown, and confirms all mirrored customer-facing pages bypass duplicate symptom/brand/model selectors when the user's own description is already specific.

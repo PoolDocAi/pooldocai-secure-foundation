@@ -345,7 +345,7 @@ function hasCompleteAlgaeTreatmentPlan(reply: string): boolean {
 
 function buildUnverifiedGuidanceReply(isWaterQualityCase: boolean, isConfirmedAlgaeCase: boolean, category = "", symptom = "", subType = ""): string {
   if (isConfirmedAlgaeCase) {
-    return "**PoolDocAI is unsure of the best next steps for treating this green pool.** I could not verify a complete, applicable algae-treatment procedure from the available knowledge-base records or live web results. I will not guess at a chlorine target or chemical dose. Keep swimmers out if the water is cloudy or the pool floor is not clearly visible. Follow exact product labels and never combine chemicals. Please request a qualified service technician to assess the water and determine a Green-to-Clean plan.";
+    return "**PoolDocAI is unsure of a complete algae-treatment plan because the available manuals and live web lookup did not verify one.**\n\n**Step 1 — Record the water test results before dosing.** If you have a suitable test kit, record free chlorine (FC), pH, and CYA/stabilizer; include total alkalinity and pool volume if known.\n\nKeep swimmers out if the water is cloudy or the pool floor is not clearly visible. Do not guess a chlorine target, guess a chemical dose, or combine products.\n\n**Recommended next step: REQUEST A POOL SERVICE TECHNICIAN** to assess the water and develop a verified Green-to-Clean plan.";
   }
   if (/pump/i.test(category) && /\b(?:won.t start|will not start|not starting|no start|silent|hums?|buzz(?:es|ing)?)\b/i.test(`${symptom} ${subType}`)) {
     return `**PoolDocAI could not verify a pump-specific procedure from the available manuals or live web search, so this is a general safety-first check—not a model-specific repair.**
@@ -357,9 +357,35 @@ Which best describes the pump when it is commanded on: **completely silent**, **
 **Need hands-on help?** Select **Request a Pool Service Technician** below to have a qualified professional inspect the equipment.`;
   }
   if (isWaterQualityCase) {
-    return "**PoolDocAI is unsure of the best next steps for this water-quality issue.** I could not verify an applicable treatment procedure from the available knowledge-base records or live web results. I will not guess at treatment chemistry or chemical doses. Record the test results and product labels, keep swimmers out if water clarity or sanitizer safety is uncertain, and request a qualified service technician to assess the water.";
+    return "**PoolDocAI could not verify a source-supported treatment step for this water-quality issue.**\n\n**Step 1 — Measure before treating.** Record free chlorine (FC), pH, and CYA/stabilizer with a suitable test kit; add total alkalinity and pool volume if known. Do not dose chemicals based on appearance alone or guess a product amount.\n\nKeep swimmers out if the water is cloudy, the pool floor is not visible, or sanitizer safety is uncertain.\n\n**If the readings or cause remain uncertain, the recommended next step is to REQUEST A POOL SERVICE TECHNICIAN.**";
   }
-  return "**PoolDocAI is unsure of the best next troubleshooting step for this issue.** I could not verify an applicable procedure from the available knowledge-base records or live web results. I will not guess at a repair or model-specific procedure. Please request a qualified service technician to review the symptoms and equipment details.";
+  const text = normalizeDiagnosticLanguage(`${category} ${symptom} ${subType}`);
+  const safeIntro = "**PoolDocAI could not verify a model-specific procedure from the available internal knowledge base or live web search.** The following is a general, non-invasive observation—not a verified repair instruction.";
+  if (/pump|motor/i.test(category) || /pump|motor|won't start|silent|hums?|buzz|prime|flow/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Check the run request and visible status.** From a dry location, confirm whether the timer/controller is calling for the pump to run and look only at externally visible status lights or messages. Do not open electrical panels, touch wiring, remove the motor cover, or repeatedly reset a breaker.\n\nWhich best describes the pump when commanded on: **completely silent**, **hums/buzzes**, or **the breaker trips**? If a breaker trips, there is a burning smell, sparking, or shock/tingling, stay away and request service.`;
+  }
+  if (/filter/i.test(category) || /filter|pressure|backwash/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Observe pressure and return flow.** If the gauge is visible from a safe position, record its reading and whether return flow is lower than normal. Do not open the filter, remove a lid, or move a multiport valve while the pump runs or the system is pressurized. Is the pressure unusually high, low, or normal?`;
+  }
+  if (/heater/i.test(category) || /heater|ignition|won't heat|not heating/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Read only the external status.** From outside the heater cabinet, record any visible code or indicator and note whether the circulation pump appears to be running. Do not open gas or electrical compartments or adjust gas controls. If you smell gas or see smoke/fire, leave the area and contact emergency services or the gas utility.`;
+  }
+  if (/automation/i.test(category) || /schedule|timer|controller|program/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Check the displayed schedule.** On the controller screen or app only, note whether the schedule is enabled, the displayed time is correct, and a next run time is shown. Do not open a panel or touch wiring/relays. Does it show no schedule, a disabled schedule, or a scheduled run that the equipment missed?`;
+  }
+  if (/cleaner/i.test(category) || /cleaner|robot|polaris|dolphin/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Observe the cleaner externally.** Identify whether it is robotic, suction-side, or pressure-side. Note any exterior status light and visible hose/cable condition. Do not open the power supply or reach into moving parts. Stop using it if a plug, cable, hose, or housing appears damaged.`;
+  }
+  if (/lighting/i.test(category) || /pool light|spa light|flicker/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Record what happened without touching the fixture.** From a dry location, note whether the controller shows a status or whether the light went dark/flickered. If you suspect electrical trouble, do not switch it on or touch wet equipment. Do not open a junction box or light niche; suspected water intrusion requires a qualified pool professional.`;
+  }
+  if (/sanitizer|chlorine/i.test(category) || /chlorinator|salt cell|low chlorine|salt system/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Record visible indicators and existing readings.** Note any external status light/error text and existing free-chlorine or salt test readings, if available. Do not open the cell/feeder or add a guessed chemical dose. Follow the exact product label and request service if the system reports a fault or chlorine remains low.`;
+  }
+  if (/valve/i.test(category) || /valve|actuator/i.test(text)) {
+    return `${safeIntro}\n\n**Step 1 — Observe the current position.** Without touching or forcing anything, note the visible valve/actuator position and whether it matches the controller command. Never move a multiport valve while the pump runs or the plumbing is pressurized. If stuck, leaking, or mismatched, request qualified service.`;
+  }
+  return `${safeIntro}\n\n**Step 1 — Describe the visible result.** Note any status light or displayed code, sound, leak, change in flow, or action that failed. Do not open electrical/gas compartments, touch wiring, open pressurized equipment, reach into moving parts, or mix chemicals. If the issue remains unresolved, a qualified pool service technician should assess it.`;
 }
 
 function renderStructuredDiagnostic(data: StructuredDiagnostic): string {
@@ -444,6 +470,66 @@ function isVagueSymptom(symptom: string, subType: string): boolean {
   const value = symptom.trim().toLowerCase();
   if (!value || value.length < 6) return true;
   return /\b(not working|does not work|doesn't work|wont work|won't work|isn't working|is not working|broken|having (an? )?(issue|problem)|problem with|issue with|acting up|not right|help me|troubleshoot this|need help)\b/i.test(value);
+}
+
+function normalizeDiagnosticLanguage(value: string): string {
+  return String(value || "").toLowerCase().replace(/[’‘]/g, "'")
+    .replace(/\bcan not\b/g, "can't").replace(/\bcant\b/g, "can't").replace(/\bcannot\b/g, "can't")
+    .replace(/\bwill not\b/g, "won't").replace(/\bwont\b/g, "won't").replace(/\bwillnt\b/g, "won't")
+    .replace(/\bdoes not\b/g, "doesn't").replace(/\bdoesnt\b/g, "doesn't")
+    .replace(/\bdid not\b/g, "didn't").replace(/\bdidnt\b/g, "didn't").replace(/\bdident\b/g, "didn't")
+    .replace(/\bdont\b/g, "don't").replace(/\bcould not\b/g, "couldn't").replace(/\bcouldnt\b/g, "couldn't")
+    .replace(/\bshouldnt\b/g, "shouldn't").replace(/\bisnt\b/g, "isn't").replace(/\barent\b/g, "aren't")
+    .replace(/\bwasnt\b/g, "wasn't").replace(/\bwerent\b/g, "weren't").replace(/\bwouldnt\b/g, "wouldn't")
+    .replace(/\b(?:pmp|puump|pumpp)\b/g, "pump")
+    .replace(/\b(?:filtre|fliter|filtr|filtter)\b/g, "filter")
+    .replace(/\b(?:presure|pressur|pressuree|preasure)\b/g, "pressure")
+    .replace(/\b(?:hihg|hgh|highh)\b/g, "high").replace(/\b(?:loew|loww|lowe)\b/g, "low")
+    .replace(/\b(?:heeter|heatter|hetr|heatr)\b/g, "heater")
+    .replace(/\b(?:cleener|clener|cleanr|clenaer)\b/g, "cleaner")
+    .replace(/\b(?:schdule|schedual|scedule|skedule|sheddule|schedul)\b/g, "schedule")
+    .replace(/\b(?:autmation|automatoin|automtion|automaion)\b/g, "automation")
+    .replace(/\b(?:clorine|chlorne|chloorine|clhorine)\b/g, "chlorine")
+    .replace(/\b(?:chemstry|chmistry|chemsitry|chemestry)\b/g, "chemistry")
+    .replace(/\b(?:clowdy|clody|cloudly)\b/g, "cloudy")
+    .replace(/\b(?:vlave|valv|valev)\b/g, "valve")
+    .replace(/\b(?:lgiht|ligt|lighht)\b/g, "light")
+    .replace(/\b(?:strat|starrt|statr)\b/g, "start")
+    .replace(/\b(?:tun on|turnon)\b/g, "turn on")
+    .replace(/\b(?:movng|movin)\b/g, "moving")
+    .replace(/\b(?:heting|heeting|heatin)\b/g, "heating")
+    .replace(/\b(?:skiping|skippingg)\b/g, "skipping")
+    .replace(/\b(?:wroking|workign)\b/g, "working")
+    .replace(/\b(?:doesntt)\b/g, "doesn't")
+    .replace(/\b(?:startin|strating)\b/g, "starting")
+    .replace(/\b(?:gass|gasss)\b/g, "gas")
+    .replace(/\b(?:sparrking|sparkingg|saprking)\b/g, "sparking")
+    .replace(/\b(?:shok|shcok)\b/g, "shock")
+    .replace(/\b(?:smok|smokee)\b/g, "smoke")
+    .replace(/\b(?:fummes|fumeses)\b/g, "fumes")
+    .replace(/\b(?:burnng|burnign)\b/g, "burning");
+}
+
+function isLikelyDiagnosticContinuation(rawText: string): boolean {
+  const text = normalizeDiagnosticLanguage(rawText).replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return /^(?:still|same|no|nope|yes|not yet|nothing|none|a little|worse|better|the (?:pump|motor|filter|heater|cleaner|controller|light|valve|salt system|schedule))\b/i.test(text)
+    || /^(?:it\s+(?:still|just|now|is|isn't|doesn't|won't|can't|didn't|did not|started|stopped|hums?|buzzes|runs|works|keeps|seems|looks)|that\s+(?:didn't|doesn't|did not|still|worked|works|did|helped)|this\s+(?:didn't|doesn't|did not|still|worked|works|did|helped))\b/i.test(text)
+    || /\b(?:still not|still won't|still doesnt|still doesn't|same problem|same issue|no change|no difference|didn't help|did not help|doesn't help|does not help|not fixed|not resolved|nothing changed|nothing happened|it just|it now|it started|that didn't work|that did not work|no improvement|keeps doing it|happened again|still the same)\b/i.test(text);
+}
+
+// A server-side version of conversational intent detection. It is intentionally
+// conservative: "my pump is broken" is vague, but "my pump won't turn on" or
+// "the schedule keeps skipping its run" is actionable even when client flags are stale.
+function hasActionableDiagnosticSymptom(category: string, rawText: string, subType = ""): boolean {
+  if (String(subType || "").trim()) return true;
+  const text = normalizeDiagnosticLanguage(rawText).replace(/\s+/g, " ").trim();
+  if (text.length < 5) return false;
+  const vagueOnly = /^(?:(?:my|the) )?(?:pool )?(?:pump|motor|filter|valve|cleaner|robot|heater|light|lights|salt system|chlorinator|controller|automation|schedule|pool water|water|equipment)(?: is| are| seems| looks)? (?:not working|doesn't work|won't work|broken|acting up|having (?:an? )?(?:issue|problem)|having trouble)[.!? ]*$/i;
+  const specific = /\b(?:won't start|can't start|cannot start|doesn't start|will not start|can't turn on|won't turn on|doesn't turn on|will not turn on|not starting|not turning on|won't come on|won't power on|hums?|buzz(?:es|ing)?|completely silent|no sound|no power|trips? (?:the )?breaker|keeps tripping|los(?:e|es|ing) prime|won't prime|low flow|weak flow|high pressure|low pressure|pressure (?:is )?(?:too )?(?:high|low)|leak(?:s|ing)?|dripp(?:ing|ed)|grind(?:ing)?|screech(?:ing)?|overheat(?:s|ing)?|fault code|error code|error message|blinking|flashing|not heating|won't heat|doesn't heat|won't ignite|won't light|not filtering|filtering poorly|dirt comes back|returns are weak|won't move|not moving|won't clean|not cleaning|missed (?:the )?schedule|schedule (?:is )?(?:not running|skipping|missed|disabled|off)|schedule won't|schedule doesn't|schedule did not|schedule not|program (?:won't|doesn't|didn't) run|timer (?:won't|doesn't|didn't) run|not following (?:the )?schedule|time is wrong|not responding|offline|won't respond|low chlorine|no chlorine|low salt|check cell|cloudy water|water looks cloudy|green water|green pool|pool is green|water is green|water chemistry|water balance|help with (?:my )?(?:pool )?water|algae|high ph|low ph|ph\s*[:=]\s*\d|free chlorine\s*[:=]?\s*\d|alkalinity\s*[:=]?\s*\d|\bcya\s*[:=]?\s*\d|water is (?:cloudy|green|brown|yellow|dirty|murky)|water chemistry (?:is )?(?:off|unbalanced)|lost connection|won't connect|not connecting|won't open|won't close|stuck (?:open|closed)|leaves debris|not climbing|keeps shutting off|turns off|won't stay on|not warming|not getting warm)\b/i.test(text);
+  if (!specific) return false;
+  if (vagueOnly.test(text)) return false;
+  return true;
 }
 
 function getTriageChoices(category: string): Array<{ label: string; prompt: string }> {
@@ -662,7 +748,7 @@ Deno.serve(async (req: Request) => {
   }
 
 function isCriticalPoolHazardText(rawText: string): boolean {
-  const text = rawText.toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, " ")
+  const text = normalizeDiagnosticLanguage(rawText).replace(/\s+/g, " ")
     // Safe instructions embedded in prompts are not incident reports.
     .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]?/gi, " ")
     .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, " ");
@@ -704,6 +790,9 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const contextRaw = body.sessionContext ?? body.session_context ?? body.context ?? body.equipment_context ?? body.equipmentContext;
   const context = objectValue(contextRaw) ?? {};
   const history = body.history ?? body.conversationHistory ?? body.conversation_history ?? body.conversation;
+  const latestMessageMatch = query.match(/Customer latest reply:\s*([\s\S]*)$/i);
+  const latestCustomerMessage = (latestMessageMatch?.[1] || query).trim().slice(0, 1800);
+  const normalizedLatestCustomerMessage = normalizeDiagnosticLanguage(latestCustomerMessage);
   const historyUserText = Array.isArray(history) ? history.slice(-10).map((turn) => {
     const item = objectValue(turn);
     return textValue(item?.user ?? item?.userMsg ?? item?.user_message ?? (item?.role === "user" ? item?.content ?? item?.text : ""), 1200);
@@ -1408,11 +1497,22 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const genericMode = Boolean(context.genericMode ?? context.generic_mode ?? false);
   const modelFamilySelected = Boolean(context.modelFamilySelected ?? context.model_family_selected ?? false);
   const modelConfirmed = Boolean(context.modelConfirmed ?? context.model_confirmed ?? Boolean(model && !/unknown model/i.test(model)));
-  const initialTriageComplete = Boolean(context.initialTriageComplete ?? context.initial_triage_complete ?? false);
-  const operatingStateConfirmed = Boolean(context.operatingStateConfirmed ?? context.operating_state_confirmed ?? false);
+  const suppliedInitialTriageComplete = Boolean(context.initialTriageComplete ?? context.initial_triage_complete ?? false);
+  const suppliedOperatingStateConfirmed = Boolean(context.operatingStateConfirmed ?? context.operating_state_confirmed ?? false);
+  const requestSubType = textValue(context.subType ?? context.sub_type, 160);
+  const hasKnownCaseContext = Boolean(category) && Boolean(symptom || requestSubType || suppliedInitialTriageComplete || Number(context.currentStep || 0) > 0 || context.lastRecommendedStep || textValue(context.awaitingTriageStage, 80));
+  const continuationReply = hasKnownCaseContext && isLikelyDiagnosticContinuation(normalizedLatestCustomerMessage);
+  const hasActionableSymptom = Boolean(category) && (hasActionableDiagnosticSymptom(category, [symptom, requestSubType, query, normalizedLatestCustomerMessage].filter(Boolean).join(" | "), requestSubType) || continuationReply);
+  // Typed symptom language outranks stale UI flags. We treat the intake as complete
+  // enough to start safe diagnostics, while asking for any missing material detail
+  // within the next step instead of showing the same symptom menu again.
+  const initialTriageComplete = suppliedInitialTriageComplete || hasActionableSymptom;
+  const operatingStateConfirmed = suppliedOperatingStateConfirmed || hasActionableSymptom;
   const ruledOut = Array.isArray(context.ruledOut) ? context.ruledOut.map((v) => textValue(v, 400)).filter(Boolean).slice(-20) : [];
   const skippedRaw = context.skippedSteps ?? context.skipped_steps;
   const skippedSteps = Array.isArray(skippedRaw) ? skippedRaw.map((v) => textValue(v, 400)).filter(Boolean).slice(-20) : [];
+  // Put the latest conversational turn first so it cannot be truncated behind long locked-state facts.
+  const diagnosticSearchQuery = [latestCustomerMessage, normalizedLatestCustomerMessage, symptom, category, brand, model, requestSubType, query].filter(Boolean).join(" ").slice(0, 1800);
 
   let rpcError: string | null = null;
   let fullRowFetchError: string | null = null;
@@ -1428,7 +1528,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       p_brand: brand || null,
       // Include the selected family/exact model in retrieval text as well as the
       // explicit brand/category filters, but cap input length to keep search focused.
-      p_query: [symptom, brand, model, textValue(context.subType ?? context.sub_type, 100), query].filter(Boolean).join(" ").slice(0, 1800),
+      p_query: diagnosticSearchQuery,
       p_has_no_screen: hasNoScreen,
       p_limit: 8,
     });
@@ -1463,7 +1563,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   let companyManualRows: AnyRecord[] = [];
   if (authenticatedCompanyId) {
     try {
-      const searchQuery=[symptom,brand,model,textValue(context.subType ?? context.sub_type,100),query].filter(Boolean).join(" ").slice(0,1800);
+      const searchQuery=diagnosticSearchQuery;
       const queryEmbedding=await geminiEmbedding(searchQuery,"RETRIEVAL_QUERY");
       let data:any=null; let error:any=null;
       const hybrid=await supabase.rpc("search_company_manual_chunks_hybrid",{p_company_id:authenticatedCompanyId,p_query:searchQuery,p_embedding:queryEmbedding,p_limit:8});
@@ -1482,7 +1582,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   }
   // Approved shared knowledge is a distinct retrieval source; pending/rejected cases never appear here.
   try {
-    const { data, error } = await supabase.rpc("search_shared_learning", { p_query: [symptom, brand, model, textValue(context.subType ?? context.sub_type, 100), query].filter(Boolean).join(" ").slice(0,1800), p_limit: 4 });
+    const { data, error } = await supabase.rpc("search_shared_learning", { p_query: diagnosticSearchQuery, p_limit: 4 });
     if (!error && data?.length) {
       const sharedRows = getRows(data).map((r: AnyRecord) => ({ id: r.id, title: "PoolDocAI reviewed shared lesson", category: r.equipment_category || "Reviewed shared knowledge", brand: r.manufacturer_normalized, model_family: r.model_normalized, content_text: r.lesson_redacted, procedure_text: r.lesson_redacted, shared_learning_source: true }));
       kbRows = [...companyManualRows, ...sharedRows, ...kbRows.filter((r: AnyRecord) => !r.company_manual_source)];
@@ -1550,7 +1650,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     }, 200);
   }
 
-  if (category && brand && !modelConfirmed && !modelFamilySelected && !genericMode && action !== "model_triage") {
+  if (category && brand && !modelConfirmed && !modelFamilySelected && !genericMode && context.requireExactModelSelection === true && action !== "model_triage") {
     const families = getModelFamilies(kbRows, brand, category);
     const choices: DiagnosticChoice[] = families.slice(0, 8).map((family) => ({
       label: `${brand} ${family}`,
@@ -1574,7 +1674,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   // Require one explicit symptom-triage exchange before any manual procedure can
   // be selected, even when the initial customer description already names a symptom.
   // The browser records this gate in sessionContext when the customer responds.
-  if (category && !initialTriageComplete && !["model_triage", "escalate"].includes(action)) {
+  if (category && !initialTriageComplete && !hasActionableSymptom && !["model_triage", "escalate"].includes(action)) {
     return jsonResponse({
       status: "triage",
       aiReply: `Before I select a manual procedure for the ${category.toLowerCase()}, let's confirm the symptom pattern. Choose the description that best matches what is happening; I will then proceed one step at a time.`,
@@ -1589,7 +1689,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // A symptom label alone is not enough to start a manual sequence. Confirm the
   // equipment's present state with a separate triage exchange before any procedure.
-  if (category && initialTriageComplete && !operatingStateConfirmed && !["model_triage", "escalate"].includes(action)) {
+  if (category && initialTriageComplete && !operatingStateConfirmed && !hasActionableSymptom && !["model_triage", "escalate"].includes(action)) {
     const choices = getOperatingStateChoices(category, symptom, subTypeForTriage);
     return jsonResponse({
       status: "triage",
@@ -1603,7 +1703,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     }, 200);
   }
 
-  if (category && isVagueSymptom(symptom, subTypeForTriage) && action !== "model_triage") {
+  if (category && isVagueSymptom(symptom, subTypeForTriage) && !hasActionableSymptom && action !== "model_triage") {
     return jsonResponse({
       status: "triage",
       aiReply: `Before I choose a manual procedure, let's narrow down the symptom. Which description best matches the ${category.toLowerCase()} issue? Choose one below; I'll then give you one step at a time.`,
@@ -1682,7 +1782,7 @@ INDUSTRY MODULE RULES (server-selected, never client-supplied):
 ${industryContext}
 
 CASE CONTEXT:
-${JSON.stringify({ category, brand, model, symptom, subType: context.subType ?? context.sub_type ?? "", waterQualityIntent: context.waterQualityIntent ?? context.water_quality_intent ?? false, waterQualityConfirmedAlgae: context.waterQualityConfirmedAlgae ?? context.water_quality_confirmed_algae ?? false, waterQualityResults: textValue(context.waterQualityResults ?? context.water_quality_results, 1200), hasNoScreen, genericMode, modelConfirmed, modelFamilySelected, initialTriageComplete, operatingStateConfirmed, ruledOut, skippedSteps })}
+${JSON.stringify({ category, brand, model, symptom, subType: context.subType ?? context.sub_type ?? "", latestCustomerMessage, normalizedLatestCustomerMessage, lastUserObservation: textValue(context.lastUserObservation, 600), normalizedLatestUserMessage: textValue(context.normalizedLatestUserMessage, 600), isSilent: Boolean(context.isSilent ?? context.is_silent), isHumming: Boolean(context.isHumming ?? context.is_humming), waterQualityIntent: context.waterQualityIntent ?? context.water_quality_intent ?? false, waterQualityConfirmedAlgae: context.waterQualityConfirmedAlgae ?? context.water_quality_confirmed_algae ?? false, waterQualityResults: textValue(context.waterQualityResults ?? context.water_quality_results, 1200), hasNoScreen, genericMode, modelConfirmed, modelFamilySelected, initialTriageComplete, operatingStateConfirmed, ruledOut, skippedSteps })}
 
 SUPABASE KNOWLEDGE SEARCH:
 Search RPC error: ${rpcError ? rpcError.slice(0, 350) : "none"}
@@ -1697,12 +1797,12 @@ ${isWaterQualityCase ? `WATER-QUALITY CASE RULES:
 - Treat this as pool-water chemistry/sanitation, not equipment hardware. Never ask for pump/heater make or model. Use relevant internal water-treatment procedures first. If there is no clearly applicable, source-bearing procedure for the actual symptom, you MUST invoke the Google Search tool in this request. Cite only URLs actually returned by Google Search; never invent citations or say a search happened if it did not. If neither the database nor web search verifies an applicable next step or complete treatment plan, say PoolDocAI is unsure and include a Request Service Technician choice. A local water-balancing calculator output is not itself symptom-specific troubleshooting or an algae-treatment plan.
 - ${isConfirmedAlgaeCase ? `The user confirmed the green water is believed to be algae. Respond with response_type="water_quality_plan" and a complete concise ordered remediation plan. Use a retrieved reputable source to set the free-chlorine target from measured CYA/stabilizer; calculate an exact dose only when actual pool volume, chemical identity and product strength are all known and the calculation is supported. Include any necessary pH adjustment before high-chlorine treatment, swimmer exclusion, surface brushing, filtration/circulation, test-and-redose cadence, and objective completion criteria. Keep water-balancing steps coordinated and avoid stacking uncertain doses. Never mix acid and chlorine or add products together. The reply MUST contain treatment actions, not merely calculator pH/TA recommendations. If no reliable applicable source is found or the essential dose factors are missing, explicitly say PoolDocAI is unsure, do not invent a dose, and offer a Request Service Technician choice.` : isGreenWaterCase ? `The water is green, but algae has NOT been confirmed or the cause/chemistry is still uncertain. Do not state algae is confirmed or generate an algae-specific chemical dose. Ask for missing critical readings (FC, pH, CYA, TA, and pool volume as relevant), recommend professional inspection if water is unclear/unsafe, and offer technician escalation. If the intake says circulation is not good, route into low-flow/circulation troubleshooting before algae treatment.` : isCloudyWaterCase ? `The reported symptom is cloudy/hazy pool water, not confirmed algae. Identify one appropriate next non-invasive observation or water test from a relevant internal cloudy-water procedure. If internal results do not contain a symptom-matched actionable procedure, invoke Google Search and use a reputable, applicable pool-care or manufacturer source. Do not assume algae, prescribe unsupported chemical doses, or give water-balancing math as if it explains the cause. If neither source verifies a relevant next step, explicitly say PoolDocAI is unsure and offer Request Service Technician.` : `This is a general water-quality issue that was triaged separately from confirmed green/algae water. Follow the specific category and symptom from context; use applicable internal procedures first, then Google Search if the internal result is irrelevant or incomplete. Do not assume algae or recommend treatment based on color alone. If no applicable, source-supported next step is found, state uncertainty and offer Request Service Technician.`}
 - If cause is uncertain or the pool floor is not visible, advise keeping swimmers out until the water can be assessed safely.
-- In Tech Mode, component/fault labels such as “flame sensor,” “suction-side air leak,” and “faint humming” are not hazards by themselves. Actual gas odor/leak (including “smells like gas” and propane odor/leak), fire/smoke, flames outside the burner, burning smell, melting electrical components, arcing/sparking, electrical shock, chemical fumes/dangerous chemical mixing, CO alarm/exposure, or actual entrapment remain non-bypassable safety stops.` : `EQUIPMENT CASE RULES: Use normal model/symptom gates and one-step diagnostic guidance. An unknown manufacturer or model MUST NOT block general, non-invasive troubleshooting when the equipment category and symptom are clear. For a pool pump reported as "won't start", "will not start", "not starting", or "no start", provide one safe, actionable first check instead of asking for make/model again: from a dry location, check whether the pump timer/automation is calling for the pump to run and whether a breaker is visibly tripped; do not open electrical panels, touch wiring, or repeatedly reset a tripping breaker. Ask whether the pump is completely silent, hums/buzzes, or trips the breaker. If the response indicates a tripped breaker, burning smell, sparking, shock/tingling, or repeated trips, stop and request a qualified technician. Use internal procedures first and mandatory Google Search fallback whenever the internal results do not provide an applicable procedure. Never treat component-name matches as hazards without a contextual sign of a real safety condition.`}
+- In Tech Mode, component/fault labels such as “flame sensor,” “suction-side air leak,” and “faint humming” are not hazards by themselves. Actual gas odor/leak (including “smells like gas” and propane odor/leak), fire/smoke, flames outside the burner, burning smell, melting electrical components, arcing/sparking, electrical shock, chemical fumes/dangerous chemical mixing, CO alarm/exposure, or actual entrapment remain non-bypassable safety stops.` : `EQUIPMENT AND WATER CASE RULES: Apply the same conversational-understanding and source-based diagnostic methodology across pumps/motors, filters, valves, heaters, automation/controllers, schedules/timers, cleaners, sanitizer/chlorine systems, lighting, circulation/flow, water chemistry, water-help cases, and future active categories. Interpret ordinary human wording, informal tone, contractions, omitted apostrophes, common misspellings, typos, incomplete sentences, shorthand replies, negative/affirmative answers, and answers that do not exactly match a choice on EVERY turn—not only the initial intake. Apply normalization and intent interpretation again to every follow-up observation, including replies such as “still wont start,” “it just hums,” “no change,” “that didnt help,” “same problem,” or “its working now.” Preserve both the original wording and a normalized routing interpretation; treat the current reply in light of the prior step and conversation state. Do not restart intake just because a follow-up is short or grammatically imperfect. Use the entire current message and recent conversation; understand what the person is attempting to describe rather than requiring exact keyword/menu matching. Do NOT force a symptom, brand, or exact-model menu when the user has already described the fault. Unknown make/model must not block a safe general first step. Use internal manual/procedure retrieval first; if missing, metadata-only, irrelevant, or insufficient, MUST invoke Google Search grounding in the fallback and prioritize official manufacturer manuals/support/technical bulletins and reputable pool-industry technical sources. For a pump that will not start, check the visible run command/status from a dry location and ask whether it is silent, humming/buzzing, or tripping a breaker as one focused next observation; do not assume it is silent, open electrical panels, touch wiring, or repeatedly reset a breaker. For schedules/controllers, begin with the visible/app schedule and displayed time/status; for filters, visible pressure and flow; for cleaners, exterior status and visible hose/cable condition; for lighting, non-contact observations from a dry location; for water chemistry, measured test results and exact product labels, never guessed doses. After a verified or general safe step, ask one focused result question and use the reply to choose the next step. If both sources fail, give a clearly labeled non-invasive observation rather than a dead-end generic error, explain that it is not a verified model-specific procedure, and show an unmistakable technician-service recommendation/action when no reliable next step can be verified. Do not claim any search succeeded without actual returned source evidence. Never treat component-name matches as hazards without a contextual sign of a real safety condition.`}
 
 MANDATORY DIAGNOSTIC ORDER:
-1. TRIAGE FIRST. Decide whether the symptom is specific enough to select an applicable procedure. If the reported symptom is vague, ask exactly ONE focused clarification question before giving any procedure or repair action. Do not skip the intake/model gate just because a database match exists.
-2. Confirm the equipment category and symptom subtype. Where category, symptom, or make/model is missing or ambiguous, ask for the next missing detail only. If the manufacturer is known but exact model is not, offer relevant families and wait for the user to choose or opt into general troubleshooting. Never jump directly into a deep repair sequence from a vague symptom.
-3. After triage, identify the best matching procedure by confirmed make/model (or family-level match if that is all the user knows) AND the symptom. A title or symptom metadata alone is not a procedure. Do not treat the first text in a retrieved record as the first step without checking whether it applies to the reported symptom and state of diagnosis.
+1. TRIAGE FIRST, WITHOUT REPETITION. Decide whether the user's own words already describe a specific issue. Accept ordinary conversational language, contractions, omitted apostrophes, imperfect grammar, and common spelling mistakes; do not require the wording to match a preselected choice. If the report is genuinely vague, ask exactly ONE focused clarification question before giving a procedure or repair action. Do not ask the user to select a symptom they already described.
+2. Confirm the equipment category and only those symptom/operating details that are still materially missing. An unknown manufacturer or exact model is not a blocker for safe general troubleshooting. If the manufacturer is known but exact model is not, proceed with a general non-invasive step; offer relevant model families only if an exact model is necessary for a later model-specific action or the user asks for that identification. Never jump directly into a deep repair sequence from a vague symptom.
+3. If the user's own description already states a specific fault (including natural phrasing, contractions, minor spelling errors, or incomplete grammar), do not ask them to select the same symptom again. Proceed with general non-invasive troubleshooting when make/model are unknown, use their exact wording plus normalized symptom intent for retrieval, and ask only one focused follow-up when the missing detail materially changes safety or the next step. A vague report such as 'my pump is broken' may still need one focused clarification. Identify the best matching procedure by make/model where known AND the symptom. A title or symptom metadata alone is not a procedure. Do not treat the first text in a retrieved record as the first step without checking whether it applies to the reported symptom and state of diagnosis.
 4. For normal equipment cases, once sufficiently triaged, provide ONLY ONE next diagnostic step in each reply. For the action "continue", continue from the last step only after using prior result/history. EXCEPTION: when the user confirmed algae and sufficient water chemistry is supplied, return the complete concise ordered treatment plan specified in WATER-QUALITY CASE RULES using response_type="water_quality_plan"; do not truncate that plan to a single equipment step.
 5. Use the internal manual/procedure text first when it is clearly applicable. If internal text is missing, irrelevant, metadata-only, or insufficient, you MUST invoke Google Search grounding for the applicable official manufacturer manual, technical bulletin, reputable pool-care guidance, or support page. Prefer manufacturer/authoritative sources and cite returned URLs. Never claim a search was performed unless actual search results/citations are present. If neither the database nor the web search yields an applicable verified procedure for a sufficiently triaged issue, state that PoolDocAI is unsure of the safest next step and include a Request Service Technician choice; do not invent a generic action as though it is a verified procedure.
 6. If hasNoScreen is true, NEVER mention a display, screen, LCD, keypad, or reading a digital fault code. If exact model is unconfirmed, do not assume the equipment has a screen.
@@ -1720,7 +1820,9 @@ MANDATORY DIAGNOSTIC ORDER:
   }).join("\n\n");
   const interactionInput = [
     transcript ? `RECENT CONVERSATION (oldest first):\n${transcript}` : "No prior conversation turns.",
-    `CURRENT CUSTOMER MESSAGE:\n${query}`,
+    `CURRENT CUSTOMER MESSAGE (preserve the user's intended meaning even if informal, misspelled, or grammatically incomplete):\n${latestCustomerMessage}`,
+    `NORMALIZED LATEST-MESSAGE ROUTING AID (not a replacement for the original):\n${normalizedLatestCustomerMessage}`,
+    context.lastUserObservation ? `LATEST FRONTEND OBSERVATION: ${textValue(context.lastUserObservation, 600)}\nNORMALIZED FRONTEND OBSERVATION: ${textValue(context.normalizedLatestUserMessage, 600)}` : "No separate frontend observation snapshot supplied.",
     isConfirmedAlgaeCase ? "The user confirmed algae and provided water chemistry context. If data and reliable retrieved sources are sufficient, use response_type=water_quality_plan. If key data/source information is missing, say what is missing rather than guessing." : isWaterQualityCase ? "This is a water-quality case, but algae may be unconfirmed or chemistry insufficient. Do not assume algae or invent doses; ask for needed readings and offer technician escalation." : "Respond to the current diagnostic state only. Do not restart completed steps or repeat checks the customer skipped."
   ].join("\n\n");
 
@@ -1875,7 +1977,7 @@ MANDATORY DIAGNOSTIC ORDER:
         ? `Find an authoritative, symptom-matched cloudy swimming-pool water troubleshooting procedure. Prioritize reputable pool-care organizations, pool-chemical manufacturers, or applicable manufacturer support pages. Distinguish cloudiness causes where sources allow, identify an applicable first test/observation and filtration/circulation checks, and give chemical advice only when supported by test results and the product label. Do not assume algae or make up a dose. Issue context: ${relevantContext}.`
         : isWaterQualityCase
           ? `Find a reputable, symptom-matched swimming-pool water-quality troubleshooting procedure for the reported issue. Prioritize authoritative pool-care organizations or chemical manufacturers. Base advice on measured results, not appearance alone, and do not invent doses. Issue context: ${relevantContext}.`
-          : /\b(?:pump|motor)\b/i.test(`${category} ${symptom} ${subTypeForTriage}`) && /\b(?:won.t start|will not start|not starting|no start|silent|hums?|buzz(?:es|ing)?)\b/i.test(`${query} ${symptom} ${subTypeForTriage}`) ? `Search the web now for an authoritative pool-pump no-start troubleshooting procedure that applies when make/model are unknown. Prioritize official manufacturer support pages/manuals and reputable pool-equipment technical sources. Return one safe first check for a pump that will not start, distinguishing completely silent from humming/buzzing and breaker trips. Do not instruct the customer to open electrical panels, touch wiring, bypass a safety device, or repeatedly reset a breaker. Issue context: ${relevantContext}. Do not use product/catalog listings as repair instructions.` : `Find the official manufacturer manual, technical bulletin, or reputable authoritative procedure that matches this troubleshooting issue. Return one applicable next diagnostic step and its safety constraints. Issue context: ${relevantContext}. Do not use product/catalog listings as repair instructions.`;
+          : `Search the web now for an authoritative, symptom-matched troubleshooting procedure for this pool issue. Prioritize the installed equipment manufacturer's official support page, manual, service bulletin, or technical documentation; then use reputable pool-industry technical sources where manufacturer guidance is unavailable. Exact make/model may be unknown, so search by equipment category and the customer's natural-language symptom without blocking progress for model identification. Return one safe, applicable next observation or diagnostic check, state what changes the next step, and cite only sources actually returned. Do not use product/catalog listings as repair instructions. Never instruct homeowners to open electrical/gas panels, touch wiring, bypass safeguards, open pressurized equipment, reach into moving parts, or guess/mix chemical doses. Issue context: ${relevantContext}.`;
     try {
       const forcedSearchRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
@@ -2060,6 +2162,8 @@ MANDATORY DIAGNOSTIC ORDER:
     sourceVerifiedAnswer,
     initialTriageComplete,
     operatingStateConfirmed,
+    continuationReply,
+    normalizedLatestCustomerMessage: normalizedLatestCustomerMessage.slice(0, 220),
     matchKeys: kbRows[0] ? Object.keys(kbRows[0]).slice(0, 30) : [],
     rpcSearchFailed: Boolean(rpcError),
     fullRowFetchFailed: Boolean(fullRowFetchError),
@@ -2078,7 +2182,7 @@ MANDATORY DIAGNOSTIC ORDER:
     webSources,
     modelSuggestions: finalModelSuggestions,
     choices: responseChoices,
-    modelSelectionRequired: Boolean(brand && category && !modelConfirmed && !modelFamilySelected && !genericMode),
+    modelSelectionRequired: action === "model_triage" && Boolean(brand && category && !modelConfirmed && !modelFamilySelected && !genericMode),
     sourceMode,
     procedureTextPresent,
     degraded,
@@ -2086,6 +2190,11 @@ MANDATORY DIAGNOSTIC ORDER:
     knowledgeDiagnostics,
     // For an uncertainty fallback, expose a technician choice without auto-opening
     // the service handoff. Other explicit model escalations keep the existing behavior.
-    requires_technician: !sourceLookupUncertain && (responseChoices.some((choice) => choice.action === "escalate") || /i'm not sure of the next step, let's get a technician involved/i.test(aiReply)),
+    requires_technician: !sourceLookupUncertain && (
+      generatedResponseType === "escalate" ||
+      /i'm not sure of the next step, let's get a technician involved/i.test(aiReply)
+    ),
+    technicianRecommended: sourceLookupUncertain || generatedResponseType === "escalate" ||
+      /(?:recommend(?:ed)?|needs? (?:a )?(?:qualified )?(?:pool )?service technician|should be inspected by|contact a qualified|request a qualified).{0,100}(?:technician|professional|pool service)|(?:technician|professional).{0,80}(?:recommended|is needed|should inspect)/i.test(aiReply),
   }, 200);
 });
