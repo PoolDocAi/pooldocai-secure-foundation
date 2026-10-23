@@ -79,4 +79,12 @@ assert.ok(invitationBranch.includes("body.termsAccepted !== true || body.privacy
 assert.ok(invitationBranch.includes("pooldocai_legal_acceptances"), "account activation records versioned legal acceptance server-side");
 assert.ok(invitationBranch.includes('acceptance_source: "account_creation"'), "legal acceptance is recorded as an account-creation event");
 
-console.log("PASS: monthly pooled-session limits, usage reporting and temporary-access RPC scoping");
+// Regression coverage for false-positive safety holds and account-portal technician entry.
+const safetyRiskBlock = app.slice(app.indexOf("const cautionRiskText"), app.indexOf("const isLatest", app.indexOf("const cautionRiskText")));
+assert.match(safetyRiskBlock, /Safety prohibitions and cautionary examples are not instructions/);
+assert.match(safetyRiskBlock, /replace\(\/\\\\b\(\?:never\|do not\|don't\|must not\|should not\|avoid\)/);
+assert.match(safetyRiskBlock, /const cautionIsHighRisk = \/\\\\b\(\?:open\|remove\|touch\|test\|repair/);
+assert.match(app, /new URLSearchParams\(window\.location\.search\)\.get\('mode'\) === 'tech'/, "account portal can deep-link directly to field-tech mode");
+assert.match(admin, /href="\/app\?mode=tech">Open Field Technician Troubleshooter/, "account portal opens field-tech troubleshooting by default");
+
+console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
