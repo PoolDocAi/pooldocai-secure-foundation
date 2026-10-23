@@ -144,3 +144,43 @@ BEGIN
     RAISE EXCEPTION 'trigger-only diagnostic consent audit function is callable through the client API';
   END IF;
 END $$;
+-- Case-level diagnostic learning consent, terms version, and atomic approval verification
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='diagnostic_cases' AND column_name='case_learning_opt_in'
+  ) THEN
+    RAISE EXCEPTION 'diagnostic_cases.case_learning_opt_in column is missing';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='diagnostic_cases' AND column_name='learning_terms_version'
+  ) THEN
+    RAISE EXCEPTION 'diagnostic_cases.learning_terms_version column is missing';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid='public.diagnostic_cases'::regclass
+      AND tgname='diagnostic_cases_learning_consent_audit'
+      AND NOT tgisinternal AND tgenabled <> 'D'
+  ) THEN
+    RAISE EXCEPTION 'diagnostic_cases_learning_consent_audit trigger is missing or disabled';
+  END IF;
+
+  IF has_function_privilege('anon','public.pooldocai_audit_case_learning_consent()','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_audit_case_learning_consent()','execute') THEN
+    RAISE EXCEPTION 'trigger-only case consent audit function is callable through the client API';
+  END IF;
+
+  IF to_regprocedure('public.pooldocai_approve_learning_case(uuid,text,uuid,text)') IS NULL THEN
+    RAISE EXCEPTION 'atomic pooldocai_approve_learning_case function is missing';
+  END IF;
+
+  IF has_function_privilege('anon','public.pooldocai_approve_learning_case(uuid,text,uuid,text)','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_approve_learning_case(uuid,text,uuid,text)','execute') THEN
+    RAISE EXCEPTION 'atomic learning approval function must not be callable by public/anon/authenticated roles';
+  END IF;
+END $$;
