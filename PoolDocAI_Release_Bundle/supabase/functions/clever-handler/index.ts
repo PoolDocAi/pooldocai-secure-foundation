@@ -92,7 +92,7 @@ async function recordModelUsage(supabase: ReturnType<typeof createClient>, compa
   let costSource = "not_priced";
   const modelName = model || "unknown";
   if (inputTokens || outputTokens) {
-    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
+    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).lte("valid_from",new Date().toISOString()).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
     const rate = rates?.[0];
     if (rate && rate.input_usd_per_million_tokens != null && rate.output_usd_per_million_tokens != null) {
       estimatedCost = inputTokens * Number(rate.input_usd_per_million_tokens) / 1_000_000 + outputTokens * Number(rate.output_usd_per_million_tokens) / 1_000_000;
@@ -733,6 +733,94 @@ function buildMetadataOnlyReply(rows: AnyRecord[]): string {
   return summaries.join("\n");
 }
 
+
+function selectDiagnosticModel(action: string, query: string): string {
+  if ((action === "model_triage" || action === "photo_recognition" ||
+      /\b(?:clicking|humming|buzzing|error code|fault code|what does .* code mean|heater is clicking|pump is clicking|what is)\b/i.test(query) && query.length < 220)) {
+    return "gemini-2.5-flash-lite";
+  }
+  if (/\b(?:diagnose|intermittent|multiple|repeatedly|keeps tripping|after replacing|still not working|compare readings|calculate dose|chemical treatment|root cause|step by step)\b/i.test(query) || query.length > 900) {
+    return "gemini-3.8-flash";
+  }
+  return "gemini-2.5-flash";
+}
+
+function boundedPositiveLimit(name: string, fallback: number): number {
+  const configured = Number(Deno.env.get(name));
+  return Number.isSafeInteger(configured) && configured > 0 ? Math.min(configured, 1_000_000) : fallback;
+}
+
+async function reserveGroundingBudget(supabase: any, companyId: string | null, model: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("pooldocai_reserve_grounding_budget", {
+    p_company_id: companyId,
+    p_model: model,
+    p_reserved_units: 1,
+    p_global_limit: boundedPositiveLimit("POOLDOCAI_GROUNDING_GLOBAL_DAILY_LIMIT", 5000),
+    p_company_limit: boundedPositiveLimit("POOLDOCAI_GROUNDING_COMPANY_DAILY_LIMIT", 500),
+  });
+  if (error) {
+    console.warn("Google Search grounding budget reservation failed", { code: error.code });
+    return null;
+  }
+  return typeof data === "string" && /^[0-9a-f-]{36}$/i.test(data) ? data : null;
+}
+
+async function finishGroundingBudget(supabase: any, reservationId: string | null): Promise<void> {
+  if (!reservationId) return;
+  const { error } = await supabase.rpc("pooldocai_finish_grounding_budget", { p_reservation_id: reservationId });
+  if (error) console.warn("Google Search grounding budget reservation cleanup failed", { code: error.code });
+}
+
+async function recordGroundingUsage(
+  supabase: any,
+  companyId: string | null,
+  userId: string | null,
+  model: string,
+  reservationId: string | null,
+  response: AnyRecord,
+): Promise<void> {
+  if (!reservationId) return;
+  const steps = Array.isArray(response.steps) ? response.steps : [];
+  const searchWasInvoked = steps.some((rawStep: unknown) => {
+    const step = objectValue(rawStep);
+    return textValue(step?.type, 80).toLowerCase().includes("google_search");
+  });
+  if (!searchWasInvoked) return;
+  let estimatedCostUsd: number | null = null;
+  let pricingUnit: string | null = null;
+  try {
+    const { data: rates, error: rateError } = await supabase.from("pooldocai_model_rate_cards")
+      .select("grounding_usd_per_1000_units,grounding_pricing_unit")
+      .eq("provider", "google_gemini").eq("model", model).eq("active", true).is("valid_to", null)
+      .order("valid_from", { ascending: false }).limit(1);
+    const rate = rates?.[0];
+    if (!rateError && rate?.grounding_usd_per_1000_units != null) {
+      const cost = Number(rate.grounding_usd_per_1000_units) / 1000;
+      if (Number.isFinite(cost) && cost >= 0) estimatedCostUsd = cost;
+      pricingUnit = textValue(rate.grounding_pricing_unit, 80) || null;
+    }
+    const { error } = await supabase.from("platform_usage_events").insert({
+      company_id: companyId,
+      user_id: userId,
+      event_type: "google_search_grounding",
+      units: 1,
+      metric_type: "grounding_queries",
+      quantity: 1,
+      quantity_unit: pricingUnit || "grounding_unit",
+      provider: "google_gemini",
+      model,
+      estimated_cost_usd: estimatedCostUsd,
+      cost_source: estimatedCostUsd == null ? "not_priced" : "rate_card_estimate",
+      source_event_key: `grounding:${reservationId}`,
+      period_start: await utcMonthStartDate(),
+      metadata: { pricing_unit: pricingUnit, price_estimated_from_rate_card: estimatedCostUsd != null },
+    });
+    if (error && error.code !== "23505") console.warn("Google Search grounding usage metering failed", { code: error.code });
+  } catch (error) {
+    console.warn("Google Search grounding usage metering unavailable", { error: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: JSON_HEADERS });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed. Use POST.", code: "METHOD_NOT_ALLOWED" }, 405);
@@ -751,7 +839,21 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const text = normalizeDiagnosticLanguage(rawText).replace(/\s+/g, " ")
     // Safe instructions embedded in prompts are not incident reports.
     .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]?/gi, " ")
-    .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, " ");
+    .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, " ")
+    // Strip non-hazard statements: negative answers and conditional instructions
+    .replace(/\b(?:if|in case|whenever|supposing|should you|unless)\b[^.!?\n]{0,100}\b(?:smell|odor|odour|gas|propane|smoke|fire|sparks?|sparking|shock|burning)\b[^.!?\n]{0,60}/gi, " ")
+    .replace(/\b(?:no|not|never|without|none|nor|don't|dont|doesn't|doesnt|didn't|didnt|isn't|isnt|wasn't|wasnt|haven't|havent|hasn't|hasnt|cant|can't|cannot)\b(?:\s+(?:any|a|the|signs? of|evidence of|reports? of|indication of|see|seeing|saw|smell|smells|smelled|smelling|notice|noticed|hear|hearing|feel|feeling|felt))*\s+[^.!?\n,]{0,45}\b(?:gas|propane|smoke|soot|flames?|sparks?|sparking|arcing|arc|shock|shocks|shocking|tingling|burning|burnt|melting|melted|fumes|leaks?|leaking)\b/gi, " ")
+    .replace(/\b(?:gas|propane|smoke|fire|sparks?|sparking|shock|burning|burnt|flames?)\b\s*[:=-]\s*(?:no|none|negative|false|n\/a|zero|not present|clear)\b/gi, " ")
+    // Heaters that "won't fire" or "failed to fire up" are ignition triage, not active fires
+    .replace(/\b(?:won't|wont|doesn't|doesnt|didn't|didnt|not|fails? to|unable to|can't|cant)\s+fire(?:\s+up)?\b/gi, " ")
+    .replace(/\bmisfir(?:e|ing|ed)\b/gi, " ")
+    .replace(/\bfire\s+ants?\b/gi, " ")
+    // Spark igniter / ignition spark is diagnostic, not an electrical hazard
+    .replace(/\b(?:spark\s+ignit(?:er|or)|ignit(?:er|or)\s+sparks?|spark\s+electrode|ignition\s+spark)\b/gi, " ")
+    // Pool chlorine shocking is water chemistry, not electrical shock
+    .replace(/\b(?:shock|shocked|shocking)\s+(?:the\s+)?(?:pool|water)\b/gi, " ")
+    .replace(/\b(?:pool|chlorine|cal-hypo)\s+shock\b/gi, " ");
+
   const patterns: RegExp[] = [
     /\b(?:i\s+|we\s+|someone\s+|it\s+)?(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)?(?:natural\s+)?gas\b/i,
     /\b(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)(?:natural\s+)?propane\b/i,
@@ -759,20 +861,21 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     /\b(?:odor|odour|smell|smells)\s+(?:of|like)\s+(?:natural\s+)?(?:gas|propane)\b/i,
     /\brotten[- ]egg(?:s)?(?: smell| odor| odour)?\b/i,
     /\b(?:carbon monoxide|co alarm|co detector alarm|suspected co exposure)\b/i,
-    /\b(?:smoke|smoking|soot|fire)\b/i,
+    /\b(?:smoke|smoking|soot)\b/i,
+    /\b(?:caught fire|on fire|visible fire|there is a fire|equipment (?:is )?on fire|pad is on fire)\b|\bfire\s+(?:in|at|on|inside|around|behind)\s+(?:the\s+)?(?:equipment|heater|pump|motor|panel|breaker|pad|shed)\b/i,
     /\b(?:burning|burnt)\s+(?:smell|odor|odour|plastic|wire|wiring|rubber|insulation|electrical)\b|\bsmell(?:s|ed|ing)?\s+(?:of\s+|like\s+)?(?:something\s+)?burn(?:ing|t)\b/i,
     /\b(?:melting|melted|melts)\s+(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b|\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b.{0,40}\b(?:melting|melted|melts)\b|\b(?:melting|melted|melts)\b.{0,40}\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b/i,
     /\b(?:flame roll[- ]?out|rollout switch.*(?:tripped|activated)|(?:tripped|activated).*rollout switch)\b/i,
     /\bflame\s+(?:out of|outside|escaping|coming|shooting|rolling|rollout|roll[- ]out)\b|\bflames?\s+(?:coming|shooting|escaping|rolling|outside|out of)\b|\b(?:see|saw|seeing|visible|there is|there's|there are)\b.{0,35}\bflames?\b/i,
-    /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b/i,
+    /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b|\bsparks?\b.{0,20}\b(?:flying|coming|shooting|spraying|out of|from)\b|\b(?:see|saw|visible)\b.{0,15}\bsparks?\b/i,
     /\b(?:electrical|electric)\s+(?:shock|shocks|shocking)\b|\b(?:got shocked|shocked me|electric shock|tingling from equipment|tingling when touching)\b/i,
     /\b(?:live wire|exposed energized wire|energized conductor)\b/i,
     /\b(?:chemical fumes|chlorine gas|acid fumes|toxic fumes)\b/i,
     /\b(?:mix|mixing|mixed|combine|combining|combined)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:with|and)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b|\b(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:mix|mixing|mixed|combine|combining|combined)\b.{0,45}\b(?:chlorine|bleach|acid|muriatic acid)\b/i,
-    /\b(?:person|someone|child|swimmer|anyone)\b.{0,45}\b(?:stuck|trapped|held)\b.{0,45}\b(?:drain|suction|outlet|pool)\b|\b(?:stuck to (?:the )?(?:pool )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
+    /\b(?:person|someone|child|swimmer|human|body|hair|arm|leg|hand)\b.{0,45}\b(?:stuck|trapped|held|pinned)\b.{0,45}\b(?:drain|main drain|suction outlet|suction grate)\b|\b(?:stuck to (?:the )?(?:pool )?(?:main )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
     /\b(?:unconscious|passed out|someone fainted|person fainted|i feel faint|feeling faint)\b/i,
     /\b(?:gas|propane)\b.{0,30}\b(?:hissing|hiss)\b|\b(?:hissing|hiss)\b.{0,30}\b(?:gas|propane)\b/i,
-    /\b(?:bulging|swollen)\s+(?:filter|tank|vessel)\b|\bfilter\s+(?:tank )?(?:bulging|swollen)\b/i,
+    /\b(?:filter|tank|vessel)\b.{0,25}\b(?:bulging|swollen)\b|\b(?:bulging|swollen)\b.{0,25}\b(?:filter|tank|vessel)\b/i,
   ];
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -780,7 +883,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const query = textValue(body.query ?? body.message ?? body.userMessage ?? body.user_message ?? body.question ?? body.input ?? body.prompt, 5000);
   const action = textValue(body.action ?? body.action_type, 80).toLowerCase();
   const noQueryActions = new Set([
-    "save_technician_job", "capture_learning_case", "public_page_view", "photo_recognition",
+    "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "accept_company_legal", "accept_public_demo_learning", "get_customer_widget_config", "submit_widget_service_request", "get_company_widget_settings", "save_company_widget_settings", "rotate_company_widget_key", "public_page_view", "photo_recognition",
     "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
     "review_learning_case", "list_learning_review_queue", "review_company_document",
     "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
@@ -791,13 +894,23 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const context = objectValue(contextRaw) ?? {};
   const history = body.history ?? body.conversationHistory ?? body.conversation_history ?? body.conversation;
   const latestMessageMatch = query.match(/Customer latest reply:\s*([\s\S]*)$/i);
-  const latestCustomerMessage = (latestMessageMatch?.[1] || query).trim().slice(0, 1800);
+  const rawCustomerMessage = (latestMessageMatch?.[1] || query).trim().slice(0, 1800);
+  const latestCustomerMessage = rawCustomerMessage
+    .replace(/\[(?:SESSION|WATER-QUALITY) STATE LOCKED:[\s\S]*?\]/gi, " ")
+    .replace(/^Retry note:[\s\S]*?\n\n/gi, " ")
+    .trim();
   const normalizedLatestCustomerMessage = normalizeDiagnosticLanguage(latestCustomerMessage);
   const historyUserText = Array.isArray(history) ? history.slice(-10).map((turn) => {
     const item = objectValue(turn);
-    return textValue(item?.user ?? item?.userMsg ?? item?.user_message ?? (item?.role === "user" ? item?.content ?? item?.text : ""), 1200);
+    const uText = textValue(item?.user ?? item?.userMsg ?? item?.user_message ?? (item?.role === "user" ? item?.content ?? item?.text : ""), 1200);
+    return uText
+      .replace(/I completed Step \d+ \([\s\S]*?\),? and the issue persists\.?/gi, " ")
+      .replace(/\[(?:SESSION|WATER-QUALITY) STATE LOCKED:[\s\S]*?\]/gi, " ");
   }).filter(Boolean).join(" ") : "";
-  const hazardText = [query, textValue(context.symptom ?? context.issue, 1200), historyUserText].filter(Boolean).join(" ");
+  const cleanSymptom = textValue(context.symptom ?? context.issue, 1200)
+    .replace(/\[(?:SESSION|WATER-QUALITY) STATE LOCKED:[\s\S]*?\]/gi, " ")
+    .replace(/Step \d+ checked \([\s\S]*?\)/gi, " ");
+  const hazardText = [latestCustomerMessage, cleanSymptom, historyUserText].filter(Boolean).join(" ");
   const requestMode = textValue(context.mode ?? body.mode, 40).toLowerCase();
   const techMode = /^(?:tech|technician|field tech)$/.test(requestMode);
   const criticalHazard = isCriticalPoolHazardText(hazardText);
@@ -830,6 +943,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   let authenticatedRole: string | null = null;
   let authenticatedPermissions: { canViewJobNotes: boolean; canEditJobNotes: boolean; canUploadDocuments: boolean; canReviewDocuments: boolean } | null = null;
   let authenticatedIndustryKey = "pool";
+  let tenantWidgetConfig: AnyRecord | null = null;
+  let tenantWidgetSessionHash: string | null = null;
   let usageEventId: number | null = null;
   if (body.authenticatedApp === true) {
     const authHeader = req.headers.get("authorization") || "";
@@ -863,13 +978,13 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       };
       // Prevent pool-specific diagnostic/safety rules from running for an industry module that is merely planned.
       const {data:activeIndustry}=await supabase.from("industry_modules").select("industry_key,status").eq("industry_key",authenticatedIndustryKey).eq("status","active").maybeSingle();
-      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
+      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","accept_company_legal","accept_public_demo_learning","get_customer_widget_config","submit_widget_service_request","get_company_widget_settings","save_company_widget_settings","rotate_company_widget_key","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
         return jsonResponse({error:"This company's industry module is not active yet. PoolDocAI will not apply pool-specific troubleshooting or safety rules to an unreviewed industry.",code:"INDUSTRY_MODULE_NOT_ACTIVE",industryKey:authenticatedIndustryKey},409);
       }
       const documentAction = ["process_company_manual","import_company_webpage"].includes(action);
       const seatAction = ["invite_company_member","resend_company_invitation","revoke_company_invitation"].includes(action);
       const billingAction = ["create_billing_checkout","create_billing_portal"].includes(action);
-      const adminAction = ["get_company_usage","export_company_usage","review_company_document","set_manual_learning_consent"].includes(action);
+      const adminAction = ["get_company_usage","export_company_usage","review_company_document","set_manual_learning_consent","accept_company_legal"].includes(action);
       const metricType = documentAction ? "document_request" : seatAction ? "seat_event" : billingAction ? "billing_event" : adminAction ? "admin_event" : action === "save_technician_job" ? "technician_job" : "ai_request";
       const usageInsert = await supabase.from("platform_usage_events").insert({
         company_id: authenticatedCompanyId, user_id: authenticatedUserId, event_type: action || "troubleshoot", units: 1,
@@ -878,9 +993,222 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         source_event_key: crypto.randomUUID(), metadata: { authenticated: true, industry_key: authenticatedIndustryKey }
       }).select("id").maybeSingle();
       usageEventId = usageInsert.data?.id == null ? null : Number(usageInsert.data.id);
-    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
+    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "accept_company_legal", "accept_public_demo_learning", "get_customer_widget_config", "submit_widget_service_request", "get_company_widget_settings", "save_company_widget_settings", "rotate_company_widget_key", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
       return jsonResponse({ error: "This login has no active membership for the selected company.", code: "COMPANY_MEMBERSHIP_REQUIRED" }, 403);
     }
+  }
+
+  // Public embedded customer widget. Each operation validates the real request Origin
+  // against a company-managed allowlist; CORS alone is not an authorization boundary.
+  const requestOrigin = (req.headers.get("origin") || "").trim();
+  const isExactWidgetOriginAllowed = (config: AnyRecord): boolean => {
+    let normalized = "";
+    try { normalized = new URL(requestOrigin).origin; } catch { return false; }
+    const origins = Array.isArray(config.allowed_origins) ? config.allowed_origins.map((v: unknown) => String(v)) : [];
+    return Boolean(requestOrigin) && normalized === requestOrigin && origins.includes(normalized);
+  };
+  const loadPublicWidget = async (widgetKey: string): Promise<{config: AnyRecord; company: AnyRecord} | null> => {
+    if (!widgetKey || widgetKey.length > 160 || !requestOrigin) return null;
+    const { data: config, error: configError } = await supabase.from("company_widget_configs")
+      .select("id,company_id,widget_key,enabled,display_name,welcome_message,accent_color,allowed_origins,service_request_enabled,logo_url")
+      .eq("widget_key", widgetKey).maybeSingle();
+    if (configError || !config || config.enabled !== true || !isExactWidgetOriginAllowed(config)) return null;
+    const { data: company, error: companyError } = await supabase.from("companies")
+      .select("id,name,status,plan_name,widget_access_enabled,subscription_access_mode,company_size_tier,monthly_session_allowance")
+      .eq("id", config.company_id).maybeSingle();
+    if (companyError || !company || !["active","pilot"].includes(String(company.status)) || company.widget_access_enabled !== true) return null;
+    return { config: config as AnyRecord, company: company as AnyRecord };
+  };
+  const hashCustomerWidgetSession = async (widgetKey: string, sessionId: string): Promise<string> => {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("pooldocai-widget-v1:" + widgetKey + ":" + sessionId));
+    return bytesToHex(new Uint8Array(digest));
+  };
+  const customerWidgetKey = textValue(body.widgetKey, 160);
+  if (action === "get_customer_widget_config") {
+    const widget = await loadPublicWidget(customerWidgetKey);
+    if (!widget) return jsonResponse({ error: "This company widget is disabled, not authorized for this website, or unavailable on its current plan.", code: "WIDGET_NOT_AVAILABLE" }, 403);
+    return jsonResponse({
+      ok: true,
+      config: {
+        displayName: textValue(widget.config.display_name,100) || "Pool Service",
+        welcomeMessage: textValue(widget.config.welcome_message,450),
+        accentColor: /^#[0-9a-f]{6}$/i.test(String(widget.config.accent_color||"")) ? widget.config.accent_color : "#075985",
+        logoUrl: typeof widget.config.logo_url === "string" && widget.config.logo_url.startsWith("https://") ? widget.config.logo_url : null,
+        serviceRequestEnabled: widget.config.service_request_enabled === true,
+        termsVersion: "2026-10-21-v1",
+        privacyVersion: "2026-10-21-v1",
+        noticeVersion: "2026-10-22-v1"
+      }
+    },200);
+  }
+
+  if (action === "accept_public_demo_learning") {
+    const sessionId = textValue(body.sessionId,160);
+    const source = textValue(body.acceptanceSource,30);
+    const mode = textValue(body.mode ?? body.demoMode ?? "homeowner",30);
+    if (source !== "customer_widget" || !sessionId) return jsonResponse({ error:"Widget consent requires its session and customer-widget source.",code:"WIDGET_CONSENT_INVALID" },400);
+    if (body.acceptTerms !== true || body.acceptPrivacy !== true || body.acknowledgeDiagnosticLearning !== true) return jsonResponse({ error:"Accept the current terms, privacy notice, and diagnostic-learning disclosure before using this widget.",code:"CONSENT_REQUIRED" },400);
+    const widget=await loadPublicWidget(customerWidgetKey);
+    if(!widget)return jsonResponse({error:"This company widget is disabled or this website is not authorized.",code:"WIDGET_NOT_AVAILABLE"},403);
+    const sessionHash=await hashCustomerWidgetSession(customerWidgetKey,sessionId);
+    const {error}=await supabase.from("pooldocai_public_demo_learning_acceptances").upsert({
+      session_hash:sessionHash,terms_version:"2026-10-21-v1",privacy_version:"2026-10-21-v1",
+      notice_version:"2026-10-22-v1",acceptance_source:"customer_widget",demo_mode:"homeowner",
+      accepted_terms:true,acknowledged_privacy:true,acknowledged_diagnostic_learning:true,
+      accepted_at:new Date().toISOString(),company_id:widget.company.id,widget_key:customerWidgetKey
+    },{onConflict:"session_hash"});
+    if(error){console.error("Customer widget consent recording failed",{code:error.code});return jsonResponse({error:"Consent could not be recorded; troubleshooting has not started.",code:"CONSENT_RECORD_FAILED"},500);}
+    return jsonResponse({ok:true,accepted:true,termsVersion:"2026-10-21-v1",privacyVersion:"2026-10-21-v1"},200);
+  }
+
+  // Company administrators control the public-widget allowlist and presentation from the portal;
+  // browser clients do not write directly to this privileged configuration row.
+  if (["get_company_widget_settings","save_company_widget_settings","rotate_company_widget_key"].includes(action)) {
+    if(body.authenticatedApp!==true||!authenticatedUserId)return jsonResponse({error:"Sign in before configuring a company widget.",code:"AUTH_REQUIRED"},401);
+    const {data:platformOwner}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle();
+    const isPlatformOwner=Boolean(platformOwner);
+    const targetCompanyId=textValue(body.companyId,80)||authenticatedCompanyId||"";
+    if(!targetCompanyId)return jsonResponse({error:"Select a company workspace.",code:"COMPANY_REQUIRED"},400);
+    if(!isPlatformOwner && (targetCompanyId!==authenticatedCompanyId || authenticatedRole!=="company_admin"))return jsonResponse({error:"Only the selected company's administrator can manage its customer widget.",code:"COMPANY_ADMIN_REQUIRED"},403);
+    const {data:company,error:companyError}=await supabase.from("companies").select("id,name,status,plan_name,widget_access_enabled,subscription_access_mode,company_size_tier").eq("id",targetCompanyId).maybeSingle();
+    if(companyError||!company)return jsonResponse({error:"Company was not found.",code:"COMPANY_NOT_FOUND"},404);
+    if(company.widget_access_enabled!==true||!["active","pilot"].includes(String(company.status)))return jsonResponse({error:"This company plan does not currently include customer-widget access.",code:"WIDGET_PLAN_REQUIRED"},403);
+    const {data:existing}=await supabase.from("company_widget_configs").select("*").eq("company_id",targetCompanyId).maybeSingle();
+    if(action==="get_company_widget_settings") {
+      const config=existing||null;
+      return jsonResponse({ok:true,config:config?{
+        id:config.id,widgetKey:config.widget_key,enabled:config.enabled===true,
+        displayName:config.display_name,welcomeMessage:config.welcome_message,accentColor:config.accent_color,
+        allowedOrigins:Array.isArray(config.allowed_origins)?config.allowed_origins:[],
+        serviceRequestEnabled:config.service_request_enabled===true,logoUrl:config.logo_url||null
+      }:null,companyName:company.name},200);
+    }
+    if(action==="rotate_company_widget_key") {
+      const {data:updated,error}=await supabase.from("company_widget_configs").upsert({
+        company_id:targetCompanyId,widget_key:crypto.randomUUID().replace(/-/g,"")+crypto.randomUUID().replace(/-/g,""),
+        enabled:false,display_name:textValue(existing?.display_name,100)||String(company.name||"Pool Service").slice(0,100),
+        welcome_message:textValue(existing?.welcome_message,450)||"Describe the pool or equipment problem and we will help you work through safe next checks.",
+        accent_color:/^#[0-9a-f]{6}$/i.test(String(existing?.accent_color||""))?existing.accent_color:"#075985",
+        allowed_origins:Array.isArray(existing?.allowed_origins)?existing.allowed_origins:[],
+        service_request_enabled:existing?.service_request_enabled===true,
+        created_by:authenticatedUserId,updated_by:authenticatedUserId,updated_at:new Date().toISOString()
+      },{onConflict:"company_id"}).select("id,widget_key").single();
+      if(error||!updated)return jsonResponse({error:"Could not rotate the widget key.",code:"WIDGET_KEY_ROTATION_FAILED"},500);
+      return jsonResponse({ok:true,widgetKey:updated.widget_key,enabled:false},200);
+    }
+    const displayName=textValue(body.displayName,100)||String(company.name||"Pool Service").slice(0,100);
+    const welcomeMessage=textValue(body.welcomeMessage,450)||"Describe the pool or equipment problem and we will help you work through safe next checks.";
+    const accentColor=textValue(body.accentColor,7)||"#075985";
+    if(!/^#[0-9a-f]{6}$/i.test(accentColor))return jsonResponse({error:"Accent color must be a six-digit hexadecimal color.",code:"WIDGET_COLOR_INVALID"},400);
+    const originsRaw=Array.isArray(body.allowedOrigins)?body.allowedOrigins:[];
+    const origins:string[]=[];
+    for(const value of originsRaw.slice(0,30)){
+      try{
+        const u=new URL(String(value));
+        if(u.origin!==String(value)||u.username||u.password||u.pathname!=="/"||u.search||u.hash||
+          (u.protocol!=="https:"&&u.hostname!=="localhost")) return jsonResponse({error:"Each allowed website must be an exact HTTPS origin (for example https://www.example.com) with no path, query or credentials.",code:"WIDGET_ORIGIN_INVALID"},400);
+        if(!origins.includes(u.origin))origins.push(u.origin);
+      }catch{return jsonResponse({error:"One of the allowed website origins is invalid.",code:"WIDGET_ORIGIN_INVALID"},400);}
+    }
+    if(body.enabled===true&&origins.length===0)return jsonResponse({error:"Add at least one allowed HTTPS website origin before enabling the widget.",code:"WIDGET_ORIGIN_REQUIRED"},400);
+    const row={
+      company_id:targetCompanyId,widget_key:existing?.widget_key||crypto.randomUUID().replace(/-/g,"")+crypto.randomUUID().replace(/-/g,""),
+      enabled:body.enabled===true,display_name:displayName,welcome_message:welcomeMessage,accent_color:accentColor,
+      allowed_origins:origins,service_request_enabled:body.serviceRequestEnabled===true,
+      email_notifications_enabled:false,notification_email:null,email_recipient_confirmed:false,
+      sms_notifications_enabled:false,notification_phone:null,sms_recipient_opt_in:false,
+      created_by:existing?.created_by||authenticatedUserId,updated_by:authenticatedUserId,updated_at:new Date().toISOString()
+    };
+    const {data:updated,error}=await supabase.from("company_widget_configs").upsert(row,{onConflict:"company_id"}).select("id,widget_key,enabled,display_name,welcome_message,accent_color,allowed_origins,service_request_enabled").single();
+    if(error||!updated){console.error("Company widget config save failed",{code:error?.code});return jsonResponse({error:"Could not save customer-widget settings.",code:"WIDGET_SETTINGS_SAVE_FAILED"},500);}
+    return jsonResponse({ok:true,config:{id:updated.id,widgetKey:updated.widget_key,enabled:updated.enabled,displayName:updated.display_name,welcomeMessage:updated.welcome_message,accentColor:updated.accent_color,allowedOrigins:updated.allowed_origins,serviceRequestEnabled:updated.service_request_enabled}},200);
+  }
+
+  // Customer-submitted service request. The website origin, company, learning consent, and
+  // rate-limit budget are verified before contact details are stored in the tenant-private queue.
+  if (action === "submit_widget_service_request") {
+    const widget=await loadPublicWidget(customerWidgetKey);
+    if(!widget||widget.config.service_request_enabled!==true)return jsonResponse({error:"Service-request handoff is unavailable for this company website.",code:"WIDGET_SERVICE_REQUEST_DISABLED"},403);
+    const sessionId=textValue(body.sessionId,160), submissionId=textValue(body.submissionId,160);
+    if(!sessionId||!submissionId)return jsonResponse({error:"The widget session or submission ID is missing. Refresh and try again.",code:"WIDGET_SESSION_REQUIRED"},400);
+    const sessionHash=await hashCustomerWidgetSession(customerWidgetKey,sessionId);
+    const {data:consent,error:consentError}=await supabase.from("pooldocai_public_demo_learning_acceptances").select("session_hash")
+      .eq("session_hash",sessionHash).eq("company_id",widget.company.id).eq("widget_key",customerWidgetKey)
+      .eq("acceptance_source","customer_widget").eq("terms_version","2026-10-21-v1").eq("privacy_version","2026-10-21-v1")
+      .eq("accepted_terms",true).eq("acknowledged_privacy",true).eq("acknowledged_diagnostic_learning",true).maybeSingle();
+    if(consentError||!consent)return jsonResponse({error:"Agree to the current terms and privacy notice before requesting service.",code:"CONSENT_REQUIRED"},403);
+    const name=textValue(body.requesterName,120);
+    const email=textValue(body.requesterEmail,254).toLowerCase();
+    const phone=textValue(body.requesterPhone,40);
+    const address=textValue(body.serviceAddress,300);
+    const equipment=scrubPII(textValue(body.equipmentSummary,700)).slice(0,700);
+    const issue=scrubPII(textValue(body.issueSummary,1800)).slice(0,1800);
+    if(!name||(!email&&!phone)|| (email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return jsonResponse({error:"Enter your name and either a valid email address or a phone number.",code:"REQUESTER_CONTACT_REQUIRED"},400);
+    const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("widget-submission:"+customerWidgetKey+":"+submissionId));
+    const idempotencyKey=bytesToHex(new Uint8Array(digest));
+    const {data:cached,error:cacheError}=await supabase.from("service_requests").select("id,status,created_at").eq("company_id",widget.company.id).eq("public_idempotency_key",idempotencyKey).maybeSingle();
+    if(!cacheError&&cached)return jsonResponse({ok:true,serviceRequestId:cached.id,status:cached.status,alreadySubmitted:true},200);
+    const {data:budget,error:budgetError}=await supabase.rpc("pooldocai_consume_widget_service_request",{p_session_hash:sessionHash,p_max_requests:2,p_max_daily_requests:5});
+    if(budgetError)return jsonResponse({error:"Service-request rate protection is temporarily unavailable; no request was created.",code:"SERVICE_REQUEST_GUARD_UNAVAILABLE"},503);
+    const budgetRow=Array.isArray(budget)?budget[0]:budget;
+    if(!budgetRow||budgetRow.allowed!==true)return jsonResponse({error:"This browser has reached its service-request limit. Please contact the company directly.",code:"SERVICE_REQUEST_LIMIT_REACHED",retryAfterSeconds:budgetRow?.retry_after_seconds||3600},429);
+    const rawConversation=Array.isArray(body.conversation)?body.conversation.slice(-16):[];
+    const conversation=rawConversation.map((turn:unknown)=>{
+      const v=objectValue(turn)||{};
+      return {role:textValue(v.role,20)==="assistant"?"assistant":"user",text:scrubPII(textValue(v.text??v.content,1200)).slice(0,1200)};
+    }).filter((turn:AnyRecord)=>turn.text);
+    const summary=[equipment,issue].filter(Boolean).join(" — ").slice(0,2000);
+    const {data:created,error:createError}=await supabase.from("service_requests").insert({
+      company_id:widget.company.id,created_by:null,status:"open",priority:"normal",request_summary:summary,
+      source_type:"customer_widget",requester_name:name,requester_email:email||null,requester_phone:phone||null,
+      service_address:address||null,equipment_summary:equipment||null,troubleshooting_summary:issue||null,
+      conversation_redacted:conversation,widget_config_id:widget.config.id,public_idempotency_key:idempotencyKey
+    }).select("id,status,created_at").single();
+    if(createError||!created){console.error("Customer widget service request insert failed",{code:createError?.code});return jsonResponse({error:"We could not save the service request. Please try again or contact the company directly.",code:"SERVICE_REQUEST_CREATE_FAILED"},500);}
+    return jsonResponse({ok:true,serviceRequestId:created.id,status:created.status,createdAt:created.created_at,message:"Your request was sent to the company service queue. This does not book an appointment; the company will need to contact you."},201);
+  }
+
+  // For troubleshooting turns from a tenant widget, verify website origin and explicit current consent,
+  // then derive company routing and session meter inputs from the stored widget config, never from client tenant IDs.
+  if (body.tenantWidget === true && action === "troubleshoot") {
+    const widget=await loadPublicWidget(customerWidgetKey);
+    if(!widget)return jsonResponse({error:"This company widget is disabled or this website is not authorized.",code:"WIDGET_NOT_AVAILABLE"},403);
+    if(!textValue(body.sessionId,160))return jsonResponse({error:"Widget session is missing. Refresh the page and accept the current notice.",code:"WIDGET_SESSION_REQUIRED"},400);
+    tenantWidgetConfig={...widget.config,...widget.company};
+    tenantWidgetSessionHash=await hashCustomerWidgetSession(customerWidgetKey,textValue(body.sessionId,160));
+    const {data:consent,error:consentError}=await supabase.from("pooldocai_public_demo_learning_acceptances").select("session_hash")
+      .eq("session_hash",tenantWidgetSessionHash).eq("company_id",widget.company.id).eq("widget_key",customerWidgetKey)
+      .eq("acceptance_source","customer_widget").eq("terms_version","2026-10-21-v1").eq("privacy_version","2026-10-21-v1")
+      .eq("accepted_terms",true).eq("acknowledged_privacy",true).eq("acknowledged_diagnostic_learning",true).maybeSingle();
+    if(consentError||!consent)return jsonResponse({error:"Accept the current terms and privacy notice before starting this company’s troubleshooting widget.",code:"CONSENT_REQUIRED"},403);
+  }
+
+  // Versioned terms/privacy acceptance for an authenticated user and a company workspace.
+  // Acceptance is recorded server-side before any company document can be inserted.
+  if (action === "accept_company_legal") {
+    if (!authenticatedUserId || body.authenticatedApp !== true) {
+      return jsonResponse({ error: "Sign in with an individual company account before accepting terms.", code: "AUTH_REQUIRED" }, 401);
+    }
+    const targetCompanyId = textValue(body.companyId, 80) || authenticatedCompanyId || "";
+    if (!targetCompanyId) return jsonResponse({ error: "Select a company workspace first.", code: "COMPANY_REQUIRED" }, 400);
+    if (authenticatedCompanyId && targetCompanyId !== authenticatedCompanyId) {
+      return jsonResponse({ error: "You cannot accept terms on behalf of another company workspace.", code: "COMPANY_SCOPE_MISMATCH" }, 403);
+    }
+    if (body.termsAccepted !== true || body.privacyAccepted !== true) {
+      return jsonResponse({ error: "Please confirm that you have read and agree to the current Terms and Privacy Policy.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 400);
+    }
+    const { data: acceptedCompany, error: companyError } = await supabase.from("companies").select("id").eq("id", targetCompanyId).maybeSingle();
+    if (companyError || !acceptedCompany) return jsonResponse({ error: "The selected company workspace was not found.", code: "COMPANY_NOT_FOUND" }, 404);
+    const { error: acceptError } = await supabase.from("pooldocai_legal_acceptances").upsert({
+      user_id: authenticatedUserId, company_id: targetCompanyId,
+      terms_version: "2026-10-21-v1", privacy_version: "2026-10-21-v1",
+      accepted_at: new Date().toISOString(), acceptance_source: "authenticated_workspace"
+    }, { onConflict: "user_id,company_id,terms_version,privacy_version" });
+    if (acceptError) {
+      console.error("Company legal acceptance failed", { code: acceptError.code });
+      return jsonResponse({ error: "Your Terms and Privacy acceptance could not be recorded; no upload has started.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
+    }
+    return jsonResponse({ ok: true, termsVersion: "2026-10-21-v1", privacyVersion: "2026-10-21-v1" }, 200);
   }
 
   // Temporary full-experience trial credentials. Every operation is platform-owner-only.
@@ -1039,13 +1367,27 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         await supabase.from("company_members").update({status:"suspended"}).eq("company_id",invite.company_id).eq("user_id",authenticatedUserId);
         return jsonResponse({error:"This invitation has expired. Ask the company administrator to resend it.",code:"INVITATION_EXPIRED"},410);
       }
-      if(invite.status==="accepted")return jsonResponse({ok:true,accepted:true,companyId:invite.company_id,message:"This invitation has already been accepted."},200);
+      if (body.termsAccepted !== true || body.privacyAccepted !== true) {
+        return jsonResponse({ error: "Agree to the Terms of Use and Privacy Policy to activate your account.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 400);
+      }
+      const recordAccountLegalAcceptance = async () => await supabase.from("pooldocai_legal_acceptances").upsert({
+        user_id: authenticatedUserId, company_id: invite.company_id,
+        terms_version: "2026-10-21-v1", privacy_version: "2026-10-21-v1",
+        accepted_at: new Date().toISOString(), acceptance_source: "account_creation"
+      }, { onConflict: "user_id,company_id,terms_version,privacy_version", ignoreDuplicates: true });
+      if(invite.status==="accepted") {
+        const { error: legalError } = await recordAccountLegalAcceptance();
+        if (legalError) return jsonResponse({ error: "Your agreement could not be recorded. Please retry.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
+        return jsonResponse({ok:true,accepted:true,companyId:invite.company_id,message:"This invitation has already been accepted."},200);
+      }
       const {data:company}=await supabase.from("companies").select("status,seat_limit").eq("id",invite.company_id).maybeSingle();
       if(!company||!["active","pilot"].includes(String(company.status)))return jsonResponse({error:"The company is not active for new access.",code:"COMPANY_NOT_ACTIVE"},403);
       const {count:activeCount}=await supabase.from("company_members").select("id",{count:"exact",head:true}).eq("company_id",invite.company_id).eq("status","active");
       const {data:membership}=await supabase.from("company_members").select("id,status").eq("company_id",invite.company_id).eq("user_id",authenticatedUserId).maybeSingle();
       if(!membership)return jsonResponse({error:"The invited membership record is missing. Ask an administrator to resend the invite.",code:"INVITED_MEMBERSHIP_MISSING"},409);
       if(membership.status!=="active"&&Number(activeCount||0)>=Number(company.seat_limit))return jsonResponse({error:"The company has no available seat. Ask its administrator to resolve the seat limit.",code:"SEAT_LIMIT_REACHED"},409);
+      const { error: legalError } = await recordAccountLegalAcceptance();
+      if (legalError) return jsonResponse({ error: "Your agreement could not be recorded; your company seat was not activated. Please retry.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
       const {error:activateError}=await supabase.from("company_members").update({status:"active"}).eq("id",membership.id);
       if(activateError)return jsonResponse({error:"Could not activate the invited seat.",code:"INVITATION_ACTIVATION_FAILED"},500);
       await supabase.from("technician_invitation_requests").update({status:"accepted",accepted_at:new Date().toISOString()}).eq("id",invitationId);
@@ -1108,8 +1450,11 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if(!isOwner&&(!targetCompanyId||targetCompanyId!==authenticatedCompanyId||authenticatedRole!=="company_admin"))return jsonResponse({error:"Only a company administrator can access company usage reports.",code:"USAGE_PERMISSION_REQUIRED"},403);
     if(isOwner&&action!=="platform_usage_export"&&!targetCompanyId)return jsonResponse({error:"Choose a company for its usage report.",code:"COMPANY_REQUIRED"},400);
     const targetIds: string[] = action==="platform_usage_export" ? (await supabase.from("companies").select("id")).data?.map((c:any)=>String(c.id))||[] : [targetCompanyId];
-    const {data:companiesForUsage,error:companyUsageError}=await supabase.from("companies").select("id,name,status,plan_name,seat_limit,monthly_ai_request_limit,monthly_document_character_limit,storage_limit_bytes,industry_key,billing_period_start,current_period_end").in("id",targetIds);
+    const {data:companiesForUsage,error:companyUsageError}=await supabase.from("companies").select("id,name,status,plan_name,seat_limit,monthly_ai_request_limit,monthly_document_character_limit,storage_limit_bytes,industry_key,billing_period_start,current_period_end,monthly_session_allowance,widget_access_enabled,company_size_tier,subscription_access_mode").in("id",targetIds);
     if(companyUsageError)return jsonResponse({error:"Could not load company billing periods.",code:"USAGE_COMPANIES_READ_FAILED"},500);
+    const {data:monthlySessionRows,error:monthlySessionError}=await supabase.rpc("pooldocai_get_company_session_usage",{p_company_ids:targetIds});
+    if(monthlySessionError)return jsonResponse({error:"Could not load pooled diagnostic-session usage.",code:"MONTHLY_USAGE_READ_FAILED"},500);
+    const monthlySessionMap=new Map<string,AnyRecord>((monthlySessionRows||[]).map((row:any)=>[String(row.company_id),row]));
     const nowMs=Date.now();const currentMonthStart=new Date();currentMonthStart.setUTCDate(1);currentMonthStart.setUTCHours(0,0,0,0);
     const cycles=new Map<string,{start:Date;end:Date|null}>();
     for(const c of companiesForUsage||[]){
@@ -1125,6 +1470,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       const cycle=cycles.get(company.id)||{start:currentMonthStart,end:null};
       const ce=(events||[]).filter((e:any)=>e.company_id===company.id&&new Date(e.created_at).getTime()>=cycle.start.getTime()&&(!cycle.end||new Date(e.created_at).getTime()<cycle.end!.getTime()));
       const cm=(manuals||[]).filter((m:any)=>m.company_id===company.id);
+      const sessionUsage=monthlySessionMap.get(String(company.id));
       const aiRequests=ce.filter((e:any)=>e.metric_type==="ai_request").reduce((n:number,e:any)=>n+Number(e.quantity||e.units||0),0);
       const documentCharacters=ce.filter((e:any)=>e.metric_type==="document_characters").reduce((n:number,e:any)=>n+Number(e.extracted_characters||e.quantity||0),0);
       const documentsProcessedInPeriod=ce.filter((e:any)=>e.event_type==="document_extraction").length;
@@ -1134,7 +1480,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       const docReady=cm.filter((m:any)=>m.extraction_status==="ready").length;const alerts:any[]=[];
       const check=(metric:string,value:number,limit:any)=>{if(limit==null||Number(limit)<=0)return;const pct=value/Number(limit)*100;for(const threshold of [80,100])if(pct>=threshold)alerts.push({metric_type:metric,threshold_percent:threshold,observed_value:value,limit_value:Number(limit),percent:Math.round(pct)});};
       check("ai_requests",aiRequests,company.monthly_ai_request_limit);check("document_characters",documentCharacters,company.monthly_document_character_limit);check("storage_bytes",storageBytes,company.storage_limit_bytes);
-      return {company_id:company.id,company_name:company.name,company_status:company.status,industry_key:company.industry_key,plan_name:company.plan_name,period_start:cycle.start.toISOString(),period_end:cycle.end?.toISOString()||null,period_basis:cycle.end?"stripe_billing_cycle":(company.billing_period_start?"calendar_month_fallback":"calendar_month"),ai_requests:aiRequests,documents_total:cm.length,documents_processed_this_month:documentsProcessedInPeriod,documents_processed_in_period:documentsProcessedInPeriod,documents_ready:docReady,document_characters:documentCharacters,storage_bytes:storageBytes,input_tokens:inputTokens,output_tokens:outputTokens,estimated_cost_usd:estimatedCost,cost_priced_events:costValues.length,unpriced_events:ce.length-costValues.length,limits:{ai_requests:company.monthly_ai_request_limit,document_characters:company.monthly_document_character_limit,storage_bytes:company.storage_limit_bytes},alerts};
+      return {company_id:company.id,company_name:company.name,company_status:company.status,industry_key:company.industry_key,plan_name:company.plan_name,company_size_tier:company.company_size_tier||null,subscription_access_mode:company.subscription_access_mode||null,diagnostic_sessions_used:Number(sessionUsage?.sessions_used||0),diagnostic_sessions_allowance:Number(sessionUsage?.sessions_allowance??company.monthly_session_allowance??0),diagnostic_sessions_remaining:Number(sessionUsage?.sessions_remaining??company.monthly_session_allowance??0),widget_access_enabled:Boolean(sessionUsage?.widget_access_enabled??company.widget_access_enabled??false),period_start:cycle.start.toISOString(),period_end:cycle.end?.toISOString()||null,period_basis:cycle.end?"stripe_billing_cycle":(company.billing_period_start?"calendar_month_fallback":"calendar_month"),ai_requests:aiRequests,documents_total:cm.length,documents_processed_this_month:documentsProcessedInPeriod,documents_processed_in_period:documentsProcessedInPeriod,documents_ready:docReady,document_characters:documentCharacters,storage_bytes:storageBytes,input_tokens:inputTokens,output_tokens:outputTokens,estimated_cost_usd:estimatedCost,cost_priced_events:costValues.length,unpriced_events:ce.length-costValues.length,limits:{ai_requests:company.monthly_ai_request_limit,document_characters:company.monthly_document_character_limit,storage_bytes:company.storage_limit_bytes},alerts};
     });
     for(const result of results)for(const alert of result.alerts)await supabase.from("pooldocai_usage_alerts").upsert({company_id:result.company_id,period_start:String(result.period_start).slice(0,10),metric_type:alert.metric_type,threshold_percent:alert.threshold_percent,observed_value:alert.observed_value,limit_value:alert.limit_value,status:"open"},{onConflict:"company_id,period_start,metric_type,threshold_percent",ignoreDuplicates:true});
     const allEvents=(events||[]).filter((e:any)=>{const cycle=cycles.get(e.company_id);return cycle&&new Date(e.created_at).getTime()>=cycle.start.getTime()&&(!cycle.end||new Date(e.created_at).getTime()<cycle.end.getTime());});
@@ -1252,6 +1598,22 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (action === "import_company_webpage") {
       const url = textValue(body.url, 2000);
       if (!url) return jsonResponse({ error: "Enter a public webpage URL.", code: "WEBPAGE_URL_REQUIRED" }, 400);
+      if (body.documentRightsAttested !== true) {
+        return jsonResponse({ error: "Confirm that you have permission to upload and process this webpage before importing it.", code: "DOCUMENT_RIGHTS_ATTESTATION_REQUIRED" }, 400);
+      }
+      const requestedDocumentType = textValue(body.documentType, 30).toLowerCase() || "other";
+      if (body.sharedLearningOptIn === true && ["company_manual","sop","policy"].includes(requestedDocumentType)) {
+        return jsonResponse({ error: "Company-specific manuals, SOPs, and policies must stay private and cannot enter shared learning.", code: "PRIVATE_DOCUMENT_CANNOT_BE_SHARED" }, 400);
+      }
+      if (body.sharedLearningOptIn === true && body.generalLearningRightsAttested !== true) {
+        return jsonResponse({ error: "Separate permission to redistribute eligible non-confidential information is required for shared-learning participation.", code: "GENERAL_LEARNING_RIGHTS_REQUIRED" }, 400);
+      }
+      const { data: agreement, error: agreementError } = await supabase.from("pooldocai_legal_acceptances").select("id")
+        .eq("user_id", authenticatedUserId).eq("company_id", targetCompanyId)
+        .eq("terms_version", "2026-10-21-v1").eq("privacy_version", "2026-10-21-v1").maybeSingle();
+      if (agreementError || !agreement) {
+        return jsonResponse({ error: "Accept the current Terms and Privacy Policy in this workspace before importing documents.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 403);
+      }
       // Shared-learning consent is a company-admin decision, even if a delegated uploader
       // invokes this server-side path that uses the privileged Supabase client.
       if (body.sharedLearningOptIn === true && !isPlatformActor && authenticatedRole !== "company_admin") {
@@ -1260,7 +1622,13 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       try {
         const parsedUrl = new URL(url);
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: "Only public HTTP or HTTPS webpages can be imported.", code: "WEBPAGE_URL_INVALID" }, 400);
-        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({ company_id: targetCompanyId, uploaded_by: authenticatedUserId, title: textValue(body.title,250) || parsedUrl.hostname, storage_path: `${targetCompanyId}/web-${crypto.randomUUID()}.html`, content_type: "text/html", file_size: 0, document_type: textValue(body.documentType,30) || "other", source_url: parsedUrl.toString(), original_filename: parsedUrl.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: "queued" }).select("id,company_id").single();
+        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({ company_id: targetCompanyId, uploaded_by: authenticatedUserId, title: textValue(body.title,250) || parsedUrl.hostname, storage_path: `${targetCompanyId}/web-${crypto.randomUUID()}.html`, content_type: "text/html", file_size: 0, document_type: textValue(body.documentType,30) || "other", source_url: parsedUrl.toString(), original_filename: parsedUrl.hostname, reference_enabled: true,
+          shared_learning_opt_in: body.sharedLearningOptIn === true,
+          learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null,
+          rights_attested_at: new Date().toISOString(), rights_attested_by: authenticatedUserId,
+          knowledge_scope: body.sharedLearningOptIn === true ? "general_candidate" : "company_private",
+          general_learning_rights_attested: body.sharedLearningOptIn === true && body.generalLearningRightsAttested === true,
+          extraction_status: "queued" }).select("id,company_id").single();
         if (registerError || !registered) return jsonResponse({ error: "Could not register the webpage source.", code: "WEBPAGE_REGISTER_FAILED" }, 500);
         return jsonResponse(await queueManual(registered.id), 202);
       } catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : "Webpage import failed.", code: "DOCUMENT_IMPORT_FAILED" }, 502); }
@@ -1315,7 +1683,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Enforce a maximum of eight unique troubleshooting turns per public browser session and mode.
   // Authenticated company requests are governed by account usage limits instead.
-  if (body.authenticatedApp !== true && action !== "save_technician_job" && action !== "public_page_view") {
+  if (body.authenticatedApp !== true && body.tenantWidget !== true && action !== "save_technician_job" && action !== "public_page_view" && !["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"].includes(action)) {
     const publicSession = textValue(body.sessionId, 160);
     const turnId = textValue(body.demoTurnId, 160);
     if (!publicSession || !turnId) return jsonResponse({ error: "Public demo session is missing. Reload the demo and try again.", code: "DEMO_SESSION_REQUIRED" }, 400);
@@ -1347,6 +1715,47 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const quotaRow = Array.isArray(quota.data) ? quota.data[0] : quota.data;
   if (quotaRow && quotaRow.allowed === false) {
     return jsonResponse({ error: "You've reached the troubleshooting limit for this session. To keep service reliable, wait before trying again or start a technician handoff.", code: "SESSION_LIMIT_REACHED", retryAfterSeconds: quotaRow.retry_after_seconds ?? 3600 }, 429);
+  }
+
+  // Company plans have a separate pooled monthly cap counted once per diagnostic case,
+  // not once per assistant turn. The RPC is service-role-only and returns only aggregate usage.
+  const shouldMeterAuthenticatedDiagnostic = body.authenticatedApp === true && Boolean(authenticatedCompanyId) &&
+    (action === "troubleshoot" || action === "photo_recognition" || (!noQueryActions.has(action) && Boolean(query.trim())));
+  const shouldMeterWidgetDiagnostic = body.tenantWidget === true && action === "troubleshoot" && Boolean(tenantWidgetConfig?.id && tenantWidgetConfig?.company_id);
+  if (shouldMeterAuthenticatedDiagnostic || shouldMeterWidgetDiagnostic) {
+    const companyIdForMeter = shouldMeterAuthenticatedDiagnostic ? String(authenticatedCompanyId) : String(tenantWidgetConfig?.company_id);
+    const diagnosticSessionId = textValue(body.diagnosticSessionId ?? (shouldMeterWidgetDiagnostic ? body.sessionId : ""), 160);
+    if (!diagnosticSessionId) {
+      return jsonResponse({ error: "The diagnostic session identifier is missing. Start a new troubleshooting conversation.", code: "DIAGNOSTIC_SESSION_ID_REQUIRED" }, 400);
+    }
+    const caseDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(companyIdForMeter + ":" + diagnosticSessionId));
+    const caseSessionHash = Array.from(new Uint8Array(caseDigest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const { data: monthlyUsageData, error: monthlyUsageError } = await supabase.rpc("pooldocai_consume_company_monthly_session", {
+      p_company_id: companyIdForMeter,
+      p_session_hash: caseSessionHash,
+      p_session_mode: shouldMeterWidgetDiagnostic ? "homeowner" : "technician",
+    });
+    if (monthlyUsageError) {
+      console.error("Company pooled-session quota check failed closed", { code: monthlyUsageError.code });
+      return jsonResponse({ error: "Company monthly usage protection is temporarily unavailable. Please try again shortly.", code: "MONTHLY_QUOTA_GUARD_UNAVAILABLE" }, 503);
+    }
+    const monthlyUsage = Array.isArray(monthlyUsageData) ? monthlyUsageData[0] : monthlyUsageData;
+    if (!monthlyUsage || typeof monthlyUsage.allowed !== "boolean") {
+      console.error("Company pooled-session quota RPC returned no decision.");
+      return jsonResponse({ error: "Company monthly usage protection returned no decision. Please try again shortly.", code: "MONTHLY_QUOTA_DECISION_MISSING" }, 503);
+    }
+    if (monthlyUsage.allowed === false) {
+      return jsonResponse({
+        error: "This company has used its included monthly diagnostic sessions. Contact the company administrator to review the plan or usage.",
+        code: "MONTHLY_SESSION_LIMIT_REACHED",
+        usage: {
+          used: Number(monthlyUsage.used || 0),
+          allowance: Number(monthlyUsage.allowance || 0),
+          remaining: Number(monthlyUsage.remaining || 0),
+          periodStart: monthlyUsage.period_start || null,
+        },
+      }, 429);
+    }
   }
 
   // Technician close-out: persistent case data always requires individual Supabase Auth.
@@ -1433,6 +1842,143 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   // Authenticated troubleshooter conversations are automatically captured into the
   // privacy-minimized learning review queue. Queueing is automatic; shared reuse still
   // requires human review/approval. Never store raw customer-identifying text.
+
+  // Public demo consent and learning capture. These actions accept only a one-way session
+  // digest; never accept or persist a raw browser session identifier or image bytes.
+  if (action === "record_public_demo_consent") {
+    const sessionHash = textValue(body.sessionHash, 64).toLowerCase();
+    const demoMode = textValue(body.demoMode, 20);
+    const acceptanceSource = textValue(body.acceptanceSource, 30);
+    if (!/^[a-f0-9]{64}$/.test(sessionHash)) return jsonResponse({ error: "A valid privacy-minimized session digest is required.", code: "INVALID_SESSION_DIGEST" }, 400);
+    if (!["homeowner", "field-tech"].includes(demoMode)) return jsonResponse({ error: "Invalid demo mode.", code: "INVALID_DEMO_MODE" }, 400);
+    if (!["public_demo", "customer_widget"].includes(acceptanceSource)) return jsonResponse({ error: "Invalid consent source.", code: "INVALID_CONSENT_SOURCE" }, 400);
+    if (body.acceptedTerms !== true || body.acknowledgedPrivacy !== true || body.acknowledgedDiagnosticLearning !== true) {
+      return jsonResponse({ error: "Accept the terms and privacy/learning notice before using this demo.", code: "CONSENT_REQUIRED" }, 400);
+    }
+    const termsVersion = "2026-10-21-v1";
+    const privacyVersion = "2026-10-21-v1";
+    const noticeVersion = "2026-10-22-v1";
+    const { error: consentError } = await supabase.from("pooldocai_public_demo_learning_acceptances").upsert({
+      session_hash: sessionHash, terms_version: termsVersion, privacy_version: privacyVersion,
+      notice_version: noticeVersion, acceptance_source: acceptanceSource, demo_mode: demoMode,
+      accepted_terms: true, acknowledged_privacy: true, acknowledged_diagnostic_learning: true,
+      accepted_at: new Date().toISOString()
+    }, { onConflict: "session_hash" });
+    if (consentError) {
+      console.error("Public demo consent recording failed", { code: consentError.code });
+      return jsonResponse({ error: "Consent could not be recorded. The troubleshooting request was not sent.", code: "CONSENT_RECORD_FAILED" }, 500);
+    }
+    return jsonResponse({ ok: true, accepted: true, termsVersion, privacyVersion, noticeVersion }, 200);
+  }
+
+  if (action === "capture_public_demo_turn") {
+    const sessionHash = textValue(body.sessionHash, 64).toLowerCase();
+    const turnId = textValue(body.turnId, 160);
+    const demoMode = textValue(body.demoMode, 20);
+    if (!/^[a-f0-9]{64}$/.test(sessionHash) || turnId.length < 8 || !["homeowner", "field-tech"].includes(demoMode)) {
+      return jsonResponse({ error: "Invalid public demo session or turn metadata.", code: "INVALID_PUBLIC_DEMO_EVENT" }, 400);
+    }
+    const termsVersion = "2026-10-21-v1";
+    const privacyVersion = "2026-10-21-v1";
+    const noticeVersion = "2026-10-22-v1";
+    const { data: consent, error: consentCheckError } = await supabase.from("pooldocai_public_demo_learning_acceptances")
+      .select("session_hash").eq("session_hash", sessionHash)
+      .eq("terms_version", termsVersion).eq("privacy_version", privacyVersion).eq("notice_version", noticeVersion)
+      .eq("accepted_terms", true).eq("acknowledged_privacy", true).eq("acknowledged_diagnostic_learning", true)
+      .maybeSingle();
+    if (consentCheckError || !consent) return jsonResponse({ error: "Current learning consent is required before a demo turn can be recorded.", code: "CONSENT_REQUIRED" }, 403);
+
+    const userMessage = scrubPII(textValue(body.userMessage, 1800)).slice(0, 1800);
+    const assistantResponse = scrubPII(textValue(body.assistantResponse, 3600)).slice(0, 3600);
+    const rawOutcome = textValue(body.outcomeStatus, 40);
+    const outcomeStatus = ["in_progress", "customer_reported_resolved", "unresolved", "technician_handoff"].includes(rawOutcome) ? rawOutcome : "in_progress";
+    const { error: eventError } = await supabase.from("public_demo_learning_events").upsert({
+      session_hash: sessionHash, turn_id: turnId, demo_mode: demoMode,
+      user_message_redacted: userMessage, assistant_response_redacted: assistantResponse,
+      outcome_status: outcomeStatus
+    }, { onConflict: "session_hash,turn_id" });
+    if (eventError) {
+      console.error("Public demo event capture failed", { code: eventError.code });
+      return jsonResponse({ error: "The privacy-minimized demo note could not be saved.", code: "PUBLIC_DEMO_CAPTURE_FAILED" }, 500);
+    }
+
+    if (outcomeStatus !== "customer_reported_resolved") {
+      return jsonResponse({ ok: true, captured: true, learningStatus: "stored_with_consent" }, 200);
+    }
+
+    // Only an explicit visitor-reported resolution creates a candidate. It remains pending
+    // until a platform administrator verifies the diagnosis and source; this never trains a model.
+    const { data: turns, error: transcriptError } = await supabase.from("public_demo_learning_events")
+      .select("user_message_redacted,assistant_response_redacted,created_at")
+      .eq("session_hash", sessionHash).order("created_at", { ascending: true }).limit(16);
+    if (transcriptError || !turns?.length) return jsonResponse({ error: "The reported resolution could not be assembled for review.", code: "PUBLIC_DEMO_TRANSCRIPT_FAILED" }, 500);
+    const issue = scrubPII(turns.map((turn: AnyRecord) => textValue(turn.user_message_redacted, 1800)).filter(Boolean).join("\n")).slice(0, 1200);
+    const answer = scrubPII(turns.map((turn: AnyRecord) => textValue(turn.assistant_response_redacted, 3600)).filter(Boolean).join("\n")).slice(0, 1200);
+    const category = scrubPII(textValue(body.category, 120));
+    const manufacturer = scrubPII(textValue(body.manufacturer, 120));
+    const model = scrubPII(textValue(body.model, 120));
+    if (!issue || !answer) return jsonResponse({ ok: true, captured: true, learningStatus: "stored_without_candidate" }, 200);
+
+    let publicCaseId: string | null = null;
+    const { data: priorCase, error: lookupError } = await supabase.from("diagnostic_cases").select("id")
+      .is("tenant_id", null).eq("client_session_id", sessionHash).maybeSingle();
+    if (lookupError) return jsonResponse({ error: "Could not check for an existing review case.", code: "PUBLIC_DEMO_CASE_LOOKUP_FAILED" }, 500);
+    if (priorCase?.id) {
+      publicCaseId = String(priorCase.id);
+      const { error: updateError } = await supabase.from("diagnostic_cases").update({
+        case_status: "resolved", outcome_status: "customer_reported_resolved",
+        outcome_evidence_redacted: "Visitor explicitly reported that the troubleshooting resolved the issue.",
+        last_activity_at: new Date().toISOString(), resolution_summary_redacted: answer,
+        equipment_category: category || null, manufacturer_normalized: manufacturer || null, model_normalized: model || null,
+        learning_permission_granted: true, legal_terms_version: termsVersion
+      }).eq("id", publicCaseId);
+      if (updateError) return jsonResponse({ error: "Could not update the review case.", code: "PUBLIC_DEMO_CASE_UPDATE_FAILED" }, 500);
+    } else {
+      const { data: caseRow, error: caseError } = await supabase.from("diagnostic_cases").insert({
+        tenant_id: null, client_session_id: sessionHash, case_status: "resolved",
+        outcome_status: "customer_reported_resolved",
+        outcome_evidence_redacted: "Visitor explicitly reported that the troubleshooting resolved the issue.",
+        equipment_category: category || null, manufacturer_normalized: manufacturer || null, model_normalized: model || null,
+        symptom_redacted: issue, resolution_summary_redacted: answer,
+        source_ids: ["public-demo"], technician_verified: false, approved_for_learning: false,
+        learning_permission_granted: true, legal_terms_version: termsVersion
+      }).select("id").single();
+      if (caseError || !caseRow) {
+        console.error("Public demo case creation failed", { code: caseError?.code });
+        return jsonResponse({ error: "The reported resolution was recorded, but a review case could not be created.", code: "PUBLIC_DEMO_CASE_CREATE_FAILED" }, 500);
+      }
+      publicCaseId = String(caseRow.id);
+    }
+
+    const stepText = ("Visitor issue: " + issue + "\nPoolDocAI guidance: " + answer).slice(0, 1200);
+    const { error: stepError } = await supabase.from("diagnostic_case_steps").insert({
+      case_id: publicCaseId, step_number: 1, step_type: "observation",
+      prompt_redacted: stepText, result_summary_redacted: answer, source_ids: ["public-demo"]
+    });
+    if (stepError && stepError.code !== "23505") {
+      console.error("Public demo case-step insert failed", { code: stepError.code });
+      return jsonResponse({ error: "The case exists, but its evidence step could not be saved.", code: "PUBLIC_DEMO_STEP_FAILED" }, 500);
+    }
+
+    const proposedLesson = ("Equipment: " + (category || "unspecified") + "; manufacturer: " + (manufacturer || "unspecified") +
+      "; model: " + (model || "unspecified") + ". Visitor-reported issue: " + issue + ". Guidance and reported outcome: " + answer).slice(0, 2000);
+    const { data: existingQueue, error: queueLookupError } = await supabase.from("learning_review_queue").select("id")
+      .eq("case_id", publicCaseId).eq("source_kind", "public_demo").maybeSingle();
+    if (queueLookupError) return jsonResponse({ error: "The review queue could not be checked.", code: "PUBLIC_DEMO_QUEUE_LOOKUP_FAILED" }, 500);
+    if (!existingQueue) {
+      const { error: queueError } = await supabase.from("learning_review_queue").insert({
+        case_id: publicCaseId, tenant_id: null, source_kind: "public_demo",
+        proposed_lesson_redacted: proposedLesson, supporting_source_ids: ["public-demo"], status: "pending",
+        outcome_status: "customer_reported_resolved", evidence_summary_redacted: "Explicit visitor-reported resolution; requires platform-owner technical/source review."
+      });
+      if (queueError) {
+        console.error("Public demo review queue insert failed", { code: queueError.code });
+        return jsonResponse({ error: "The review case was saved, but queueing failed.", code: "PUBLIC_DEMO_QUEUE_FAILED" }, 500);
+      }
+    }
+    return jsonResponse({ ok: true, captured: true, caseId: publicCaseId, learningStatus: "pending_platform_review" }, 200);
+  }
+
   if (action === "capture_learning_case") {
     if (body.authenticatedApp !== true || !authenticatedCompanyId || !authenticatedUserId) {
       return jsonResponse({ error: "An authenticated company login is required.", code: "AUTH_REQUIRED" }, 401);
@@ -1851,10 +2397,23 @@ MANDATORY DIAGNOSTIC ORDER:
     if (publicUsageError) console.warn("Public API usage metering unavailable", { code: publicUsageError.code });
   }
 
+  // Public marketing demos use only the global budget; company widgets and signed-in
+  // workspaces additionally consume the owning tenant's grounding budget.
+  const groundingCompanyId: string | null = body.authenticatedApp === true
+    ? (authenticatedCompanyId ? String(authenticatedCompanyId) : null)
+    : body.tenantWidget === true
+      ? (tenantWidgetConfig?.company_id ? String(tenantWidgetConfig.company_id) : null)
+      : null;
+  const groundingUserId: string | null = body.authenticatedApp === true && authenticatedUserId
+    ? String(authenticatedUserId) : null;
+
   if (geminiKey) {
+    let groundingReservationId: string | null = null;
     try {
-      // Gemini 3.8 Flash via the current Interactions API. Google Search grounding is
-      // available as a built-in tool and its citations/results are returned in steps.
+      // Reserve a bounded grounding slot before making a Search-enabled provider request.
+      const selectedModel = selectDiagnosticModel(action, query);
+      groundingReservationId = await reserveGroundingBudget(supabase, groundingCompanyId, selectedModel);
+      if (!groundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
       const geminiRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
         headers: {
@@ -1862,11 +2421,7 @@ MANDATORY DIAGNOSTIC ORDER:
           "x-goog-api-key": geminiKey,
         },
         body: JSON.stringify({
-          model: (action === "model_triage" || action === "photo_recognition" || /\b(?:clicking|humming|buzzing|error code|fault code|what does .* code mean|heater is clicking|pump is clicking|what is)\b/i.test(query) && query.length < 220)
-            ? "gemini-2.5-flash-lite"
-            : (/\b(?:diagnose|intermittent|multiple|repeatedly|keeps tripping|after replacing|still not working|compare readings|calculate dose|chemical treatment|root cause|step by step)\b/i.test(query) || query.length > 900)
-              ? "gemini-3.8-flash"
-              : "gemini-2.5-flash",
+          model: selectedModel,
           input: interactionInput,
           system_instruction: systemPrompt,
           tools: [{ type: "google_search" }],
@@ -1880,6 +2435,12 @@ MANDATORY DIAGNOSTIC ORDER:
       const raw = await geminiRes.text();
       let response: AnyRecord = {};
       try { response = raw ? JSON.parse(raw) as AnyRecord : {}; } catch { response = { rawBody: raw.slice(0, 500) }; }
+      const groundingSources = getInteractionSources(response);
+      await recordGroundingUsage(supabase, groundingCompanyId,
+        groundingUserId, textValue(response.model, 100) || selectedModel,
+        groundingReservationId, response);
+      await finishGroundingBudget(supabase, groundingReservationId);
+      groundingReservationId = null;
 
       if (!geminiRes.ok) {
         const apiErr = objectValue(response.error);
@@ -1894,7 +2455,7 @@ MANDATORY DIAGNOSTIC ORDER:
         const outputText = getInteractionOutputText(response);
         const usageObject=objectValue(response.usage)||objectValue(response.usageMetadata)||objectValue(response.usage_metadata);
         if(usageObject)await recordModelUsage(supabase,authenticatedCompanyId,authenticatedUserId,textValue(response.model,100)||"gemini-unknown",usageObject,"ai_provider_usage");
-        webSources = getInteractionSources(response);
+        webSources = groundingSources;
         const structured = parseStructuredDiagnostic(outputText);
         if (structured) {
           structuredResponse = structured;
@@ -1935,6 +2496,8 @@ MANDATORY DIAGNOSTIC ORDER:
         }
       }
     } catch (error) {
+      await finishGroundingBudget(supabase, groundingReservationId);
+      groundingReservationId = null;
       geminiError = error instanceof Error ? error.message : String(error);
       console.error("PoolDocAI Gemini Interactions network/timeout failure:", geminiError);
     }
@@ -1970,6 +2533,7 @@ MANDATORY DIAGNOSTIC ORDER:
     (!initialHasEvidence || !initialActionComplete || !initialAlgaePlanComplete) && Boolean(geminiKey);
   if (shouldRunFallbackSearch && geminiKey) {
     forcedWebSearchAttempted = true;
+    let forcedGroundingReservationId: string | null = null;
     const relevantContext = [category, brand, model, textValue(context.subType ?? context.sub_type, 120), symptom].filter(Boolean).join(" | ").slice(0, 900);
     const searchNeed = isConfirmedAlgaeCase
       ? `Find a reputable, applicable green-pool/algae-remediation procedure for a residential swimming pool. Prioritize an official pool-industry source or pool-chemical/manufacturer support source. It must explain free chlorine target selection relative to CYA/stabilizer, brushing, circulation/filtration, testing/redosing, and how to verify completion. Use the provided chemistry only for calculations the source and product label actually support: ${waterQualityResults}. Do not invent doses.`
@@ -1979,15 +2543,14 @@ MANDATORY DIAGNOSTIC ORDER:
           ? `Find a reputable, symptom-matched swimming-pool water-quality troubleshooting procedure for the reported issue. Prioritize authoritative pool-care organizations or chemical manufacturers. Base advice on measured results, not appearance alone, and do not invent doses. Issue context: ${relevantContext}.`
           : `Search the web now for an authoritative, symptom-matched troubleshooting procedure for this pool issue. Prioritize the installed equipment manufacturer's official support page, manual, service bulletin, or technical documentation; then use reputable pool-industry technical sources where manufacturer guidance is unavailable. Exact make/model may be unknown, so search by equipment category and the customer's natural-language symptom without blocking progress for model identification. Return one safe, applicable next observation or diagnostic check, state what changes the next step, and cite only sources actually returned. Do not use product/catalog listings as repair instructions. Never instruct homeowners to open electrical/gas panels, touch wiring, bypass safeguards, open pressurized equipment, reach into moving parts, or guess/mix chemical doses. Issue context: ${relevantContext}.`;
     try {
+      const forcedModel = selectDiagnosticModel(action, query);
+      forcedGroundingReservationId = await reserveGroundingBudget(supabase, groundingCompanyId, forcedModel);
+      if (!forcedGroundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
       const forcedSearchRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
         body: JSON.stringify({
-          model: (action === "model_triage" || action === "photo_recognition" || /\b(?:clicking|humming|buzzing|error code|fault code|what does .* code mean|heater is clicking|pump is clicking|what is)\b/i.test(query) && query.length < 220)
-            ? "gemini-2.5-flash-lite"
-            : (/\b(?:diagnose|intermittent|multiple|repeatedly|keeps tripping|after replacing|still not working|compare readings|calculate dose|chemical treatment|root cause|step by step)\b/i.test(query) || query.length > 900)
-              ? "gemini-3.8-flash"
-              : "gemini-2.5-flash",
+          model: forcedModel,
           input: [
             "MANDATORY WEB-SEARCH FALLBACK: The initial knowledge-base pass did not produce an applicable and complete source-grounded answer. You MUST use the google_search tool now before drafting. Do not rely on memory alone. If the search tool returns no applicable source, say the system is unsure and offer a technician.",
             `Issue: ${relevantContext}`,
@@ -2006,10 +2569,15 @@ MANDATORY DIAGNOSTIC ORDER:
       let forcedResponse: AnyRecord = {};
       try { forcedResponse = forcedRaw ? JSON.parse(forcedRaw) as AnyRecord : {}; }
       catch { forcedResponse = {}; }
+      const forcedSources = getInteractionSources(forcedResponse);
+      await recordGroundingUsage(supabase, groundingCompanyId,
+        groundingUserId, textValue(forcedResponse.model, 100) || forcedModel,
+        forcedGroundingReservationId, forcedResponse);
+      await finishGroundingBudget(supabase, forcedGroundingReservationId);
+      forcedGroundingReservationId = null;
       if (forcedSearchRes.ok && !forcedResponse.error && !["failed", "incomplete"].includes(textValue(forcedResponse.status, 40).toLowerCase())) {
         const forcedOutput = getInteractionOutputText(forcedResponse);
         const forcedStructured = parseStructuredDiagnostic(forcedOutput);
-        const forcedSources = getInteractionSources(forcedResponse);
         const forcedReply = forcedStructured ? renderStructuredDiagnostic(forcedStructured) : "";
         const forcedType = textValue(forcedStructured?.response_type, 40).toLowerCase();
         const forcedAlgaeComplete = !isConfirmedAlgaeCase ||
@@ -2049,6 +2617,8 @@ MANDATORY DIAGNOSTIC ORDER:
         });
       }
     } catch (error) {
+      await finishGroundingBudget(supabase, forcedGroundingReservationId);
+      forcedGroundingReservationId = null;
       console.warn("PoolDocAI forced Google Search fallback error:", error instanceof Error ? error.message : String(error));
     }
   }

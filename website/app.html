@@ -2723,7 +2723,8 @@
         sessionContext.operatingStateConfirmed = true;
         sessionContext.currentStep = (sessionContext.currentStep || 0) + 1;
         const cleanStep = String(sessionContext.lastRecommendedStep).replace(/\s+/g, ' ').trim().slice(0, 260);
-        const stepEntry = `Step ${sessionContext.currentStep} checked (${cleanStep}) -> Customer reported: "${q.slice(0, 180)}"`;
+        const stepTitle = cleanStep.split(/[\n.!?]/)[0].replace(/[*_#]/g, '').trim().slice(0, 90) || 'Step checked';
+        const stepEntry = `Step ${sessionContext.currentStep} checked (${stepTitle}) -> Customer reported: "${q.slice(0, 180)}"`;
         if (!sessionContext.ruledOut.includes(stepEntry)) {
           sessionContext.ruledOut.push(stepEntry);
           sessionContext.ruledOut = sessionContext.ruledOut.slice(-20);
@@ -3817,17 +3818,21 @@
         const requiresTechnician = responseObj.requires_technician === true || responseObj.requiresTechnician === true ||
           responseObj.escalate === true || /i'm not sure of the next step, let's get a technician involved/i.test(replyText);
         const explicitCriticalStop = responseObj.critical_stop === true || responseObj.criticalStop === true ||
+          responseObj.critical_hazard === true || responseObj.criticalHazard === true ||
           responseObj.safety_stop === true || responseObj.safetyStop === true ||
-          [responseObj.type, responseObj.turn_type, responseObj.status].some(value => String(value || '').toLowerCase() === 'critical_stop');
+          ['critical_stop', 'emergency_stop', 'safety_stop'].includes(String(responseObj.type || responseObj.turn_type || responseObj.status || responseObj.responseType || responseObj.response_type || '').toLowerCase()) ||
+          isCriticalPoolHazard(String(userText || '') + ' ' + String(sessionContext.symptom || ''));
 
-        // A real safety stop is never bypassed, even in field-tech mode.
-        if (currentSurfaceMode === 'tech' && explicitCriticalStop) {
+        // A real safety stop is never bypassed, in homeowner and field-tech mode alike.
+        if (explicitCriticalStop) {
           conversationHistory.push({
             userMsg: shownText,
             backendMsg: userText,
-            aiReply: replyText,
+            aiReply: replyText || '🛑 **SAFETY STOP — DO NOT CONTINUE THIS CASE STEP.** Keep people clear and do not touch or restart equipment until the hazard has been cleared.',
             citation: getSupabaseCitation(payload),
             type: 'critical_stop',
+            technicianRecommended: false,
+            serviceHelpAvailable: false,
             choices: [{ label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }]
           });
           renderInteractiveConversation();
@@ -4006,15 +4011,16 @@
       }
       if (actionType === 'next_kb_step') {
         const completedStep = String(sessionContext.lastRecommendedStep || '').trim();
+        const stepTitle = completedStep.split(/[\n.!?]/)[0].replace(/[*_#]/g, '').trim().slice(0, 90) || ('Step ' + ((sessionContext.currentStep || 0) + 1));
         sessionContext.currentStep = (sessionContext.currentStep || 0) + 1;
         if (completedStep) {
-          const entry = `Step ${sessionContext.currentStep} completed without resolving the issue: ${completedStep.replace(/\s+/g, ' ').slice(0, 350)}`;
+          const entry = 'Step ' + sessionContext.currentStep + ' completed without resolving the issue: ' + stepTitle;
           sessionContext.ruledOut.push(entry);
           sessionContext.ruledOut = sessionContext.ruledOut.slice(-20);
         }
         const continuationPrompt = completedStep
-          ? `I completed Step ${sessionContext.currentStep} (${completedStep.replace(/\s+/g, ' ').slice(0, 350)}), and the issue persists. Provide Step ${sessionContext.currentStep + 1} from the troubleshooting procedure.`
-          : `Continue to Step ${sessionContext.currentStep + 1} of the troubleshooting procedure. Do not repeat completed checks.`;
+          ? ('I completed Step ' + sessionContext.currentStep + ' (' + stepTitle + '), and the issue persists. Provide Step ' + (sessionContext.currentStep + 1) + ' from the troubleshooting procedure.')
+          : ('Continue to Step ' + (sessionContext.currentStep + 1) + ' of the troubleshooting procedure. Do not repeat completed checks.');
         await requestSupabaseTroubleshootingTurn(continuationPrompt, 'continue', labelText || 'Continue to the next step');
         return;
       }
@@ -4066,7 +4072,21 @@
       const text = normalizeConversationalText(rawText).replace(/[’‘]/g, "'").replace(/\s+/g, ' ')
         // Safe instructions are not incident reports; a positive report like “I mixed acid and chlorine” still triggers.
         .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]?/gi, ' ')
-        .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ');
+        .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ')
+        // Strip non-hazard statements: negative answers and conditional instructions
+        .replace(/\b(?:if|in case|whenever|supposing|should you|unless)\b[^.!?\n]{0,100}\b(?:smell|odor|odour|gas|propane|smoke|fire|sparks?|sparking|shock|burning)\b[^.!?\n]{0,60}/gi, ' ')
+        .replace(/\b(?:no|not|never|without|none|nor|don't|dont|doesn't|doesnt|didn't|didnt|isn't|isnt|wasn't|wasnt|haven't|havent|hasn't|hasnt|cant|can't|cannot)\b(?:\s+(?:any|a|the|signs? of|evidence of|reports? of|indication of|see|seeing|saw|smell|smells|smelled|smelling|notice|noticed|hear|hearing|feel|feeling|felt))*\s+[^.!?\n,]{0,45}\b(?:gas|propane|smoke|soot|flames?|sparks?|sparking|arcing|arc|shock|shocks|shocking|tingling|burning|burnt|melting|melted|fumes|leaks?|leaking)\b/gi, ' ')
+        .replace(/\b(?:gas|propane|smoke|fire|sparks?|sparking|shock|burning|burnt|flames?)\b\s*[:=-]\s*(?:no|none|negative|false|n\/a|zero|not present|clear)\b/gi, ' ')
+        // Heaters that "won't fire" or "failed to fire up" are ignition triage, not active fires
+        .replace(/\b(?:won't|wont|doesn't|doesnt|didn't|didnt|not|fails? to|unable to|can't|cant)\s+fire(?:\s+up)?\b/gi, ' ')
+        .replace(/\bmisfir(?:e|ing|ed)\b/gi, ' ')
+        .replace(/\bfire\s+ants?\b/gi, ' ')
+        // Spark igniter / ignition spark is diagnostic, not an electrical hazard
+        .replace(/\b(?:spark\s+ignit(?:er|or)|ignit(?:er|or)\s+sparks?|spark\s+electrode|ignition\s+spark)\b/gi, ' ')
+        // Pool chlorine shocking is water chemistry, not electrical shock
+        .replace(/\b(?:shock|shocked|shocking)\s+(?:the\s+)?(?:pool|water)\b/gi, ' ')
+        .replace(/\b(?:pool|chlorine|cal-hypo)\s+shock\b/gi, ' ');
+
       const patterns = [
         /\b(?:i |we |someone |it )?(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)?(?:natural\s+)?gas\b/i,
         /\b(?:gas|propane|natural gas)\s+(?:odor|odour|smell|leak|leaking|escaping)\b/i,
@@ -4074,19 +4094,20 @@
         /\brotten[- ]egg(?:s)?(?: smell| odor| odour)?\b/i,
         /\b(?:carbon monoxide|co alarm|co detector alarm|suspected co exposure)\b/i,
         /\b(?:smoke|smoking|soot)\b/i,
+        /\b(?:caught fire|on fire|visible fire|there is a fire|equipment (?:is )?on fire|pad is on fire)\b|\bfire\s+(?:in|at|on|inside|around|behind)\s+(?:the\s+)?(?:equipment|heater|pump|motor|panel|breaker|pad|shed)\b/i,
         /\b(?:burning|burnt)\s+(?:smell|odor|odour|plastic|wire|wiring|rubber|insulation|electrical)\b|\bsmell(?:s|ed|ing)?\s+(?:of\s+)?(?:something\s+)?burn(?:ing|t)\b/i,
         /\b(?:melting|melted|melts)\s+(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b|\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b.{0,40}\b(?:melting|melted|melts)\b|\b(?:melting|melted|melts)\b.{0,40}\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b/i,
         /\b(?:flame roll[- ]?out|rollout switch.*(?:tripped|activated)|(?:tripped|activated).*rollout switch)\b/i,
         /\bflame\s+(?:out of|outside|escaping|coming|shooting|rolling|rollout|roll[- ]out)\b|\bflames?\s+(?:coming|shooting|escaping|rolling|outside|out of)\b|\b(?:see|saw|seeing|visible|there is|there's|there are)\b.{0,35}\bflames?\b/i,
-        /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b/i,
+        /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b|\bsparks?\b.{0,20}\b(?:flying|coming|shooting|spraying|out of|from)\b|\b(?:see|saw|visible)\b.{0,15}\bsparks?\b/i,
         /\b(?:electrical|electric)\s+(?:shock|shocks|shocking)\b|\b(?:got shocked|shocked me|electric shock|tingling from equipment|tingling when touching)\b/i,
         /\b(?:live wire|exposed energized wire|energized conductor)\b/i,
         /\b(?:chemical fumes|chlorine gas|acid fumes|toxic fumes)\b/i,
         /\b(?:mix|mixing|mixed|combine|combining|combined)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:with|and)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b|\b(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:mix|mixing|mixed|combine|combining|combined)\b.{0,45}\b(?:chlorine|bleach|acid|muriatic acid)\b/i,
-        /\b(?:person|someone|child|swimmer|anyone)\b.{0,45}\b(?:stuck|trapped|held)\b.{0,45}\b(?:drain|suction|outlet|pool)\b|\b(?:stuck to (?:the )?(?:pool )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
+        /\b(?:person|someone|child|swimmer|human|body|hair|arm|leg|hand)\b.{0,45}\b(?:stuck|trapped|held|pinned)\b.{0,45}\b(?:drain|main drain|suction outlet|suction grate)\b|\b(?:stuck to (?:the )?(?:pool )?(?:main )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
         /\b(?:unconscious|passed out|someone fainted|person fainted|i feel faint|feeling faint)\b/i,
         /\b(?:gas)\b.{0,30}\b(?:hissing|hiss)\b|\b(?:hissing|hiss)\b.{0,30}\b(?:gas|propane)\b/i,
-        /\b(?:bulging|swollen)\s+(?:filter|tank|vessel)\b|\bfilter\s+(?:tank )?(?:bulging|swollen)\b/i
+        /\b(?:filter|tank|vessel)\b.{0,25}\b(?:bulging|swollen)\b|\b(?:bulging|swollen)\b.{0,25}\b(?:filter|tank|vessel)\b/i
       ];
       return patterns.some(pattern => pattern.test(text));
     }

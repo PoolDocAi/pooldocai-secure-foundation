@@ -839,7 +839,21 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const text = normalizeDiagnosticLanguage(rawText).replace(/\s+/g, " ")
     // Safe instructions embedded in prompts are not incident reports.
     .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]?/gi, " ")
-    .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, " ");
+    .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, " ")
+    // Strip non-hazard statements: negative answers and conditional instructions
+    .replace(/\b(?:if|in case|whenever|supposing|should you|unless)\b[^.!?\n]{0,100}\b(?:smell|odor|odour|gas|propane|smoke|fire|sparks?|sparking|shock|burning)\b[^.!?\n]{0,60}/gi, " ")
+    .replace(/\b(?:no|not|never|without|none|nor|don't|dont|doesn't|doesnt|didn't|didnt|isn't|isnt|wasn't|wasnt|haven't|havent|hasn't|hasnt|cant|can't|cannot)\b(?:\s+(?:any|a|the|signs? of|evidence of|reports? of|indication of|see|seeing|saw|smell|smells|smelled|smelling|notice|noticed|hear|hearing|feel|feeling|felt))*\s+[^.!?\n,]{0,45}\b(?:gas|propane|smoke|soot|flames?|sparks?|sparking|arcing|arc|shock|shocks|shocking|tingling|burning|burnt|melting|melted|fumes|leaks?|leaking)\b/gi, " ")
+    .replace(/\b(?:gas|propane|smoke|fire|sparks?|sparking|shock|burning|burnt|flames?)\b\s*[:=-]\s*(?:no|none|negative|false|n\/a|zero|not present|clear)\b/gi, " ")
+    // Heaters that "won't fire" or "failed to fire up" are ignition triage, not active fires
+    .replace(/\b(?:won't|wont|doesn't|doesnt|didn't|didnt|not|fails? to|unable to|can't|cant)\s+fire(?:\s+up)?\b/gi, " ")
+    .replace(/\bmisfir(?:e|ing|ed)\b/gi, " ")
+    .replace(/\bfire\s+ants?\b/gi, " ")
+    // Spark igniter / ignition spark is diagnostic, not an electrical hazard
+    .replace(/\b(?:spark\s+ignit(?:er|or)|ignit(?:er|or)\s+sparks?|spark\s+electrode|ignition\s+spark)\b/gi, " ")
+    // Pool chlorine shocking is water chemistry, not electrical shock
+    .replace(/\b(?:shock|shocked|shocking)\s+(?:the\s+)?(?:pool|water)\b/gi, " ")
+    .replace(/\b(?:pool|chlorine|cal-hypo)\s+shock\b/gi, " ");
+
   const patterns: RegExp[] = [
     /\b(?:i\s+|we\s+|someone\s+|it\s+)?(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)?(?:natural\s+)?gas\b/i,
     /\b(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)(?:natural\s+)?propane\b/i,
@@ -847,20 +861,21 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     /\b(?:odor|odour|smell|smells)\s+(?:of|like)\s+(?:natural\s+)?(?:gas|propane)\b/i,
     /\brotten[- ]egg(?:s)?(?: smell| odor| odour)?\b/i,
     /\b(?:carbon monoxide|co alarm|co detector alarm|suspected co exposure)\b/i,
-    /\b(?:smoke|smoking|soot|fire)\b/i,
+    /\b(?:smoke|smoking|soot)\b/i,
+    /\b(?:caught fire|on fire|visible fire|there is a fire|equipment (?:is )?on fire|pad is on fire)\b|\bfire\s+(?:in|at|on|inside|around|behind)\s+(?:the\s+)?(?:equipment|heater|pump|motor|panel|breaker|pad|shed)\b/i,
     /\b(?:burning|burnt)\s+(?:smell|odor|odour|plastic|wire|wiring|rubber|insulation|electrical)\b|\bsmell(?:s|ed|ing)?\s+(?:of\s+|like\s+)?(?:something\s+)?burn(?:ing|t)\b/i,
     /\b(?:melting|melted|melts)\s+(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b|\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b.{0,40}\b(?:melting|melted|melts)\b|\b(?:melting|melted|melts)\b.{0,40}\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b/i,
     /\b(?:flame roll[- ]?out|rollout switch.*(?:tripped|activated)|(?:tripped|activated).*rollout switch)\b/i,
     /\bflame\s+(?:out of|outside|escaping|coming|shooting|rolling|rollout|roll[- ]out)\b|\bflames?\s+(?:coming|shooting|escaping|rolling|outside|out of)\b|\b(?:see|saw|seeing|visible|there is|there's|there are)\b.{0,35}\bflames?\b/i,
-    /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b/i,
+    /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b|\bsparks?\b.{0,20}\b(?:flying|coming|shooting|spraying|out of|from)\b|\b(?:see|saw|visible)\b.{0,15}\bsparks?\b/i,
     /\b(?:electrical|electric)\s+(?:shock|shocks|shocking)\b|\b(?:got shocked|shocked me|electric shock|tingling from equipment|tingling when touching)\b/i,
     /\b(?:live wire|exposed energized wire|energized conductor)\b/i,
     /\b(?:chemical fumes|chlorine gas|acid fumes|toxic fumes)\b/i,
     /\b(?:mix|mixing|mixed|combine|combining|combined)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:with|and)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b|\b(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:mix|mixing|mixed|combine|combining|combined)\b.{0,45}\b(?:chlorine|bleach|acid|muriatic acid)\b/i,
-    /\b(?:person|someone|child|swimmer|anyone)\b.{0,45}\b(?:stuck|trapped|held)\b.{0,45}\b(?:drain|suction|outlet|pool)\b|\b(?:stuck to (?:the )?(?:pool )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
+    /\b(?:person|someone|child|swimmer|human|body|hair|arm|leg|hand)\b.{0,45}\b(?:stuck|trapped|held|pinned)\b.{0,45}\b(?:drain|main drain|suction outlet|suction grate)\b|\b(?:stuck to (?:the )?(?:pool )?(?:main )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
     /\b(?:unconscious|passed out|someone fainted|person fainted|i feel faint|feeling faint)\b/i,
     /\b(?:gas|propane)\b.{0,30}\b(?:hissing|hiss)\b|\b(?:hissing|hiss)\b.{0,30}\b(?:gas|propane)\b/i,
-    /\b(?:bulging|swollen)\s+(?:filter|tank|vessel)\b|\bfilter\s+(?:tank )?(?:bulging|swollen)\b/i,
+    /\b(?:filter|tank|vessel)\b.{0,25}\b(?:bulging|swollen)\b|\b(?:bulging|swollen)\b.{0,25}\b(?:filter|tank|vessel)\b/i,
   ];
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -879,13 +894,23 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const context = objectValue(contextRaw) ?? {};
   const history = body.history ?? body.conversationHistory ?? body.conversation_history ?? body.conversation;
   const latestMessageMatch = query.match(/Customer latest reply:\s*([\s\S]*)$/i);
-  const latestCustomerMessage = (latestMessageMatch?.[1] || query).trim().slice(0, 1800);
+  const rawCustomerMessage = (latestMessageMatch?.[1] || query).trim().slice(0, 1800);
+  const latestCustomerMessage = rawCustomerMessage
+    .replace(/\[(?:SESSION|WATER-QUALITY) STATE LOCKED:[\s\S]*?\]/gi, " ")
+    .replace(/^Retry note:[\s\S]*?\n\n/gi, " ")
+    .trim();
   const normalizedLatestCustomerMessage = normalizeDiagnosticLanguage(latestCustomerMessage);
   const historyUserText = Array.isArray(history) ? history.slice(-10).map((turn) => {
     const item = objectValue(turn);
-    return textValue(item?.user ?? item?.userMsg ?? item?.user_message ?? (item?.role === "user" ? item?.content ?? item?.text : ""), 1200);
+    const uText = textValue(item?.user ?? item?.userMsg ?? item?.user_message ?? (item?.role === "user" ? item?.content ?? item?.text : ""), 1200);
+    return uText
+      .replace(/I completed Step \d+ \([\s\S]*?\),? and the issue persists\.?/gi, " ")
+      .replace(/\[(?:SESSION|WATER-QUALITY) STATE LOCKED:[\s\S]*?\]/gi, " ");
   }).filter(Boolean).join(" ") : "";
-  const hazardText = [query, textValue(context.symptom ?? context.issue, 1200), historyUserText].filter(Boolean).join(" ");
+  const cleanSymptom = textValue(context.symptom ?? context.issue, 1200)
+    .replace(/\[(?:SESSION|WATER-QUALITY) STATE LOCKED:[\s\S]*?\]/gi, " ")
+    .replace(/Step \d+ checked \([\s\S]*?\)/gi, " ");
+  const hazardText = [latestCustomerMessage, cleanSymptom, historyUserText].filter(Boolean).join(" ");
   const requestMode = textValue(context.mode ?? body.mode, 40).toLowerCase();
   const techMode = /^(?:tech|technician|field tech)$/.test(requestMode);
   const criticalHazard = isCriticalPoolHazardText(hazardText);
