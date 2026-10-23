@@ -61,4 +61,12 @@ assert.match(pricing, /2,500 pooled diagnostic sessions\/mo/, "Fleet Complete pl
 assert.doesNotMatch(pricing, /Includes separate monthly allowances for homeowners and technicians/, "pricing does not imply separate quotas");
 assert.doesNotMatch(pricing, /Buy extra session packs anytime/, "pricing does not claim inactive add-on billing is available");
 
+// Public demo consent and learning-capture actions must not be charged as troubleshooting turns.
+assert.match(handler, /action !== "public_page_view" && !\["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"\]\.includes\(action\)/, "consent and learning-capture requests bypass the public troubleshooting-turn guard");
+assert.match(publicDemo, /PoolDocAI may save privacy-minimized demo messages and outcomes/, "public demo consent uses concise copy");
+assert.match(publicDemo, /max-width:460px;max-height:84vh/, "public demo consent modal is compact on desktop and mobile");
+assert.doesNotMatch(publicDemo, /PoolDocAI can save privacy-minimized troubleshooting messages and outcomes from this demo/, "oversized consent copy is removed");
+assert.match(app, /const SECURE_APP_MODE = true;/, "authenticated troubleshooter uses the authenticated application mode");
+assert.doesNotMatch(app, /ensurePublicDemoLearningConsent|pooldocaiPublicDemoConsent/, "authenticated troubleshooting does not invoke public-demo learning consent");
+
 console.log("PASS: monthly pooled-session limits, usage reporting and temporary-access RPC scoping");
