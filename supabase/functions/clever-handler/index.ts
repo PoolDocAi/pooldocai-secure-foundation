@@ -869,7 +869,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       const documentAction = ["process_company_manual","import_company_webpage"].includes(action);
       const seatAction = ["invite_company_member","resend_company_invitation","revoke_company_invitation"].includes(action);
       const billingAction = ["create_billing_checkout","create_billing_portal"].includes(action);
-      const adminAction = ["get_company_usage","export_company_usage","review_company_document","set_manual_learning_consent"].includes(action);
+      const adminAction = ["get_company_usage","export_company_usage","review_company_document","set_manual_learning_consent","accept_company_legal"].includes(action);
       const metricType = documentAction ? "document_request" : seatAction ? "seat_event" : billingAction ? "billing_event" : adminAction ? "admin_event" : action === "save_technician_job" ? "technician_job" : "ai_request";
       const usageInsert = await supabase.from("platform_usage_events").insert({
         company_id: authenticatedCompanyId, user_id: authenticatedUserId, event_type: action || "troubleshoot", units: 1,
@@ -878,7 +878,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         source_event_key: crypto.randomUUID(), metadata: { authenticated: true, industry_key: authenticatedIndustryKey }
       }).select("id").maybeSingle();
       usageEventId = usageInsert.data?.id == null ? null : Number(usageInsert.data.id);
-    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
+    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "accept_company_legal", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
       return jsonResponse({ error: "This login has no active membership for the selected company.", code: "COMPANY_MEMBERSHIP_REQUIRED" }, 403);
     }
   }
