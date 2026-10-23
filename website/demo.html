@@ -3508,6 +3508,9 @@
         if (/algae|green pool|green water/.test(`${q} ${symptom.toLowerCase()}`)) return '**FIRST SAFE CHECK — GREEN / CLOUDY WATER (NO DOSING YET)**\n1. If you have a suitable pool test kit, record free chlorine (FC), pH, and CYA/stabilizer; also note total alkalinity and pool volume if known.\n2. Keep swimmers out if the water is cloudy or the pool floor is not clearly visible. Never mix products or guess a chemical dose.\n\nShare the measured readings so the next step can be selected safely. A complete algae-treatment plan still requires applicable verified guidance and the right pool/product details.';
         return '**FIRST SAFE CHECK — WATER CHEMISTRY**\n1. Test and record free chlorine (FC), pH, and CYA/stabilizer; add total alkalinity and pool volume if available.\n2. Do not add chemicals based on appearance alone, and do not guess a dose or combine products.\n\nTell me the actual test readings. If the water may be unsafe or readings are outside product-label guidance, get qualified pool-service help.';
       }
+      if (/weak(?:er)? flow|low flow|poor flow|reduced flow|little flow|flow (?:is|appears|seems) weak|weak return flow|low circulation/.test(q) && /pump|flow|return|circulation/.test(q + ' ' + symptom.toLowerCase())) {
+        return '**FIRST SAFE CHECK — PUMP RUNNING, BUT FLOW IS WEAK**\\n1. From a safe position, note whether the pump sounds and appears to run normally, and whether return flow is weaker than usual or absent.\\n2. Read the visible filter-pressure gauge if one is present; compare it with the usual clean-filter reading if known. Note the pool water level and any visible controller/error message.\\n\\nDo not open the pump basket, filter, or any pressurized housing; do not move valves while the pump is running; keep clear of electrical equipment. Tell me the pressure reading (if visible), whether return flow is weak or absent, and whether any warning light/message is shown.';
+      }
       if (category.includes('pump') || category.includes('motor') || /pump|motor|won't start|can't turn on|humming|prime|flow/.test(q)) {
         return '**FIRST SAFE CHECK — PUMP WILL NOT START**\n1. From a dry, safe location, look at the controller/timer and note whether it is asking the pump to run.\n2. Observe only visible status lights or messages; do not open a panel, touch wiring, remove the motor cover, or repeatedly reset a breaker.\n\n**Tell me what happens when it is commanded on:** completely silent, hums/buzzes, or trips a breaker. If it trips, smells burnt, sparks, or causes tingling/shock, stay away and request qualified service.';
       }
@@ -3703,13 +3706,31 @@
         }
         sessionContext.lastRecommendedStep = replyText;
 
-        if (responseObj.requires_technician === true || responseObj.requiresTechnician === true || responseObj.escalate === true || /i'm not sure of the next step, let's get a technician involved/i.test(replyText)) {
-          // Do not bury a final service recommendation inside a form or a paragraph.
-          // Show the same large-print recommendation card used by failed source lookup;
-          // the customer can then deliberately open the Pre-Job Summary handoff.
+        const requiresTechnician = responseObj.requires_technician === true || responseObj.requiresTechnician === true ||
+          responseObj.escalate === true || /i'm not sure of the next step, let's get a technician involved/i.test(replyText);
+        const explicitCriticalStop = responseObj.critical_stop === true || responseObj.criticalStop === true ||
+          responseObj.safety_stop === true || responseObj.safetyStop === true ||
+          [responseObj.type, responseObj.turn_type, responseObj.status].some(value => String(value || '').toLowerCase() === 'critical_stop');
+
+        // A real safety stop is never bypassed, even in field-tech mode.
+        if (currentSurfaceMode === 'tech' && explicitCriticalStop) {
+          conversationHistory.push({
+            userMsg: shownText,
+            backendMsg: userText,
+            aiReply: replyText,
+            citation: getSupabaseCitation(payload),
+            type: 'critical_stop',
+            choices: [{ label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }]
+          });
+          renderInteractiveConversation();
+          return;
+        }
+
+        if (requiresTechnician && currentSurfaceMode !== 'tech') {
+          // Homeowner mode keeps the clear customer-facing service handoff.
           const equipmentLabel = getSessionEquipmentLabel(' • ');
           const clearServiceReply = replyText && !/technician is the recommended next step/i.test(replyText)
-            ? `**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**\n\n${replyText}`
+            ? \`**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**\n\n\${replyText}\`
             : (replyText || '**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**');
           const turn = {
             userMsg: shownText,
@@ -3726,15 +3747,33 @@
           return;
         }
 
+        if (requiresTechnician && currentSurfaceMode === 'tech') {
+          // Do not let a generic backend escalation end field diagnosis. Be transparent
+          // about the source gap and give the technician a safe observation to report.
+          replyText = \`**FIELD-TECH DIAGNOSTIC CONTINUATION**\n\nThe response did not verify a reliable model-specific next repair procedure. I will not treat a generic service recommendation as the end of technician-mode diagnosis.\n\n\${getLocalTroubleshootingFallback(userText)}\n\nReport the visible readings/status and retry the next diagnostic step. Do not bypass a genuine safety stop.\`;
+        }
+
         const metadataOnlyResult = isMetadataOnlyKbResponse(payload);
         const objChoices = metadataOnlyResult
-          ? [
-              { label: '↻ Retry this troubleshooting question', action: 'retry_last' },
-              { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
-            ]
+          ? (currentSurfaceMode === 'tech'
+              ? [
+                  { label: '↻ Retry with a fresh troubleshooting lookup', action: 'retry_last' },
+                  { label: '🧭 Continue diagnosis with the safe observation above', prompt: 'Continue field-tech diagnosis for this issue. Use the observation I provide next, check applicable manuals first, then grounded live manufacturer sources if needed. Do not end with generic service escalation unless a genuine safety stop applies.' }
+                ]
+              : [
+                  { label: '↻ Retry this troubleshooting question', action: 'retry_last' },
+                  { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
+                ])
           : normalizeSupabaseChoices(payload);
+        if (currentSurfaceMode === 'tech') {
+          // Remove generic handoff buttons from the field-tech workflow; safety stops
+          // are rendered separately and are never removed by this filter.
+          for (let i = objChoices.length - 1; i >= 0; i--) {
+            if (objChoices[i].action === 'escalate' || /request .*technician|service handoff/i.test(String(objChoices[i].label || ''))) objChoices.splice(i, 1);
+          }
+        }
         if (/^Water Quality\b/i.test(String(sessionContext.category || ''))) {
-          if (!objChoices.some(choice => choice.action === 'escalate' || /request (?:a )?(?:service )?technician|green-to-clean/i.test(String(choice.label || '')))) {
+          if (currentSurfaceMode !== 'tech' && !objChoices.some(choice => choice.action === 'escalate' || /request (?:a )?(?:service )?technician|green-to-clean/i.test(String(choice.label || '')))) {
             objChoices.push({ label: sessionContext.category === 'Water Quality / Algae' ? '📞 Request Pool Service / Green-to-Clean Help' : '📞 Request a Pool Service Technician', action: 'escalate' });
           }
           if (sessionContext.category === 'Water Quality / Algae' && !objChoices.some(choice => /enter water chemistry|water balancing calculator|calculate (?:a )?(?:shock|treatment) dose/i.test(String(choice.label || '')))) {
@@ -3755,8 +3794,8 @@
           type: responseObj.type || responseObj.turn_type || responseObj.status || undefined,
           responseType: responseObj.responseType || responseObj.response_type || undefined,
           unlockedStep: responseObj.unlockedStep || responseObj.unlocked_step || undefined,
-          technicianRecommended: responseObj.technicianRecommended === true || responseObj.technician_recommended === true,
-          serviceHelpAvailable: responseObj.serviceHelpAvailable === true || responseObj.service_help_available === true
+          technicianRecommended: currentSurfaceMode !== 'tech' && (responseObj.technicianRecommended === true || responseObj.technician_recommended === true),
+          serviceHelpAvailable: currentSurfaceMode !== 'tech' && (responseObj.serviceHelpAvailable === true || responseObj.service_help_available === true)
         };
         conversationHistory.push(turn);
         const dispatchNote = buildSupabaseDispatchNote(payload, replyText, action);
@@ -3764,23 +3803,35 @@
       } catch (error) {
         console.error('PoolDocAI troubleshooting lookup unavailable:', error);
         const timedOut = error?.name === 'AbortError';
+        if (currentSurfaceMode === 'tech' && retryLevel === 0 && !timedOut) {
+          console.warn('Field-tech lookup failed; retrying once before safe fallback.');
+          return await requestSupabaseTroubleshootingTurn(userText, action, displayText, retryLevel + 1);
+        }
         const fallback = getLocalTroubleshootingFallback(userText);
+        const techMode = currentSurfaceMode === 'tech';
         conversationHistory.push({
           userMsg: shownText,
           backendMsg: userText,
-          aiReply: `⚠️ **LIVE TROUBLESHOOTING CONNECTION INTERRUPTED**\n\n${fallback}\n\nThe live manual/web lookup did not finish on this turn. The observation above is general safety guidance, not a verified model-specific procedure. You can retry, or choose the large technician-service option if you need hands-on help.`,
+          aiReply: techMode
+            ? \`⚠️ **LIVE LOOKUP UNAVAILABLE AFTER RETRY**\n\n\${fallback}\n\nThis is a non-invasive observation, not a verified model-specific repair procedure. The live manual/web lookup did not complete after one retry. Report the observations above and retry the next step when the connection is available; no generic service handoff has been added to technician mode.\`
+            : \`⚠️ **LIVE TROUBLESHOOTING CONNECTION INTERRUPTED**\n\n\${fallback}\n\nThe live manual/web lookup did not finish on this turn. The observation above is general safety guidance, not a verified model-specific procedure. You can retry, or choose the large technician-service option if you need hands-on help.\`,
           citation: 'Connection status: Live source verification did not complete',
-          serviceHelpAvailable: true,
-          choices: /^Water Quality\b/i.test(String(sessionContext.category || ''))
+          serviceHelpAvailable: !techMode,
+          choices: techMode
             ? [
-                { label: sessionContext.category === 'Water Quality / Algae' ? '📞 Request Pool Service / Green-to-Clean Help' : '📞 Request a Pool Service Technician', action: 'escalate' },
-                ...(sessionContext.category === 'Water Quality / Algae' ? [{ label: '🧪 Enter Water Chemistry', prompt: 'Enter water chemistry for my green pool.' }] : []),
-                { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
-              ]
-            : [
                 { label: '↻ Retry this question', action: 'retry_last' },
-                { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
+                { label: '🧭 Continue diagnosis using my observation', prompt: 'Continue field-tech diagnosis using the visible status, readings, and observations I provide. Check applicable manuals first and grounded manufacturer sources if needed. Do not end with generic service escalation unless a genuine safety stop applies.' }
               ]
+            : /^Water Quality\b/i.test(String(sessionContext.category || ''))
+              ? [
+                  { label: sessionContext.category === 'Water Quality / Algae' ? '📞 Request Pool Service / Green-to-Clean Help' : '📞 Request a Pool Service Technician', action: 'escalate' },
+                  ...(sessionContext.category === 'Water Quality / Algae' ? [{ label: '🧪 Enter Water Chemistry', prompt: 'Enter water chemistry for my green pool.' }] : []),
+                  { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' }
+                ]
+              : [
+                  { label: '↻ Retry this question', action: 'retry_last' },
+                  { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
+                ]
         });
         renderInteractiveConversation({
           customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session',
