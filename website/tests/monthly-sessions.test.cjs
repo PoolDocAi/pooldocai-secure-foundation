@@ -89,5 +89,8 @@ for (const [name, html] of [["authenticated workspace", app], ["public demo", de
 }
 assert.ok(app.includes("new URLSearchParams(window.location.search).get('mode') === 'tech'"), "account portal can deep-link directly to field-tech mode");
 assert.ok(admin.includes('href="/app?mode=tech">Open Field Technician Troubleshooter'), "account portal opens field-tech troubleshooting by default");
+assert.ok(app.includes('id="integratedTechNotesPanel"'), "authenticated troubleshooter contains an inline field-notes panel");
+assert.ok(app.includes('action:\'save_technician_job\''), "inline field notes save through the authenticated job-record endpoint");
+assert.ok(app.includes('updateIntegratedTechNotesVisibility()'), "inline notes are shown only in authenticated field-tech mode");
 
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
