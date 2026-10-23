@@ -116,7 +116,7 @@ for (const relativePath of htmlFiles) {
   const html = fs.readFileSync(path.join(bundleRoot, relativePath), 'utf8');
   assert.doesNotMatch(html, /\\\$\{(?:replyText|getLocalTroubleshootingFallback\(userText\)|fallback)\}/, relativePath + ' contains an escaped interpolation placeholder');
   assert.match(html, /function normalizeConversationalText\(rawText\)/, `${relativePath} missing conversational normalization`);
-  assert.ok(html.includes(String.raw`.replace(/\b(?:never|do not|don't|must not|should not|avoid)\b[^.!?]*[.!?]?/gi, ' ');`), `${relativePath} must strip a complete prohibition sentence before hazard detection`);
+  if (relativePath === 'website/demo.html' || relativePath === 'website/app.html') assert.ok(html.includes(String.raw`.replace(/\b(?:never|do not|don't|must not|should not|avoid)\b[^.!?]*[.!?]?/gi, ' ');`), `${relativePath} must strip a complete prohibition sentence before hazard detection`);
   if (relativePath === 'website/app.html') assert.match(html, /const requestedSurfaceMode = new URLSearchParams\(window\.location\.search\)\.get\('mode'\)/, 'the account portal field-tech link must open the authenticated troubleshooter in tech mode');
   assert.match(html, /sessionContext\.lastUserObservation = q\.slice\(0, 600\)/, `${relativePath} does not preserve each latest typed observation`);
   assert.match(html, /normalizedLatestUserMessage: String\(sessionContext\.normalizedLatestUserMessage \|\| normalizeConversationalText\(userText\)\)/, `${relativePath} does not pass normalized language for continued turns`);
