@@ -323,7 +323,12 @@ async function processManual(manualId, processingJobId = null) {
     let extracted;
     if (manual.source_url) extracted = await fetchWebpage(manual.source_url);
     else {
-      const { data: file, error: downloadError } = await db.storage.from('company-manuals').download(manual.storage_path);
+      const storagePath = String(manual.storage_path || '').trim();
+      const expectedPrefix = `${manual.company_id}/`;
+      if (!storagePath || !storagePath.startsWith(expectedPrefix) || storagePath.includes('..') || storagePath.includes('\\')) {
+        throw new Error('Unauthorized storage path: file path must belong strictly to the owning company.');
+      }
+      const { data: file, error: downloadError } = await db.storage.from('company-manuals').download(storagePath);
       if (downloadError || !file) throw new Error('Could not read the private uploaded file.');
       const array = await file.arrayBuffer(); if (array.byteLength > MAX_BYTES) throw new Error('File exceeds the 25 MB extraction limit.');
       extracted = await extractFile(Buffer.from(array), manual.original_filename || manual.title, manual.content_type || 'application/octet-stream');

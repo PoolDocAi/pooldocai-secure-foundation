@@ -51,4 +51,15 @@ assert.ok(
   'document-worker token-cost estimates must select the rate effective at the time of use'
 );
 
+assert.match(
+  worker,
+  /storagePath\.startsWith\(expectedPrefix\)/,
+  'storage path must be strictly scoped to the manual owning company prefix'
+);
+assert.match(
+  worker,
+  /storagePath\.includes\('\.\.'\)/,
+  'storage path must reject directory traversal'
+);
+
 console.log('Worker outbound-network and signed-webhook boundary checks passed.');

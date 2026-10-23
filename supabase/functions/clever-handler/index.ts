@@ -1628,6 +1628,12 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       if (body.sharedLearningOptIn === true && !isPlatformActor && authenticatedRole !== "company_admin") {
         return jsonResponse({ error: "Only a company administrator can opt a webpage into shared learning.", code: "COMPANY_ADMIN_REQUIRED" }, 403);
       }
+      if (body.rightsAttested !== true) {
+        return jsonResponse({ error: "You must affirmatively attest that you hold sufficient rights to import and process this webpage.", code: "RIGHTS_ATTESTATION_REQUIRED" }, 400);
+      }
+      if (body.sharedLearningOptIn === true && body.generalLearningRightsAttested !== true) {
+        return jsonResponse({ error: "You must affirmatively attest that you hold sufficient rights for shared knowledge before opting in.", code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED" }, 400);
+      }
       try {
         const parsedUrl = new URL(url);
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: "Only public HTTP or HTTPS webpages can be imported.", code: "WEBPAGE_URL_INVALID" }, 400);

@@ -102,4 +102,9 @@ assert.ok(handler.includes("pump-not-starting"), "homeowner pump-start symptoms 
 assert.ok(handler.includes("whether the pump display or indicator lights are on"), "homeowner pump-start triage begins with non-invasive observations");
 assert.ok(handler.includes("Do not begin by directing the homeowner to reset or test a breaker"), "homeowner pump-start triage avoids electrical repair instructions");
 assert.ok(handler.includes("mode: techMode ?"), "prompt case context identifies server-derived mode");
+assert.match(trialMigration, /temporary_access_storage_expiry_guard ON storage.objects/i, "temporary trial account expiry gate is applied to storage.objects");
+
+assert.ok(handler.includes('code: "RIGHTS_ATTESTATION_REQUIRED"'), "webpage import enforces affirmative rights attestation");
+assert.ok(handler.includes('code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED"'), "webpage shared-learning opt-in enforces affirmative general rights attestation");
+
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
