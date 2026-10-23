@@ -13,8 +13,11 @@ function section(start, end) {
 
 const addressCheck = section('function isPrivateAddress(ip)', 'async function safeUrl(');
 assert.match(addressCheck, /100 && p\[1\] >= 64/);
-assert.match(addressCheck, /mapped = s\.match/);
-assert.match(addressCheck, /2001:db8:/);
+assert.match(addressCheck, /firstGroup < 0x2000/);
+assert.match(addressCheck, /secondGroup <= 0x01ff/);
+assert.match(addressCheck, /secondGroup === 0x0db8/);
+assert.match(addressCheck, /firstGroup === 0x2002/);
+assert.match(addressCheck, /firstGroup === 0x3fff/);
 
 const safeFetch = section('async function safeUrl(', 'async function geminiExtract(');
 assert.match(safeFetch, /dns\.lookup\(host, \{ all: true, verbatim: true \}\)/);
