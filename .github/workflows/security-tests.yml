@@ -26,6 +26,8 @@ jobs:
 
       - name: Validate document worker syntax
         run: node --check document-worker/src/server.js
+      - name: Test worker SSRF and webhook boundaries
+        run: node document-worker/tests/network-webhook-boundary.test.cjs
 
       - name: Test conversational troubleshooting routing
         run: node website/tests/troubleshooter-intent.test.cjs
