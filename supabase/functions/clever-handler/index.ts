@@ -1498,7 +1498,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     form.set("subscription_data[metadata][seat_limit]", String(effectiveSeats));
     if(company.stripe_customer_id||company.billing_customer_ref)form.set("customer",String(company.stripe_customer_id||company.billing_customer_ref));else if(company.billing_email)form.set("customer_email",String(company.billing_email));
     const response=await fetch("https://api.stripe.com/v1/checkout/sessions",{method:"POST",headers:{Authorization:`Bearer ${stripeKey}`,"Content-Type":"application/x-www-form-urlencoded"},body:form});const data=await response.json().catch(()=>({}));if(!response.ok||!data.url)return jsonResponse({error:"Stripe Checkout could not be created. Verify the test/live Stripe secret and configured Price ID.",code:"STRIPE_CHECKOUT_FAILED"},502);
-    await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:"billing_checkout_created",units:1,metric_type:"billing_event",quantity:1,quantity_unit:"checkout",metadata:{plan_name:plan,seat_quantity:seats,stripe_session_id:data.id}});
+    await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:"billing_checkout_created",units:1,metric_type:"billing_event",quantity:1,quantity_unit:"checkout",metadata:{plan_name:plan,seat_quantity:effectiveSeats,stripe_session_id:data.id}});
     return jsonResponse({ok:true,url:data.url},200);
   }
 

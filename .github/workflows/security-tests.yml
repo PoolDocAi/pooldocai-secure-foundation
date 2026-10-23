@@ -43,6 +43,8 @@ jobs:
 
       - name: Test Stripe billing alignment and simulated webhook replay
         run: node website/tests/stripe-simulation.test.cjs
+      - name: Test Stripe checkout runtime execution and billing portal
+        run: node website/tests/stripe-checkout-handler.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
