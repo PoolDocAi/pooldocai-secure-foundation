@@ -117,8 +117,24 @@ function parseOcrPdfPages(text) {
   return matches.map((m, i) => ({ pageNumber: Number(m[1]), text: raw.slice((m.index || 0) + m[0].length, i + 1 < matches.length ? matches[i + 1].index : raw.length).trim() })).filter(p => p.text);
 }
 function isPrivateAddress(ip) {
-  if (net.isIPv4(ip)) { const p = ip.split('.').map(Number); return p[0] === 10 || p[0] === 127 || p[0] === 0 || (p[0] === 169 && p[1] === 254) || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 192 && p[1] === 168) || p[0] >= 224; }
-  if (net.isIPv6(ip)) { const s = ip.toLowerCase(); return s === '::1' || s === '::' || s.startsWith('fc') || s.startsWith('fd') || s.startsWith('fe80:') || s.startsWith('::ffff:127.'); }
+  if (net.isIPv4(ip)) {
+    const p = ip.split('.').map(Number);
+    return p[0] === 0 || p[0] === 10 || p[0] === 127 || p[0] >= 224
+      || (p[0] === 100 && p[1] >= 64 && p[1] <= 127)
+      || (p[0] === 169 && p[1] === 254)
+      || (p[0] === 172 && p[1] >= 16 && p[1] <= 31)
+      || (p[0] === 192 && (p[1] === 0 || p[1] === 2 || p[1] === 88 || p[1] === 168))
+      || (p[0] === 198 && (p[1] === 18 || p[1] === 19 || p[1] === 51))
+      || (p[0] === 203 && p[1] === 0 && p[2] === 113);
+  }
+  if (net.isIPv6(ip)) {
+    const s = ip.toLowerCase();
+    const mapped = s.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (mapped) return isPrivateAddress(mapped[1]);
+    return s === '::1' || s === '::' || s.startsWith('fc') || s.startsWith('fd')
+      || s.startsWith('fe80:') || s.startsWith('ff')
+      || s.startsWith('2001:db8:') || s.startsWith('64:ff9b:');
+  }
   return true;
 }
 async function safeUrl(raw, { requireHttps = false } = {}) {
