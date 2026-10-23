@@ -134,4 +134,8 @@ assert.ok(handler.includes('existingMember.status !== "active"'), 'expired invit
 assert.ok(handler.includes('code: "COMPANY_LEARNING_OPT_IN_REQUIRED"'), 'approving diagnostic learning requires governing company opt-in');
 assert.ok(handler.includes('learningStatus: "company_private"'), 'cases without explicit opt-in remain company private');
 
+// Group 4 regressions: document sharing boundaries and SOP privacy in consent updates
+assert.ok(handler.includes('PRIVATE_DOCUMENT_CANNOT_BE_SHARED') && handler.includes('set_manual_learning_consent'), 'SOPs and company manuals cannot be opted into shared learning via consent updates');
+assert.ok(handler.includes('knowledge_scope: next ? "general_candidate" : "company_private"'), 'document consent update flips knowledge_scope appropriately');
+
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");

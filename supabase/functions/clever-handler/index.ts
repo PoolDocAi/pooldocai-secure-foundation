@@ -1671,13 +1671,29 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     }
     const manualId = textValue(body.manualId, 80);
     if (!manualId) return jsonResponse({ error: "Document ID is required.", code: "MANUAL_ID_REQUIRED" }, 400);
-    const { data: manual, error: manualError } = await supabase.from("company_manuals").select("id,company_id,shared_learning_opt_in").eq("id", manualId).eq("company_id", targetCompanyId).maybeSingle();
+    const { data: manual, error: manualError } = await supabase.from("company_manuals").select("id,company_id,shared_learning_opt_in,document_type,knowledge_scope,general_learning_rights_attested").eq("id", manualId).eq("company_id", targetCompanyId).maybeSingle();
     if (manualError || !manual) return jsonResponse({ error: "Document was not found in this company library.", code: "MANUAL_NOT_FOUND" }, 404);
     if (action === "set_manual_learning_consent") {
       const next = body.sharedLearningOptIn === true;
-      const { error: consentError } = await supabase.from("company_manuals").update({ shared_learning_opt_in: next, learning_consent_updated_at: new Date().toISOString() }).eq("id", manualId).eq("company_id", targetCompanyId);
+      if (next) {
+        // Enforce document type boundaries: SOPs, policies, and company manuals must remain private
+        const docType = String(manual.document_type || "").toLowerCase();
+        if (["company_manual", "sop", "policy"].includes(docType)) {
+          return jsonResponse({ error: "Company-specific manuals, SOPs, and policies must stay private and cannot enter shared learning.", code: "PRIVATE_DOCUMENT_CANNOT_BE_SHARED" }, 400);
+        }
+        // Enforce separate general learning rights attestation
+        if (body.generalLearningRightsAttested !== true && manual.general_learning_rights_attested !== true) {
+          return jsonResponse({ error: "Separate permission to redistribute eligible non-confidential information is required for shared-learning participation.", code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED" }, 400);
+        }
+      }
+      const { error: consentError } = await supabase.from("company_manuals").update({
+        shared_learning_opt_in: next,
+        knowledge_scope: next ? "general_candidate" : "company_private",
+        general_learning_rights_attested: next ? true : Boolean(manual.general_learning_rights_attested),
+        learning_consent_updated_at: new Date().toISOString()
+      }).eq("id", manualId).eq("company_id", targetCompanyId);
       if (consentError) return jsonResponse({ error: "Could not update document consent.", code: "CONSENT_UPDATE_FAILED" }, 500);
-      await supabase.from("document_consent_audit").insert({ manual_id: manualId, company_id: targetCompanyId, actor_user_id: authenticatedUserId, old_opt_in: Boolean(manual.shared_learning_opt_in), new_opt_in: next, reason: "Company administrator changed document learning consent" });
+      await supabase.from("document_consent_audit").insert({ manual_id: manualId, company_id: targetCompanyId, actor_user_id: authenticatedUserId, old_opt_in: Boolean(manual.shared_learning_opt_in), new_opt_in: next, reason: next ? "Company administrator enabled shared-learning consent with rights attestation" : "Company administrator revoked document learning consent" });
       if (!next) {
         const { data: linkedQueue } = await supabase.from("learning_review_queue").select("id,case_id,status").eq("tenant_id", targetCompanyId).eq("source_kind", "company_manual").contains("supporting_source_ids", [manualId]);
         for (const queued of linkedQueue || []) {
