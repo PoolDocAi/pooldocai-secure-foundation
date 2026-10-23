@@ -92,7 +92,7 @@ async function recordModelUsage(supabase: ReturnType<typeof createClient>, compa
   let costSource = "not_priced";
   const modelName = model || "unknown";
   if (inputTokens || outputTokens) {
-    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
+    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).lte("valid_from",new Date().toISOString()).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
     const rate = rates?.[0];
     if (rate && rate.input_usd_per_million_tokens != null && rate.output_usd_per_million_tokens != null) {
       estimatedCost = inputTokens * Number(rate.input_usd_per_million_tokens) / 1_000_000 + outputTokens * Number(rate.output_usd_per_million_tokens) / 1_000_000;
