@@ -16,7 +16,7 @@ assert.match(app, /photo_recognition[^\n]{0,250}diagnosticSessionId/, "photo dia
 assert.match(handler, /pooldocai_consume_company_monthly_session/, "server calls the pooled monthly session RPC");
 assert.match(handler, /MONTHLY_QUOTA_GUARD_UNAVAILABLE/, "usage-check errors fail closed");
 assert.match(handler, /MONTHLY_SESSION_LIMIT_REACHED/, "monthly entitlement exhaustion prevents further troubleshooting");
-assert.match(handler, /\.lte\("valid_from",new Date\(\)\.toISOString\(\)\)/, "model rate lookup ignores future-effective price cards");
+assert.match(handler, /\.lte\("valid_from",\s*(?:new Date\(\)\.toISOString\(\)|rateLookupTime)\)/, "model rate lookup ignores future-effective price cards");
 assert.match(handler, /pooldocai_reserve_grounding_budget/, "Google Search grounding reserves budget before provider requests");
 assert.match(handler, /pooldocai_finish_grounding_budget/, "grounding budget reservations are released after requests");
 assert.match(handler, /POOLDOCAI_GROUNDING_GLOBAL_DAILY_LIMIT/, "grounding calls have a global bounded budget");
@@ -97,4 +97,9 @@ assert.ok(app.includes('id="integratedTechNotesPanel"'), "authenticated troubles
 assert.ok(app.includes('action:\'save_technician_job\''), "inline field notes save through the authenticated job-record endpoint");
 assert.ok(app.includes('updateIntegratedTechNotesVisibility()'), "inline notes are shown only in authenticated field-tech mode");
 
+assert.ok(handler.includes("8a. MODE-SPECIFIC FIRST STEPS (mandatory)"), "server prompt includes mandatory mode-specific diagnostic behavior");
+assert.ok(handler.includes("pump-not-starting"), "homeowner pump-start symptoms have a safe-first-step path");
+assert.ok(handler.includes("whether the pump display or indicator lights are on"), "homeowner pump-start triage begins with non-invasive observations");
+assert.ok(handler.includes("Do not begin by directing the homeowner to reset or test a breaker"), "homeowner pump-start triage avoids electrical repair instructions");
+assert.ok(handler.includes("mode: techMode ?"), "prompt case context identifies server-derived mode");
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");

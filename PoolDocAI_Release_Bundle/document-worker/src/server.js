@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -71,9 +72,12 @@ async function estimateProviderCost(model, inputTokens, outputTokens = 0) {
   const normalizedOutput = Math.max(0, Number(outputTokens) || 0);
   if (!model || (!normalizedInput && !normalizedOutput)) return { estimatedCostUsd: null, costSource: 'not_priced' };
   try {
+    const rateLookupTime = new Date().toISOString();
     const { data: rates, error } = await db.from('pooldocai_model_rate_cards')
       .select('input_usd_per_million_tokens,output_usd_per_million_tokens')
-      .eq('provider', 'google_gemini').eq('model', model).eq('active', true).is('valid_to', null)
+      .eq('provider', 'google_gemini').eq('model', model).eq('active', true)
+      .lte('valid_from', rateLookupTime)
+      .or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)
       .order('valid_from', { ascending: false }).limit(1);
     const rate = rates?.[0];
     if (error || !rate || rate.input_usd_per_million_tokens == null || rate.output_usd_per_million_tokens == null) {
@@ -116,36 +120,112 @@ function parseOcrPdfPages(text) {
   return matches.map((m, i) => ({ pageNumber: Number(m[1]), text: raw.slice((m.index || 0) + m[0].length, i + 1 < matches.length ? matches[i + 1].index : raw.length).trim() })).filter(p => p.text);
 }
 function isPrivateAddress(ip) {
-  if (net.isIPv4(ip)) { const p = ip.split('.').map(Number); return p[0] === 10 || p[0] === 127 || p[0] === 0 || (p[0] === 169 && p[1] === 254) || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 192 && p[1] === 168) || p[0] >= 224; }
-  if (net.isIPv6(ip)) { const s = ip.toLowerCase(); return s === '::1' || s === '::' || s.startsWith('fc') || s.startsWith('fd') || s.startsWith('fe80:') || s.startsWith('::ffff:127.'); }
+  if (net.isIPv4(ip)) {
+    const p = ip.split('.').map(Number);
+    return p[0] === 0 || p[0] === 10 || p[0] === 127 || p[0] >= 224
+      || (p[0] === 100 && p[1] >= 64 && p[1] <= 127)
+      || (p[0] === 169 && p[1] === 254)
+      || (p[0] === 172 && p[1] >= 16 && p[1] <= 31)
+      || (p[0] === 192 && (p[1] === 0 || p[1] === 2 || p[1] === 88 || p[1] === 168))
+      || (p[0] === 198 && (p[1] === 18 || p[1] === 19 || p[1] === 51))
+      || (p[0] === 203 && p[1] === 0 && p[2] === 113);
+  }
+  if (net.isIPv6(ip)) {
+    // Allow only globally routable unicast space. This also blocks IPv4-mapped IPv6,
+    // NAT64, loopback, link-local, ULA, multicast, and other special-use ranges even
+    // when those ranges are written in compressed hexadecimal form.
+    const groups = ip.toLowerCase().split(':');
+    const firstGroup = Number.parseInt(groups[0] || '0', 16);
+    const secondGroup = Number.parseInt(groups[1] || '0', 16);
+    if (!Number.isFinite(firstGroup) || firstGroup < 0x2000 || firstGroup > 0x3fff) return true;
+    if (firstGroup === 0x2001 && (secondGroup <= 0x01ff || secondGroup === 0x0db8)) return true;
+    if (firstGroup === 0x2002 || firstGroup === 0x3fff) return true;
+    return false;
+  }
   return true;
 }
-async function safeUrl(raw) {
-  const u = new URL(raw);
-  if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) throw new Error('Only public http/https webpages are supported.');
-  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (['localhost', 'localhost.localdomain'].includes(host) || host.endsWith('.local')) throw new Error('Private/local webpage addresses are blocked.');
-  const records = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true, verbatim: true });
-  if (!records.length || records.some(x => isPrivateAddress(x.address))) throw new Error('Webpage host resolves to a private or restricted address and was blocked.');
-  return u;
+async function safeUrl(raw, { requireHttps = false } = {}) {
+  const url = new URL(raw);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Only public http/https webpages are supported.');
+  if (requireHttps && url.protocol !== 'https:') throw new Error('Webhook destinations must use HTTPS.');
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!host || ['localhost', 'localhost.localdomain'].includes(host) || host.endsWith('.local')) throw new Error('Private/local addresses are blocked.');
+  const records = net.isIP(host)
+    ? [{ address: host, family: net.isIPv4(host) ? 4 : 6 }]
+    : await dns.lookup(host, { all: true, verbatim: true });
+  if (!records.length || records.some(record => isPrivateAddress(record.address))) throw new Error('Host resolves to a private or restricted address and was blocked.');
+  // Pin the specific public address validated above. Do not let a second DNS lookup
+  // during the HTTP connection change the destination after validation.
+  return { url, address: records[0].address, family: records[0].family || (net.isIPv4(records[0].address) ? 4 : 6) };
+}
+function requestPinnedUrl(target, { method = 'GET', headers = {}, body = null, timeoutMs = 20000, maxBytes = MAX_BYTES } = {}) {
+  return new Promise((resolve, reject) => {
+    const url = target.url;
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    const transport = url.protocol === 'https:' ? https : http;
+    const requestHeaders = { 'user-agent': 'PoolDocAI-DocumentWorker/1.0', ...headers };
+    if (body != null && !Object.keys(requestHeaders).some(key => key.toLowerCase() === 'content-length')) {
+      requestHeaders['content-length'] = Buffer.byteLength(body);
+    }
+    const req = transport.request({
+      protocol: url.protocol,
+      hostname: host,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      method,
+      headers: requestHeaders,
+      ...(url.protocol === 'https:' ? { servername: host } : {}),
+      lookup: (_hostname, options, callback) => {
+        if (options?.all) return callback(null, [{ address: target.address, family: target.family }]);
+        return callback(null, target.address, target.family);
+      }
+    }, response => {
+      const declared = Number(response.headers['content-length'] || 0);
+      if (declared > maxBytes) {
+        req.destroy(new Error('Remote response exceeds the configured size limit.'));
+        return;
+      }
+      const chunks = [];
+      let total = 0;
+      response.on('data', chunk => {
+        total += chunk.length;
+        if (total > maxBytes) {
+          req.destroy(new Error('Remote response exceeds the configured size limit.'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('end', () => resolve({
+        statusCode: response.statusCode || 0,
+        headers: response.headers,
+        body: Buffer.concat(chunks)
+      }));
+      response.on('error', reject);
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Remote request timed out.')));
+    req.on('error', reject);
+    req.end(body == null ? undefined : body);
+  });
 }
 async function fetchWebpage(raw) {
-  let url = await safeUrl(raw);
+  let target = await safeUrl(raw);
   for (let hop = 0; hop <= 3; hop++) {
-    const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(20000), headers: { 'user-agent': 'PoolDocAI-DocumentFetcher/1.0' } });
-    if ([301,302,303,307,308].includes(response.status)) {
-      const location = response.headers.get('location'); if (!location || hop === 3) throw new Error('Webpage redirect limit reached.');
-      url = await safeUrl(new URL(location, url).toString()); continue;
+    const response = await requestPinnedUrl(target, { timeoutMs: 20000, maxBytes: MAX_BYTES });
+    if ([301,302,303,307,308].includes(response.statusCode)) {
+      const location = response.headers.location;
+      if (!location || hop === 3) throw new Error('Webpage redirect limit reached.');
+      target = await safeUrl(new URL(location, target.url).toString());
+      continue;
     }
-    if (!response.ok) throw new Error(`Webpage returned HTTP ${response.status}.`);
-    const type = response.headers.get('content-type') || '';
+    if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(`Webpage returned HTTP ${response.statusCode}.`);
+    const type = String(response.headers['content-type'] || '');
     if (!type.includes('text/html') && !type.includes('text/plain') && !type.includes('application/xhtml+xml')) throw new Error('Webpage must return HTML or plain text.');
-    const buf = Buffer.from(await response.arrayBuffer()); if (buf.length > MAX_BYTES) throw new Error('Webpage exceeds the 25 MB extraction limit.');
-    if (type.includes('text/plain')) return { text: buf.toString('utf8'), title: url.hostname, sourceUrl: url.toString() };
-    const $ = cheerio.load(buf.toString('utf8')); const title = $('title').first().text().trim() || url.hostname;
+    const textBody = response.body.toString('utf8');
+    if (type.includes('text/plain')) return { text: textBody, title: target.url.hostname, sourceUrl: target.url.toString() };
+    const $ = cheerio.load(textBody); const title = $('title').first().text().trim() || target.url.hostname;
     $('script,style,noscript,svg,nav,footer,header,form,iframe,button').remove();
     const text = $('main').text() || $('article').text() || $('body').text();
-    return { text: text.replace(/\s+/g, ' ').trim(), title, sourceUrl: url.toString() };
+    return { text: text.replace(/\s+/g, ' ').trim(), title, sourceUrl: target.url.toString() };
   }
   throw new Error('Could not retrieve webpage.');
 }
@@ -291,16 +371,150 @@ async function createWebManual(body) {
   const companyId = String(body.companyId || ''); const rawUrl = String(body.url || '').trim();
   if (!companyId || !rawUrl) throw new Error('companyId and webpage URL are required.');
   const safe = await safeUrl(rawUrl);
-  const title = String(body.title || safe.hostname).slice(0,250);
+  const title = String(body.title || safe.url.hostname).slice(0,250);
   const { data: companyRow } = await db.from('companies').select('industry_key').eq('id', companyId).maybeSingle();
-  const { data, error } = await db.from('company_manuals').insert({ company_id: companyId, industry_key: companyRow?.industry_key || 'pool', uploaded_by: body.userId || null, title, storage_path: `${companyId}/web-${crypto.randomUUID()}.html`, content_type: 'text/html', file_size: 0, document_type: body.documentType || 'other', source_url: safe.toString(), original_filename: safe.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: 'queued' }).select('*').single();
+  const { data, error } = await db.from('company_manuals').insert({ company_id: companyId, industry_key: companyRow?.industry_key || 'pool', uploaded_by: body.userId || null, title, storage_path: `${companyId}/web-${crypto.randomUUID()}.html`, content_type: 'text/html', file_size: 0, document_type: body.documentType || 'other', source_url: safe.url.toString(), original_filename: safe.url.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: 'queued' }).select('*').single();
   if (error) throw new Error(`Could not register webpage (${error.code}).`);
   const { data: job, error: queueError } = await db.rpc('pooldocai_enqueue_document_job', { p_manual_id: data.id, p_requested_by: body.userId || null, p_force: false });
   if (queueError || !job) throw new Error('Webpage was registered but could not be queued for extraction.');
   return { manualId: data.id, status: 'queued', job, referenceEnabled: true, sharedLearningOptIn: Boolean(body.sharedLearningOptIn) };
 }
+async function finishWebhookDelivery(delivery, { success, status = null, errorCode = null, retryable = false }) {
+  const { error } = await db.rpc('pooldocai_finish_service_request_webhook', {
+    p_delivery_id: delivery.id,
+    p_success: success,
+    p_response_status: status,
+    p_error_code: errorCode,
+    p_retryable: retryable
+  });
+  if (error) console.error('Could not finalize service webhook delivery', { deliveryId: delivery.id, code: error.code });
+}
+async function processOneWebhookDelivery() {
+  const { data, error } = await db.rpc('pooldocai_claim_service_request_webhook');
+  if (error) {
+    if (error.code !== 'PGRST202' && error.code !== '42883') console.error('Service webhook queue claim failed', { code: error.code });
+    return false;
+  }
+  const delivery = Array.isArray(data) ? data[0] : data;
+  if (!delivery) return false;
+  try {
+    const { data: config, error: configError } = await db.from('company_service_webhook_configs')
+      .select('enabled,target_url,signing_secret').eq('company_id', delivery.company_id).maybeSingle();
+    if (configError || !config || config.enabled !== true || !config.target_url || !config.signing_secret) {
+      await finishWebhookDelivery(delivery, { success: false, errorCode: 'webhook_not_configured', retryable: false });
+      return true;
+    }
+    const target = await safeUrl(config.target_url, { requireHttps: true });
+    // Redirects are deliberately not followed for outbound callbacks.
+    const payload = JSON.stringify({
+      id: delivery.id,
+      event: delivery.event_type,
+      createdAt: delivery.created_at,
+      idempotencyKey: delivery.idempotency_key,
+      data: delivery.payload
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHmac('sha256', config.signing_secret).update(`${timestamp}.${payload}`).digest('hex');
+    const response = await requestPinnedUrl(target, {
+      method: 'POST',
+      timeoutMs: 10000,
+      maxBytes: 16384,
+      headers: {
+        'content-type': 'application/json',
+        'x-pooldocai-timestamp': timestamp,
+        'x-pooldocai-signature': signature,
+        'x-pooldocai-event': String(delivery.event_type || 'service_request.created'),
+        'idempotency-key': String(delivery.idempotency_key)
+      },
+      body: payload
+    });
+    const status = response.statusCode;
+    const success = status >= 200 && status < 300;
+    const retryable = status === 408 || status === 425 || status === 429 || status >= 500;
+    await finishWebhookDelivery(delivery, {
+      success,
+      status,
+      errorCode: success ? null : `http_${status}`,
+      retryable
+    });
+    return true;
+  } catch (err) {
+    const message = String(err?.message || '');
+    const permanentlyBlocked = /private or restricted|must use HTTPS|localhost|\.local/i.test(message);
+    console.warn('Service webhook delivery failed', {
+      deliveryId: delivery.id,
+      errorCode: permanentlyBlocked ? 'destination_blocked' : 'network_delivery_failed'
+    });
+    await finishWebhookDelivery(delivery, {
+      success: false,
+      errorCode: permanentlyBlocked ? 'destination_blocked' : 'network_delivery_failed',
+      retryable: !permanentlyBlocked
+    });
+    return true;
+  }
+}
+let webhookBusy = false;
+async function pollWebhookQueue() {
+  if (webhookBusy) return;
+  webhookBusy = true;
+  try {
+    await processOneWebhookDelivery();
+  } catch (err) {
+    console.error('Service webhook polling failed', String(err?.message || 'unknown').slice(0, 160));
+  } finally {
+    webhookBusy = false;
+  }
+}
 const server = http.createServer(async (req,res) => {
-  if (req.method === 'GET' && req.url === '/health') return json(res,200,{ok:true,service:'pooldocai-document-worker'});
+  if (req.method === 'GET' && req.url === '/health') {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const integerMinutes = (key, fallback) => {
+      const value = Number.parseInt(process.env[key] || '', 10);
+      return Number.isFinite(value) ? Math.min(Math.max(value, 1), 1440) : fallback;
+    };
+    const queuedMinutes = integerMinutes('DOC_WORKER_QUEUED_ALERT_MINUTES', 15);
+    const stuckMinutes = integerMinutes('DOC_WORKER_STUCK_ALERT_MINUTES', 30);
+    const oldQueuedBefore = new Date(now.getTime() - queuedMinutes * 60_000).toISOString();
+    const stuckBefore = new Date(now.getTime() - stuckMinutes * 60_000).toISOString();
+    const failedSince = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
+    try {
+      const [queued, oldQueued, processing, stuckProcessing, recentFailed] = await Promise.all([
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true }).eq('status', 'queued'),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true })
+          .eq('status', 'queued').lt('created_at', oldQueuedBefore).lt('available_at', nowIso),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true }).eq('status', 'processing'),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true })
+          .eq('status', 'processing').lt('updated_at', stuckBefore),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true })
+          .eq('status', 'failed').gte('updated_at', failedSince)
+      ]);
+      const failedQuery = [queued, oldQueued, processing, stuckProcessing, recentFailed].find(result => result.error);
+      if (failedQuery) {
+        console.error('Document worker health query failed', { code: failedQuery.error.code });
+        return json(res, 503, { ok: false, service: 'pooldocai-document-worker', database: 'unavailable', code: 'QUEUE_HEALTH_QUERY_FAILED' });
+      }
+      const queue = {
+        queued: Number(queued.count || 0),
+        oldQueued: Number(oldQueued.count || 0),
+        processing: Number(processing.count || 0),
+        stuckProcessing: Number(stuckProcessing.count || 0),
+        failedLast24Hours: Number(recentFailed.count || 0)
+      };
+      const healthy = queue.oldQueued === 0 && queue.stuckProcessing === 0;
+      return json(res, healthy ? 200 : 503, {
+        ok: healthy,
+        service: 'pooldocai-document-worker',
+        database: 'ok',
+        queue,
+        thresholdsMinutes: { oldQueued: queuedMinutes, stuckProcessing: stuckMinutes },
+        checkedAt: nowIso
+      });
+    } catch (error) {
+      console.error('Document worker health check failed', { reason: String(error?.message || 'unknown').slice(0, 100) });
+      return json(res, 503, { ok: false, service: 'pooldocai-document-worker', database: 'unavailable', code: 'QUEUE_HEALTH_CHECK_FAILED' });
+    }
+  }
   if (req.method !== 'POST' || req.url !== '/process') return json(res,404,{error:'Not found'});
   try {
     let body=''; for await (const part of req) { body += part; if (body.length > 100_000) throw new Error('Request too large.'); }
@@ -344,4 +558,6 @@ async function pollQueue() {
 }
 setInterval(() => { void pollQueue(); }, 2500);
 void pollQueue();
-server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable queue polling enabled`));
+setInterval(() => { void pollWebhookQueue(); }, 5000);
+void pollWebhookQueue();
+server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable document and service-webhook queues enabled`));
