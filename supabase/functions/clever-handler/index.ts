@@ -92,7 +92,7 @@ async function recordModelUsage(supabase: ReturnType<typeof createClient>, compa
   let costSource = "not_priced";
   const modelName = model || "unknown";
   if (inputTokens || outputTokens) {
-    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
+    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).lte("valid_from",new Date().toISOString()).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
     const rate = rates?.[0];
     if (rate && rate.input_usd_per_million_tokens != null && rate.output_usd_per_million_tokens != null) {
       estimatedCost = inputTokens * Number(rate.input_usd_per_million_tokens) / 1_000_000 + outputTokens * Number(rate.output_usd_per_million_tokens) / 1_000_000;
@@ -1342,13 +1342,27 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         await supabase.from("company_members").update({status:"suspended"}).eq("company_id",invite.company_id).eq("user_id",authenticatedUserId);
         return jsonResponse({error:"This invitation has expired. Ask the company administrator to resend it.",code:"INVITATION_EXPIRED"},410);
       }
-      if(invite.status==="accepted")return jsonResponse({ok:true,accepted:true,companyId:invite.company_id,message:"This invitation has already been accepted."},200);
+      if (body.termsAccepted !== true || body.privacyAccepted !== true) {
+        return jsonResponse({ error: "Agree to the Terms of Use and Privacy Policy to activate your account.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 400);
+      }
+      const recordAccountLegalAcceptance = async () => await supabase.from("pooldocai_legal_acceptances").upsert({
+        user_id: authenticatedUserId, company_id: invite.company_id,
+        terms_version: "2026-10-21-v1", privacy_version: "2026-10-21-v1",
+        accepted_at: new Date().toISOString(), acceptance_source: "account_creation"
+      }, { onConflict: "user_id,company_id,terms_version,privacy_version", ignoreDuplicates: true });
+      if(invite.status==="accepted") {
+        const { error: legalError } = await recordAccountLegalAcceptance();
+        if (legalError) return jsonResponse({ error: "Your agreement could not be recorded. Please retry.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
+        return jsonResponse({ok:true,accepted:true,companyId:invite.company_id,message:"This invitation has already been accepted."},200);
+      }
       const {data:company}=await supabase.from("companies").select("status,seat_limit").eq("id",invite.company_id).maybeSingle();
       if(!company||!["active","pilot"].includes(String(company.status)))return jsonResponse({error:"The company is not active for new access.",code:"COMPANY_NOT_ACTIVE"},403);
       const {count:activeCount}=await supabase.from("company_members").select("id",{count:"exact",head:true}).eq("company_id",invite.company_id).eq("status","active");
       const {data:membership}=await supabase.from("company_members").select("id,status").eq("company_id",invite.company_id).eq("user_id",authenticatedUserId).maybeSingle();
       if(!membership)return jsonResponse({error:"The invited membership record is missing. Ask an administrator to resend the invite.",code:"INVITED_MEMBERSHIP_MISSING"},409);
       if(membership.status!=="active"&&Number(activeCount||0)>=Number(company.seat_limit))return jsonResponse({error:"The company has no available seat. Ask its administrator to resolve the seat limit.",code:"SEAT_LIMIT_REACHED"},409);
+      const { error: legalError } = await recordAccountLegalAcceptance();
+      if (legalError) return jsonResponse({ error: "Your agreement could not be recorded; your company seat was not activated. Please retry.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
       const {error:activateError}=await supabase.from("company_members").update({status:"active"}).eq("id",membership.id);
       if(activateError)return jsonResponse({error:"Could not activate the invited seat.",code:"INVITATION_ACTIVATION_FAILED"},500);
       await supabase.from("technician_invitation_requests").update({status:"accepted",accepted_at:new Date().toISOString()}).eq("id",invitationId);
@@ -1644,7 +1658,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Enforce a maximum of eight unique troubleshooting turns per public browser session and mode.
   // Authenticated company requests are governed by account usage limits instead.
-  if (body.authenticatedApp !== true && body.tenantWidget !== true && action !== "save_technician_job" && action !== "public_page_view") {
+  if (body.authenticatedApp !== true && body.tenantWidget !== true && action !== "save_technician_job" && action !== "public_page_view" && !["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"].includes(action)) {
     const publicSession = textValue(body.sessionId, 160);
     const turnId = textValue(body.demoTurnId, 160);
     if (!publicSession || !turnId) return jsonResponse({ error: "Public demo session is missing. Reload the demo and try again.", code: "DEMO_SESSION_REQUIRED" }, 400);

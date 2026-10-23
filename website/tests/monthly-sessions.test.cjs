@@ -16,6 +16,7 @@ assert.match(app, /photo_recognition[^\n]{0,250}diagnosticSessionId/, "photo dia
 assert.match(handler, /pooldocai_consume_company_monthly_session/, "server calls the pooled monthly session RPC");
 assert.match(handler, /MONTHLY_QUOTA_GUARD_UNAVAILABLE/, "usage-check errors fail closed");
 assert.match(handler, /MONTHLY_SESSION_LIMIT_REACHED/, "monthly entitlement exhaustion prevents further troubleshooting");
+assert.match(handler, /\.lte\("valid_from",new Date\(\)\.toISOString\(\)\)/, "model rate lookup ignores future-effective price cards");
 assert.match(handler, /pooldocai_reserve_grounding_budget/, "Google Search grounding reserves budget before provider requests");
 assert.match(handler, /pooldocai_finish_grounding_budget/, "grounding budget reservations are released after requests");
 assert.match(handler, /POOLDOCAI_GROUNDING_GLOBAL_DAILY_LIMIT/, "grounding calls have a global bounded budget");
@@ -60,5 +61,22 @@ assert.match(pricing, /1,000 pooled diagnostic sessions\/mo/, "Pro Complete plan
 assert.match(pricing, /2,500 pooled diagnostic sessions\/mo/, "Fleet Complete plan reflects the server pooled allowance");
 assert.doesNotMatch(pricing, /Includes separate monthly allowances for homeowners and technicians/, "pricing does not imply separate quotas");
 assert.doesNotMatch(pricing, /Buy extra session packs anytime/, "pricing does not claim inactive add-on billing is available");
+
+// Public demo consent and learning-capture actions must not be charged as troubleshooting turns.
+assert.ok(handler.includes('action !== "public_page_view" && !["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"].includes(action)'), "consent and learning-capture requests bypass the public troubleshooting-turn guard");
+assert.match(publicDemo, /PoolDocAI may save privacy-minimized demo messages and outcomes/, "public demo consent uses concise copy");
+assert.match(publicDemo, /max-width:460px;max-height:84vh/, "public demo consent modal is compact on desktop and mobile");
+assert.doesNotMatch(publicDemo, /PoolDocAI can save privacy-minimized troubleshooting messages and outcomes from this demo/, "oversized consent copy is removed");
+assert.match(app, /const SECURE_APP_MODE = true;/, "authenticated troubleshooter uses the authenticated application mode");
+assert.doesNotMatch(app, /ensurePublicDemoLearningConsent|pooldocaiPublicDemoConsent/, "authenticated troubleshooting does not invoke public-demo learning consent");
+
+const invitePage = fs.readFileSync(path.join(root, "website", "accept-invite.html"), "utf8");
+assert.match(invitePage, /id="accountLegalAcceptance"/, "new invitees must explicitly accept Terms/Privacy during account activation");
+assert.match(invitePage, /termsAccepted:true,privacyAccepted:true/, "account activation sends the user's legal acceptance to the server");
+assert.match(invitePage, /you will not be asked again for the same versions during troubleshooting/i, "terms acceptance is described as a one-time versioned account agreement");
+const invitationBranch = handler.slice(handler.indexOf('if(action==="accept_company_invitation")'), handler.indexOf('if(action==="revoke_company_invitation")'));
+assert.ok(invitationBranch.includes("body.termsAccepted !== true || body.privacyAccepted !== true"), "the server rejects account activation without Terms/Privacy acceptance");
+assert.ok(invitationBranch.includes("pooldocai_legal_acceptances"), "account activation records versioned legal acceptance server-side");
+assert.ok(invitationBranch.includes('acceptance_source: "account_creation"'), "legal acceptance is recorded as an account-creation event");
 
 console.log("PASS: monthly pooled-session limits, usage reporting and temporary-access RPC scoping");
