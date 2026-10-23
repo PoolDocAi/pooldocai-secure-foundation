@@ -146,4 +146,26 @@ assert.match(backend, /technicianRecommended: sourceLookupUncertain \|\| generat
 assert.match(backend, /same conversational-understanding and source-based diagnostic methodology across pumps\/motors, filters, valves, heaters, automation\/controllers, schedules\/timers, cleaners, sanitizer\/chlorine systems, lighting, circulation\/flow, water chemistry/, 'backend system prompt should apply the same method across categories');
 assert.match(backend, /MANDATORY SEARCH OVERRIDE: You must invoke Google Search grounding/, 'fallback should explicitly require web search');
 assert.match(backend, /dirt comes back|returns are weak/, 'backend actionability should recognize filter/flow symptoms');
+
+// Regression guard for the production failure caused by using industryCatalogRows before its
+// lexical declaration. The catalog is fetched after initial KB retrieval, so model-family
+// candidates must be refreshed after that fetch and before the system prompt is composed.
+const industryCatalogDeclarationIndex = backend.indexOf('let industryCatalogRows: AnyRecord[] = [];');
+assert.notEqual(industryCatalogDeclarationIndex, -1, 'industry catalog rows need a handler-scope declaration');
+assert.equal(
+  backend.indexOf('industryCatalogRows'),
+  industryCatalogDeclarationIndex,
+  'industryCatalogRows must not be referenced before its declaration (avoids temporal-dead-zone ReferenceError)'
+);
+const initialModelFamiliesIndex = backend.indexOf('let modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);');
+assert.ok(initialModelFamiliesIndex > industryCatalogDeclarationIndex, 'initial model-family candidates should follow the catalog variable declaration');
+const industryCatalogLoadIndex = backend.indexOf('industryCatalogRows=(catalogResult.data||[]).map');
+assert.ok(industryCatalogLoadIndex > initialModelFamiliesIndex, 'active industry catalog retrieval should populate declared catalog rows');
+const refreshedModelFamiliesIndex = backend.indexOf(
+  'modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);',
+  industryCatalogLoadIndex + 1
+);
+assert.ok(refreshedModelFamiliesIndex > industryCatalogLoadIndex, 'model-family candidates should be refreshed after catalog loading');
+const systemPromptIndex = backend.indexOf('const systemPrompt = `You are PoolDocAI');
+assert.ok(systemPromptIndex > refreshedModelFamiliesIndex, 'the system prompt should be composed after catalog-backed model suggestions are refreshed');
 console.log(`PASS: ${tests.length} typo-tolerant initial-message cases plus follow-up normalization checks across seven frontend surfaces, accessible escalation, and backend routing passed.`);
