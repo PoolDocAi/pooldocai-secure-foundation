@@ -72,9 +72,12 @@ async function estimateProviderCost(model, inputTokens, outputTokens = 0) {
   const normalizedOutput = Math.max(0, Number(outputTokens) || 0);
   if (!model || (!normalizedInput && !normalizedOutput)) return { estimatedCostUsd: null, costSource: 'not_priced' };
   try {
+    const rateLookupTime = new Date().toISOString();
     const { data: rates, error } = await db.from('pooldocai_model_rate_cards')
       .select('input_usd_per_million_tokens,output_usd_per_million_tokens')
-      .eq('provider', 'google_gemini').eq('model', model).eq('active', true).is('valid_to', null)
+      .eq('provider', 'google_gemini').eq('model', model).eq('active', true)
+      .lte('valid_from', rateLookupTime)
+      .or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)
       .order('valid_from', { ascending: false }).limit(1);
     const rate = rates?.[0];
     if (error || !rate || rate.input_usd_per_million_tokens == null || rate.output_usd_per_million_tokens == null) {

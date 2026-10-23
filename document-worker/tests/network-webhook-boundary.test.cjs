@@ -45,4 +45,10 @@ assert.match(webhooks, /requestPinnedUrl\(target/);
 assert.match(webhooks, /retryable:\s*!permanentlyBlocked/);
 assert.match(worker, /setInterval\(\(\) => \{ void pollWebhookQueue\(\); \}, 5000\)/);
 
+assert.ok(
+  worker.includes(".lte('valid_from', rateLookupTime)") &&
+  worker.includes(".or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)"),
+  'document-worker token-cost estimates must select the rate effective at the time of use'
+);
+
 console.log('Worker outbound-network and signed-webhook boundary checks passed.');
