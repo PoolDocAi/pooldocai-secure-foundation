@@ -780,7 +780,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const query = textValue(body.query ?? body.message ?? body.userMessage ?? body.user_message ?? body.question ?? body.input ?? body.prompt, 5000);
   const action = textValue(body.action ?? body.action_type, 80).toLowerCase();
   const noQueryActions = new Set([
-    "save_technician_job", "capture_learning_case", "public_page_view", "photo_recognition",
+    "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "public_page_view", "photo_recognition",
     "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
     "review_learning_case", "list_learning_review_queue", "review_company_document",
     "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
@@ -1433,6 +1433,143 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   // Authenticated troubleshooter conversations are automatically captured into the
   // privacy-minimized learning review queue. Queueing is automatic; shared reuse still
   // requires human review/approval. Never store raw customer-identifying text.
+
+  // Public demo consent and learning capture. These actions accept only a one-way session
+  // digest; never accept or persist a raw browser session identifier or image bytes.
+  if (action === "record_public_demo_consent") {
+    const sessionHash = textValue(body.sessionHash, 64).toLowerCase();
+    const demoMode = textValue(body.demoMode, 20);
+    const acceptanceSource = textValue(body.acceptanceSource, 30);
+    if (!/^[a-f0-9]{64}$/.test(sessionHash)) return jsonResponse({ error: "A valid privacy-minimized session digest is required.", code: "INVALID_SESSION_DIGEST" }, 400);
+    if (!["homeowner", "field-tech"].includes(demoMode)) return jsonResponse({ error: "Invalid demo mode.", code: "INVALID_DEMO_MODE" }, 400);
+    if (!["public_demo", "customer_widget"].includes(acceptanceSource)) return jsonResponse({ error: "Invalid consent source.", code: "INVALID_CONSENT_SOURCE" }, 400);
+    if (body.acceptedTerms !== true || body.acknowledgedPrivacy !== true || body.acknowledgedDiagnosticLearning !== true) {
+      return jsonResponse({ error: "Accept the terms and privacy/learning notice before using this demo.", code: "CONSENT_REQUIRED" }, 400);
+    }
+    const termsVersion = "2026-10-21-v1";
+    const privacyVersion = "2026-10-21-v1";
+    const noticeVersion = "2026-10-22-v1";
+    const { error: consentError } = await supabase.from("pooldocai_public_demo_learning_acceptances").upsert({
+      session_hash: sessionHash, terms_version: termsVersion, privacy_version: privacyVersion,
+      notice_version: noticeVersion, acceptance_source: acceptanceSource, demo_mode: demoMode,
+      accepted_terms: true, acknowledged_privacy: true, acknowledged_diagnostic_learning: true,
+      accepted_at: new Date().toISOString()
+    }, { onConflict: "session_hash" });
+    if (consentError) {
+      console.error("Public demo consent recording failed", { code: consentError.code });
+      return jsonResponse({ error: "Consent could not be recorded. The troubleshooting request was not sent.", code: "CONSENT_RECORD_FAILED" }, 500);
+    }
+    return jsonResponse({ ok: true, accepted: true, termsVersion, privacyVersion, noticeVersion }, 200);
+  }
+
+  if (action === "capture_public_demo_turn") {
+    const sessionHash = textValue(body.sessionHash, 64).toLowerCase();
+    const turnId = textValue(body.turnId, 160);
+    const demoMode = textValue(body.demoMode, 20);
+    if (!/^[a-f0-9]{64}$/.test(sessionHash) || turnId.length < 8 || !["homeowner", "field-tech"].includes(demoMode)) {
+      return jsonResponse({ error: "Invalid public demo session or turn metadata.", code: "INVALID_PUBLIC_DEMO_EVENT" }, 400);
+    }
+    const termsVersion = "2026-10-21-v1";
+    const privacyVersion = "2026-10-21-v1";
+    const noticeVersion = "2026-10-22-v1";
+    const { data: consent, error: consentCheckError } = await supabase.from("pooldocai_public_demo_learning_acceptances")
+      .select("session_hash").eq("session_hash", sessionHash)
+      .eq("terms_version", termsVersion).eq("privacy_version", privacyVersion).eq("notice_version", noticeVersion)
+      .eq("accepted_terms", true).eq("acknowledged_privacy", true).eq("acknowledged_diagnostic_learning", true)
+      .maybeSingle();
+    if (consentCheckError || !consent) return jsonResponse({ error: "Current learning consent is required before a demo turn can be recorded.", code: "CONSENT_REQUIRED" }, 403);
+
+    const userMessage = scrubPII(textValue(body.userMessage, 1800)).slice(0, 1800);
+    const assistantResponse = scrubPII(textValue(body.assistantResponse, 3600)).slice(0, 3600);
+    const rawOutcome = textValue(body.outcomeStatus, 40);
+    const outcomeStatus = ["in_progress", "customer_reported_resolved", "unresolved", "technician_handoff"].includes(rawOutcome) ? rawOutcome : "in_progress";
+    const { error: eventError } = await supabase.from("public_demo_learning_events").upsert({
+      session_hash: sessionHash, turn_id: turnId, demo_mode: demoMode,
+      user_message_redacted: userMessage, assistant_response_redacted: assistantResponse,
+      outcome_status: outcomeStatus
+    }, { onConflict: "session_hash,turn_id" });
+    if (eventError) {
+      console.error("Public demo event capture failed", { code: eventError.code });
+      return jsonResponse({ error: "The privacy-minimized demo note could not be saved.", code: "PUBLIC_DEMO_CAPTURE_FAILED" }, 500);
+    }
+
+    if (outcomeStatus !== "customer_reported_resolved") {
+      return jsonResponse({ ok: true, captured: true, learningStatus: "stored_with_consent" }, 200);
+    }
+
+    // Only an explicit visitor-reported resolution creates a candidate. It remains pending
+    // until a platform administrator verifies the diagnosis and source; this never trains a model.
+    const { data: turns, error: transcriptError } = await supabase.from("public_demo_learning_events")
+      .select("user_message_redacted,assistant_response_redacted,created_at")
+      .eq("session_hash", sessionHash).order("created_at", { ascending: true }).limit(16);
+    if (transcriptError || !turns?.length) return jsonResponse({ error: "The reported resolution could not be assembled for review.", code: "PUBLIC_DEMO_TRANSCRIPT_FAILED" }, 500);
+    const issue = scrubPII(turns.map((turn: AnyRecord) => textValue(turn.user_message_redacted, 1800)).filter(Boolean).join("\n")).slice(0, 1200);
+    const answer = scrubPII(turns.map((turn: AnyRecord) => textValue(turn.assistant_response_redacted, 3600)).filter(Boolean).join("\n")).slice(0, 1200);
+    const category = scrubPII(textValue(body.category, 120));
+    const manufacturer = scrubPII(textValue(body.manufacturer, 120));
+    const model = scrubPII(textValue(body.model, 120));
+    if (!issue || !answer) return jsonResponse({ ok: true, captured: true, learningStatus: "stored_without_candidate" }, 200);
+
+    let publicCaseId: string | null = null;
+    const { data: priorCase, error: lookupError } = await supabase.from("diagnostic_cases").select("id")
+      .is("tenant_id", null).eq("client_session_id", sessionHash).maybeSingle();
+    if (lookupError) return jsonResponse({ error: "Could not check for an existing review case.", code: "PUBLIC_DEMO_CASE_LOOKUP_FAILED" }, 500);
+    if (priorCase?.id) {
+      publicCaseId = String(priorCase.id);
+      const { error: updateError } = await supabase.from("diagnostic_cases").update({
+        case_status: "resolved", outcome_status: "customer_reported_resolved",
+        outcome_evidence_redacted: "Visitor explicitly reported that the troubleshooting resolved the issue.",
+        last_activity_at: new Date().toISOString(), resolution_summary_redacted: answer,
+        equipment_category: category || null, manufacturer_normalized: manufacturer || null, model_normalized: model || null,
+        learning_permission_granted: true, legal_terms_version: termsVersion
+      }).eq("id", publicCaseId);
+      if (updateError) return jsonResponse({ error: "Could not update the review case.", code: "PUBLIC_DEMO_CASE_UPDATE_FAILED" }, 500);
+    } else {
+      const { data: caseRow, error: caseError } = await supabase.from("diagnostic_cases").insert({
+        tenant_id: null, client_session_id: sessionHash, case_status: "resolved",
+        outcome_status: "customer_reported_resolved",
+        outcome_evidence_redacted: "Visitor explicitly reported that the troubleshooting resolved the issue.",
+        equipment_category: category || null, manufacturer_normalized: manufacturer || null, model_normalized: model || null,
+        symptom_redacted: issue, resolution_summary_redacted: answer,
+        source_ids: ["public-demo"], technician_verified: false, approved_for_learning: false,
+        learning_permission_granted: true, legal_terms_version: termsVersion
+      }).select("id").single();
+      if (caseError || !caseRow) {
+        console.error("Public demo case creation failed", { code: caseError?.code });
+        return jsonResponse({ error: "The reported resolution was recorded, but a review case could not be created.", code: "PUBLIC_DEMO_CASE_CREATE_FAILED" }, 500);
+      }
+      publicCaseId = String(caseRow.id);
+    }
+
+    const stepText = ("Visitor issue: " + issue + "\nPoolDocAI guidance: " + answer).slice(0, 1200);
+    const { error: stepError } = await supabase.from("diagnostic_case_steps").insert({
+      case_id: publicCaseId, step_number: 1, step_type: "observation",
+      prompt_redacted: stepText, result_summary_redacted: answer, source_ids: ["public-demo"]
+    });
+    if (stepError && stepError.code !== "23505") {
+      console.error("Public demo case-step insert failed", { code: stepError.code });
+      return jsonResponse({ error: "The case exists, but its evidence step could not be saved.", code: "PUBLIC_DEMO_STEP_FAILED" }, 500);
+    }
+
+    const proposedLesson = ("Equipment: " + (category || "unspecified") + "; manufacturer: " + (manufacturer || "unspecified") +
+      "; model: " + (model || "unspecified") + ". Visitor-reported issue: " + issue + ". Guidance and reported outcome: " + answer).slice(0, 2000);
+    const { data: existingQueue, error: queueLookupError } = await supabase.from("learning_review_queue").select("id")
+      .eq("case_id", publicCaseId).eq("source_kind", "public_demo").maybeSingle();
+    if (queueLookupError) return jsonResponse({ error: "The review queue could not be checked.", code: "PUBLIC_DEMO_QUEUE_LOOKUP_FAILED" }, 500);
+    if (!existingQueue) {
+      const { error: queueError } = await supabase.from("learning_review_queue").insert({
+        case_id: publicCaseId, tenant_id: null, source_kind: "public_demo",
+        proposed_lesson_redacted: proposedLesson, supporting_source_ids: ["public-demo"], status: "pending",
+        outcome_status: "customer_reported_resolved", evidence_summary_redacted: "Explicit visitor-reported resolution; requires platform-owner technical/source review."
+      });
+      if (queueError) {
+        console.error("Public demo review queue insert failed", { code: queueError.code });
+        return jsonResponse({ error: "The review case was saved, but queueing failed.", code: "PUBLIC_DEMO_QUEUE_FAILED" }, 500);
+      }
+    }
+    return jsonResponse({ ok: true, captured: true, caseId: publicCaseId, learningStatus: "pending_platform_review" }, 200);
+  }
+
   if (action === "capture_learning_case") {
     if (body.authenticatedApp !== true || !authenticatedCompanyId || !authenticatedUserId) {
       return jsonResponse({ error: "An authenticated company login is required.", code: "AUTH_REQUIRED" }, 401);
