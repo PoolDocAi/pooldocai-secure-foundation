@@ -122,4 +122,13 @@ assert.ok(techHtml.includes('authClient?.auth?.refreshSession'), 'technician.htm
 assert.ok(techHtml.includes('item.queueCompanyId!==activeCompanyId'), 'technician.html prevents syncing jobs across company workspaces');
 assert.ok(handler.includes('body.companyId && textValue(body.companyId, 80) !== authenticatedCompanyId'), 'clever-handler rejects technician jobs for mismatched company IDs');
 
+// Group 1 regressions: widget authorization, invitation replay safety, and shared learning permissions
+assert.ok(handler.includes('code: "WIDGET_KEY_REQUIRED"'), 'widget requests require valid customerWidgetKey');
+assert.ok(handler.includes('isVerifiedAuthenticated = Boolean(authenticatedUserId && authenticatedCompanyId)'), 'authentication derived from server state');
+assert.ok(handler.includes('!isVerifiedAuthenticated && !isVerifiedWidget'), 'public guards cannot be bypassed by client flags');
+assert.ok(handler.includes('invite.status==="accepted"') && handler.indexOf('invite.status==="accepted"') < handler.indexOf('invite.status==="expired" || new Date(invite.expires_at||0).getTime()<Date.now()'), 'accepted invitations handled idempotently before expiration');
+assert.ok(handler.includes('existingMember.status !== "active"'), 'expired invite links never suspend active company members');
+assert.ok(handler.includes('code: "COMPANY_LEARNING_OPT_IN_REQUIRED"'), 'approving diagnostic learning requires governing company opt-in');
+assert.ok(handler.includes('learningStatus: "company_private"'), 'cases without explicit opt-in remain company private');
+
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");

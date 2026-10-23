@@ -1177,20 +1177,23 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     return jsonResponse({ok:true,serviceRequestId:created.id,status:created.status,createdAt:created.created_at,message:"Your request was sent to the company service queue. This does not book an appointment; the company will need to contact you."},201);
   }
 
-  // For troubleshooting turns from a tenant widget, verify website origin and explicit current consent,
+  // For diagnostic actions from a tenant widget, verify website origin and explicit current consent,
   // then derive company routing and session meter inputs from the stored widget config, never from client tenant IDs.
   const isWidgetRequest = Boolean(customerWidgetKey || body.tenantWidget === true);
-  if (isWidgetRequest && action === "troubleshoot") {
-    const widget=await loadPublicWidget(customerWidgetKey);
-    if(!widget)return jsonResponse({error:"This company widget is disabled or this website is not authorized.",code:"WIDGET_NOT_AVAILABLE"},403);
-    if(!textValue(body.sessionId,160))return jsonResponse({error:"Widget session is missing. Refresh the page and accept the current notice.",code:"WIDGET_SESSION_REQUIRED"},400);
-    tenantWidgetConfig={...widget.config,...widget.company};
-    tenantWidgetSessionHash=await hashCustomerWidgetSession(customerWidgetKey,textValue(body.sessionId,160));
-    const {data:consent,error:consentError}=await supabase.from("pooldocai_public_demo_learning_acceptances").select("session_hash")
-      .eq("session_hash",tenantWidgetSessionHash).eq("company_id",widget.company.id).eq("widget_key",customerWidgetKey)
-      .eq("acceptance_source","customer_widget").eq("terms_version","2026-10-21-v1").eq("privacy_version","2026-10-21-v1")
-      .eq("accepted_terms",true).eq("acknowledged_privacy",true).eq("acknowledged_diagnostic_learning",true).maybeSingle();
-    if(consentError||!consent)return jsonResponse({error:"Accept the current terms and privacy notice before starting this company’s troubleshooting widget.",code:"CONSENT_REQUIRED"},403);
+  if (isWidgetRequest) {
+    if (!customerWidgetKey) {
+      return jsonResponse({ error: "A valid company widget key is required.", code: "WIDGET_KEY_REQUIRED" }, 400);
+    }
+    const widget = await loadPublicWidget(customerWidgetKey);
+    if (!widget) return jsonResponse({ error: "This company widget is disabled or this website is not authorized.", code: "WIDGET_NOT_AVAILABLE" }, 403);
+    if (!textValue(body.sessionId, 160)) return jsonResponse({ error: "Widget session is missing. Refresh the page and accept the current notice.", code: "WIDGET_SESSION_REQUIRED" }, 400);
+    tenantWidgetConfig = { ...widget.config, ...widget.company };
+    tenantWidgetSessionHash = await hashCustomerWidgetSession(customerWidgetKey, textValue(body.sessionId, 160));
+    const { data: consent, error: consentError } = await supabase.from("pooldocai_public_demo_learning_acceptances").select("session_hash")
+      .eq("session_hash", tenantWidgetSessionHash).eq("company_id", widget.company.id).eq("widget_key", customerWidgetKey)
+      .eq("acceptance_source", "customer_widget").eq("terms_version", "2026-10-21-v1").eq("privacy_version", "2026-10-21-v1")
+      .eq("accepted_terms", true).eq("acknowledged_privacy", true).eq("acknowledged_diagnostic_learning", true).maybeSingle();
+    if (consentError || !consent) return jsonResponse({ error: "Accept the current terms and privacy notice before starting this company’s troubleshooting widget.", code: "CONSENT_REQUIRED" }, 403);
   }
 
   // Versioned terms/privacy acceptance for an authenticated user and a company workspace.
@@ -1371,24 +1374,35 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       const {data:userData,error:userError}=await supabase.auth.admin.getUserById(authenticatedUserId);
       const userEmail=String(userData?.user?.email||"").toLowerCase();
       if(userError||String(invite.auth_user_id||"")!==authenticatedUserId||userEmail!==String(invite.invite_email||"").toLowerCase())return jsonResponse({error:"This invitation is not addressed to the signed-in account.",code:"INVITATION_ACCOUNT_MISMATCH"},403);
-      if(invite.status==="revoked"||invite.status==="cancelled"||invite.status==="expired")return jsonResponse({error:"This invitation is no longer valid. Ask the company administrator to send a new invitation.",code:"INVITATION_NO_LONGER_VALID"},410);
-      if(new Date(invite.expires_at||0).getTime()<Date.now()){
-        await supabase.from("technician_invitation_requests").update({status:"expired"}).eq("id",invitationId);
-        await supabase.from("company_members").update({status:"suspended"}).eq("company_id",invite.company_id).eq("user_id",authenticatedUserId);
-        return jsonResponse({error:"This invitation has expired. Ask the company administrator to resend it.",code:"INVITATION_EXPIRED"},410);
-      }
-      if (body.termsAccepted !== true || body.privacyAccepted !== true) {
-        return jsonResponse({ error: "Agree to the Terms of Use and Privacy Policy to activate your account.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 400);
-      }
+      if(invite.status==="revoked"||invite.status==="cancelled")return jsonResponse({error:"This invitation is no longer valid. Ask the company administrator to send a new invitation.",code:"INVITATION_NO_LONGER_VALID"},410);
+
       const recordAccountLegalAcceptance = async () => await supabase.from("pooldocai_legal_acceptances").upsert({
         user_id: authenticatedUserId, company_id: invite.company_id,
         terms_version: "2026-10-21-v1", privacy_version: "2026-10-21-v1",
         accepted_at: new Date().toISOString(), acceptance_source: "account_creation"
       }, { onConflict: "user_id,company_id,terms_version,privacy_version", ignoreDuplicates: true });
+
+      // Idempotency: check already-accepted status before expiration logic
       if(invite.status==="accepted") {
-        const { error: legalError } = await recordAccountLegalAcceptance();
-        if (legalError) return jsonResponse({ error: "Your agreement could not be recorded. Please retry.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
+        if (body.termsAccepted === true && body.privacyAccepted === true) {
+          await recordAccountLegalAcceptance();
+        }
         return jsonResponse({ok:true,accepted:true,companyId:invite.company_id,message:"This invitation has already been accepted."},200);
+      }
+
+      if(invite.status==="expired" || new Date(invite.expires_at||0).getTime()<Date.now()){
+        if (invite.status !== "expired") {
+          await supabase.from("technician_invitation_requests").update({status:"expired"}).eq("id",invitationId);
+        }
+        // An expired link must never suspend an already-active member
+        const { data: existingMember } = await supabase.from("company_members").select("id,status").eq("company_id",invite.company_id).eq("user_id",authenticatedUserId).maybeSingle();
+        if (existingMember && existingMember.status !== "active") {
+          await supabase.from("company_members").update({status:"suspended"}).eq("id", existingMember.id);
+        }
+        return jsonResponse({error:"This invitation has expired. Ask the company administrator to resend it.",code:"INVITATION_EXPIRED"},410);
+      }
+      if (body.termsAccepted !== true || body.privacyAccepted !== true) {
+        return jsonResponse({ error: "Agree to the Terms of Use and Privacy Policy to activate your account.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 400);
       }
       const {data:company}=await supabase.from("companies").select("status,seat_limit").eq("id",invite.company_id).maybeSingle();
       if(!company||!["active","pilot"].includes(String(company.status)))return jsonResponse({error:"The company is not active for new access.",code:"COMPANY_NOT_ACTIVE"},403);
@@ -1562,6 +1576,12 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         const manualId = (item.supporting_source_ids || []).find((x: string) => !String(x).includes("#chunk-"));
         const { data: manual } = await supabase.from("company_manuals").select("id,company_id,shared_learning_opt_in").eq("id", manualId || "").maybeSingle();
         if (!manual || !manual.shared_learning_opt_in || manual.company_id !== item.tenant_id) return jsonResponse({ error: "The source company's current opt-in consent is missing. This item cannot be approved.", code: "SOURCE_CONSENT_REQUIRED" }, 403);
+      } else if (item.tenant_id) {
+        // Governing company diagnostic learning opt-in must be active before approving case learning
+        const { data: comp } = await supabase.from("companies").select("id,diagnostic_learning_opt_in").eq("id", item.tenant_id).maybeSingle();
+        if (!comp || comp.diagnostic_learning_opt_in !== true) {
+          return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
+        }
       }
       const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized").eq("id", item.case_id).maybeSingle();
       const lesson = (editedLesson || scrubPII(String(item.proposed_lesson_redacted || ""))).slice(0,4000);
@@ -1693,13 +1713,17 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     return jsonResponse({ ok: true }, 200);
   }
 
-  if (action === "photo_recognition" && body.authenticatedApp !== true) {
+  const isVerifiedAuthenticated = Boolean(authenticatedUserId && authenticatedCompanyId);
+  const isVerifiedWidget = Boolean(tenantWidgetConfig?.id && tenantWidgetConfig?.company_id);
+
+  if (action === "photo_recognition" && !isVerifiedAuthenticated) {
     return jsonResponse({ error: "Photo identification is available through the authenticated pilot. Join the waitlist for access.", code: "PHOTO_PILOT_ONLY" }, 403);
   }
 
   // Enforce a maximum of eight unique troubleshooting turns per public browser session and mode.
-  // Authenticated company requests are governed by account usage limits instead.
-  if (body.authenticatedApp !== true && body.tenantWidget !== true && action !== "save_technician_job" && action !== "public_page_view" && !["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"].includes(action)) {
+  // Authenticated company requests and verified widget requests are governed by company usage limits instead.
+  // Client-supplied flags (authenticatedApp, tenantWidget) can NEVER bypass this public guard.
+  if (!isVerifiedAuthenticated && !isVerifiedWidget && action !== "save_technician_job" && action !== "public_page_view" && !["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"].includes(action)) {
     const publicSession = textValue(body.sessionId, 160);
     const turnId = textValue(body.demoTurnId, 160);
     if (!publicSession || !turnId) return jsonResponse({ error: "Public demo session is missing. Reload the demo and try again.", code: "DEMO_SESSION_REQUIRED" }, 400);
@@ -2010,6 +2034,11 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     const model = scrubPII(textValue(body.model, 120));
     if (!issue && !answer) return jsonResponse({ ok: true, skipped: true }, 200);
     const status = textValue(body.caseStatus, 40) === "resolved" ? "resolved" : "open";
+    // Check governing company opt-in
+    const { data: comp } = await supabase.from("companies").select("diagnostic_learning_opt_in").eq("id", authenticatedCompanyId).maybeSingle();
+    const companyOptedIn = Boolean(comp?.diagnostic_learning_opt_in);
+    const caseOptedIn = body.caseLearningOptIn === true;
+
     const { data: caseRow, error: caseError } = await supabase.from("diagnostic_cases").insert({
       tenant_id: authenticatedCompanyId, case_status: status, equipment_category: category || null,
       manufacturer_normalized: manufacturer || null, model_normalized: model || null,
@@ -2019,10 +2048,16 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (caseError || !caseRow) { console.error("Learning case capture failed", { code: caseError?.code }); return jsonResponse({ error: "Could not record this troubleshooting case for review.", code: "LEARNING_CAPTURE_FAILED" }, 500); }
     const stepText = [issue ? `Reported issue: ${issue}` : "", answer ? `PoolDocAI response: ${answer}` : ""].filter(Boolean).join("\n").slice(0, 1200);
     await supabase.from("diagnostic_case_steps").insert({ case_id: caseRow.id, step_number: 1, step_type: "observation", prompt_redacted: stepText, result_summary_redacted: answer || null, source_ids: ["authenticated-troubleshooter"] });
-    const lesson = `Equipment: ${category || "unspecified"}; manufacturer: ${manufacturer || "unspecified"}; model: ${model || "unspecified"}. Issue: ${issue || "not supplied"}. Guidance/outcome: ${answer || "not supplied"}`.slice(0, 2000);
-    const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: caseRow.id, tenant_id: authenticatedCompanyId, source_kind: "authenticated_troubleshooter", proposed_lesson_redacted: lesson, supporting_source_ids: ["authenticated-troubleshooter"], status: "pending" });
-    if (queueError) { console.error("Learning review queue insert failed", { code: queueError.code }); return jsonResponse({ error: "Case saved but learning review queueing failed.", code: "LEARNING_QUEUE_FAILED", caseId: caseRow.id }, 500); }
-    return jsonResponse({ ok: true, captured: true, caseId: caseRow.id, learningStatus: "pending_privacy_review" }, 200);
+
+    // Only queue for shared learning review if BOTH governing company has opted in AND case-level opt-in was provided
+    if (companyOptedIn && caseOptedIn) {
+      const lesson = `Equipment: ${category || "unspecified"}; manufacturer: ${manufacturer || "unspecified"}; model: ${model || "unspecified"}. Issue: ${issue || "not supplied"}. Guidance/outcome: ${answer || "not supplied"}`.slice(0, 2000);
+      const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: caseRow.id, tenant_id: authenticatedCompanyId, source_kind: "authenticated_troubleshooter", proposed_lesson_redacted: lesson, supporting_source_ids: ["authenticated-troubleshooter"], status: "pending" });
+      if (queueError) { console.error("Learning review queue insert failed", { code: queueError.code }); return jsonResponse({ error: "Case saved but learning review queueing failed.", code: "LEARNING_QUEUE_FAILED", caseId: caseRow.id }, 500);
+      }
+      return jsonResponse({ ok: true, captured: true, caseId: caseRow.id, learningStatus: "pending_privacy_review" }, 200);
+    }
+    return jsonResponse({ ok: true, captured: true, caseId: caseRow.id, learningStatus: "company_private" }, 200);
   }
 
   // Image recognition is an explicit, transient action. Never persist or log image bytes.
@@ -2429,7 +2464,7 @@ MANDATORY DIAGNOSTIC ORDER:
   // workspaces additionally consume the owning tenant's grounding budget.
   const groundingCompanyId: string | null = body.authenticatedApp === true
     ? (authenticatedCompanyId ? String(authenticatedCompanyId) : null)
-    : body.tenantWidget === true
+    : (body.tenantWidget === true && isVerifiedWidget)
       ? (tenantWidgetConfig?.company_id ? String(tenantWidgetConfig.company_id) : null)
       : null;
   const groundingUserId: string | null = body.authenticatedApp === true && authenticatedUserId
