@@ -1230,7 +1230,12 @@
           await secureClient.auth.signOut();
           return;
         }
+        const activeMembership = members.find(m => {
+          const company = Array.isArray(m.companies) ? m.companies[0] : m.companies;
+          return m.status === 'active' && company && ['pilot','active'].includes(String(company.status||'').toLowerCase());
+        }) || members[0];
         APP_SESSION = session;
+        APP_SESSION.companyId = activeMembership?.company_id || null;
         document.body.classList.remove('app-auth-required');
         document.body.classList.add('secure-app-ready');
         document.getElementById('secureLoginGate').style.display='none';
@@ -1252,7 +1257,7 @@
         } catch(err){status.textContent=err?.message||'Sign-in failed. Try again.';}
         finally {btn.disabled=false;btn.textContent='Sign in and open troubleshooter';}
       });
-      document.getElementById('secureAppSignOut').addEventListener('click',async()=>{await secureClient.auth.signOut();});
+      document.getElementById('secureAppSignOut').addEventListener('click',async()=>{APP_SESSION=null;await secureClient.auth.signOut();});
       secureClient.auth.getSession().then(({data,error})=>{if(error)status.textContent=error.message; if(data?.session)void revealSecureApp(data.session);});
       secureClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>{
         if(session) void revealSecureApp(session);
@@ -5405,9 +5410,10 @@
   'use strict';
   function getStorageKey() {
     const userId = (typeof APP_SESSION !== 'undefined' && APP_SESSION?.user?.id) ? APP_SESSION.user.id : null;
+    const companyId = (typeof APP_SESSION !== 'undefined' && APP_SESSION?.companyId) ? APP_SESSION.companyId : null;
     if (typeof SECURE_APP_MODE !== 'undefined' && SECURE_APP_MODE) {
-      if (!userId) return null;
-      return 'pooldocai.authenticatedCrossTabState.' + userId + '.v1';
+      if (!userId || !companyId) return null;
+      return 'pooldocai.authenticatedCrossTabState.' + userId + '.' + companyId + '.v1';
     }
     return 'pooldocai.crossTabState.v1';
   }
@@ -5553,7 +5559,8 @@
 
   // Apply the most recent cross-tab state when a background tab is resumed or another tab updates it.
   window.addEventListener('storage', event => {
-    if (event.key !== STORAGE_KEY || !event.newValue || !document.hidden) return;
+    const currentKey = getStorageKey();
+    if (!currentKey || event.key !== currentKey || !event.newValue || !document.hidden) return;
     try { const next = JSON.parse(event.newValue); if (Number(next.updatedAt) > lastAppliedAt) applyState(next); } catch (_) {}
   });
   document.addEventListener('visibilitychange', () => {

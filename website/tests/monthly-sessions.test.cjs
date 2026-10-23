@@ -110,7 +110,9 @@ assert.ok(handler.includes('code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED"'), "webp
 
 assert.ok(handler.includes('body = record as AnyRecord;'), 'clever-handler preserves request body without global PII destruction');
 assert.ok(handler.includes('const shouldMeterAuthenticatedDiagnostic = Boolean(authenticatedUserId && authenticatedCompanyId)'), 'metering relies on verified server auth, not client-controlled flags');
-assert.ok(app.includes('pooldocai.authenticatedCrossTabState.'), 'app.html scopes cross-tab persistence to the authenticated user');
+assert.ok(app.includes('pooldocai.authenticatedCrossTabState.') && app.includes('companyId'), 'app.html scopes cross-tab persistence to both user and company');
+assert.ok(!app.includes('event.key !== STORAGE_KEY') && app.includes('event.key !== currentKey'), 'app.html eliminates undefined STORAGE_KEY reference in storage event listener');
+assert.ok(demo.includes('pooldocai.crossTabState.v1'), 'demo.html keeps public demo state isolated from authenticated cross-tab state');
 
 const stripeWebhook = fs.readFileSync(path.join(root, "supabase", "functions", "stripe-webhook", "index.ts"), "utf8");
 assert.ok(stripeWebhook.includes('solo_tech') && stripeWebhook.includes('fleet_complete'), 'Stripe webhook maps all canonical tiers');
