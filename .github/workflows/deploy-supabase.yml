@@ -49,6 +49,8 @@ jobs:
         run: node website/tests/stripe-checkout-handler.test.cjs
       - name: Test authenticated browser state teardown and cross-account isolation
         run: node website/tests/browser-isolation.test.cjs
+      - name: Test fail-closed learning approval and contributor consent verification
+        run: node website/tests/learning-consent-fail-closed.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
