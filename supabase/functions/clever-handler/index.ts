@@ -780,7 +780,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const query = textValue(body.query ?? body.message ?? body.userMessage ?? body.user_message ?? body.question ?? body.input ?? body.prompt, 5000);
   const action = textValue(body.action ?? body.action_type, 80).toLowerCase();
   const noQueryActions = new Set([
-    "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "accept_company_legal", "public_page_view", "photo_recognition",
+    "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "accept_company_legal", "accept_public_demo_learning", "get_customer_widget_config", "submit_widget_service_request", "get_company_widget_settings", "save_company_widget_settings", "rotate_company_widget_key", "public_page_view", "photo_recognition",
     "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
     "review_learning_case", "list_learning_review_queue", "review_company_document",
     "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
@@ -830,6 +830,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   let authenticatedRole: string | null = null;
   let authenticatedPermissions: { canViewJobNotes: boolean; canEditJobNotes: boolean; canUploadDocuments: boolean; canReviewDocuments: boolean } | null = null;
   let authenticatedIndustryKey = "pool";
+  let tenantWidgetConfig: AnyRecord | null = null;
+  let tenantWidgetSessionHash: string | null = null;
   let usageEventId: number | null = null;
   if (body.authenticatedApp === true) {
     const authHeader = req.headers.get("authorization") || "";
@@ -863,7 +865,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       };
       // Prevent pool-specific diagnostic/safety rules from running for an industry module that is merely planned.
       const {data:activeIndustry}=await supabase.from("industry_modules").select("industry_key,status").eq("industry_key",authenticatedIndustryKey).eq("status","active").maybeSingle();
-      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","accept_company_legal","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
+      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","accept_company_legal","accept_public_demo_learning","get_customer_widget_config","submit_widget_service_request","get_company_widget_settings","save_company_widget_settings","rotate_company_widget_key","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
         return jsonResponse({error:"This company's industry module is not active yet. PoolDocAI will not apply pool-specific troubleshooting or safety rules to an unreviewed industry.",code:"INDUSTRY_MODULE_NOT_ACTIVE",industryKey:authenticatedIndustryKey},409);
       }
       const documentAction = ["process_company_manual","import_company_webpage"].includes(action);
@@ -878,9 +880,194 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         source_event_key: crypto.randomUUID(), metadata: { authenticated: true, industry_key: authenticatedIndustryKey }
       }).select("id").maybeSingle();
       usageEventId = usageInsert.data?.id == null ? null : Number(usageInsert.data.id);
-    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "accept_company_legal", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
+    } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "accept_company_legal", "accept_public_demo_learning", "get_customer_widget_config", "submit_widget_service_request", "get_company_widget_settings", "save_company_widget_settings", "rotate_company_widget_key", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
       return jsonResponse({ error: "This login has no active membership for the selected company.", code: "COMPANY_MEMBERSHIP_REQUIRED" }, 403);
     }
+  }
+
+  // Public embedded customer widget. Each operation validates the real request Origin
+  // against a company-managed allowlist; CORS alone is not an authorization boundary.
+  const requestOrigin = (req.headers.get("origin") || "").trim();
+  const isExactWidgetOriginAllowed = (config: AnyRecord): boolean => {
+    let normalized = "";
+    try { normalized = new URL(requestOrigin).origin; } catch { return false; }
+    const origins = Array.isArray(config.allowed_origins) ? config.allowed_origins.map((v: unknown) => String(v)) : [];
+    return Boolean(requestOrigin) && normalized === requestOrigin && origins.includes(normalized);
+  };
+  const loadPublicWidget = async (widgetKey: string): Promise<{config: AnyRecord; company: AnyRecord} | null> => {
+    if (!widgetKey || widgetKey.length > 160 || !requestOrigin) return null;
+    const { data: config, error: configError } = await supabase.from("company_widget_configs")
+      .select("id,company_id,widget_key,enabled,display_name,welcome_message,accent_color,allowed_origins,service_request_enabled,logo_url")
+      .eq("widget_key", widgetKey).maybeSingle();
+    if (configError || !config || config.enabled !== true || !isExactWidgetOriginAllowed(config)) return null;
+    const { data: company, error: companyError } = await supabase.from("companies")
+      .select("id,name,status,plan_name,widget_access_enabled,subscription_access_mode,company_size_tier,monthly_session_allowance")
+      .eq("id", config.company_id).maybeSingle();
+    if (companyError || !company || !["active","pilot"].includes(String(company.status)) || company.widget_access_enabled !== true) return null;
+    return { config: config as AnyRecord, company: company as AnyRecord };
+  };
+  const hashCustomerWidgetSession = async (widgetKey: string, sessionId: string): Promise<string> => {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("pooldocai-widget-v1:" + widgetKey + ":" + sessionId));
+    return bytesToHex(new Uint8Array(digest));
+  };
+  const customerWidgetKey = textValue(body.widgetKey, 160);
+  if (action === "get_customer_widget_config") {
+    const widget = await loadPublicWidget(customerWidgetKey);
+    if (!widget) return jsonResponse({ error: "This company widget is disabled, not authorized for this website, or unavailable on its current plan.", code: "WIDGET_NOT_AVAILABLE" }, 403);
+    return jsonResponse({
+      ok: true,
+      config: {
+        displayName: textValue(widget.config.display_name,100) || "Pool Service",
+        welcomeMessage: textValue(widget.config.welcome_message,450),
+        accentColor: /^#[0-9a-f]{6}$/i.test(String(widget.config.accent_color||"")) ? widget.config.accent_color : "#075985",
+        logoUrl: typeof widget.config.logo_url === "string" && widget.config.logo_url.startsWith("https://") ? widget.config.logo_url : null,
+        serviceRequestEnabled: widget.config.service_request_enabled === true,
+        termsVersion: "2026-10-21-v1",
+        privacyVersion: "2026-10-21-v1",
+        noticeVersion: "2026-10-22-v1"
+      }
+    },200);
+  }
+
+  if (action === "accept_public_demo_learning") {
+    const sessionId = textValue(body.sessionId,160);
+    const source = textValue(body.acceptanceSource,30);
+    const mode = textValue(body.mode ?? body.demoMode ?? "homeowner",30);
+    if (source !== "customer_widget" || !sessionId) return jsonResponse({ error:"Widget consent requires its session and customer-widget source.",code:"WIDGET_CONSENT_INVALID" },400);
+    if (body.acceptTerms !== true || body.acceptPrivacy !== true || body.acknowledgeDiagnosticLearning !== true) return jsonResponse({ error:"Accept the current terms, privacy notice, and diagnostic-learning disclosure before using this widget.",code:"CONSENT_REQUIRED" },400);
+    const widget=await loadPublicWidget(customerWidgetKey);
+    if(!widget)return jsonResponse({error:"This company widget is disabled or this website is not authorized.",code:"WIDGET_NOT_AVAILABLE"},403);
+    const sessionHash=await hashCustomerWidgetSession(customerWidgetKey,sessionId);
+    const {error}=await supabase.from("pooldocai_public_demo_learning_acceptances").upsert({
+      session_hash:sessionHash,terms_version:"2026-10-21-v1",privacy_version:"2026-10-21-v1",
+      notice_version:"2026-10-22-v1",acceptance_source:"customer_widget",demo_mode:"homeowner",
+      accepted_terms:true,acknowledged_privacy:true,acknowledged_diagnostic_learning:true,
+      accepted_at:new Date().toISOString(),company_id:widget.company.id,widget_key:customerWidgetKey
+    },{onConflict:"session_hash"});
+    if(error){console.error("Customer widget consent recording failed",{code:error.code});return jsonResponse({error:"Consent could not be recorded; troubleshooting has not started.",code:"CONSENT_RECORD_FAILED"},500);}
+    return jsonResponse({ok:true,accepted:true,termsVersion:"2026-10-21-v1",privacyVersion:"2026-10-21-v1"},200);
+  }
+
+  // Company administrators control the public-widget allowlist and presentation from the portal;
+  // browser clients do not write directly to this privileged configuration row.
+  if (["get_company_widget_settings","save_company_widget_settings","rotate_company_widget_key"].includes(action)) {
+    if(body.authenticatedApp!==true||!authenticatedUserId)return jsonResponse({error:"Sign in before configuring a company widget.",code:"AUTH_REQUIRED"},401);
+    const {data:platformOwner}=await supabase.from("platform_admins").select("user_id").eq("user_id",authenticatedUserId).maybeSingle();
+    const isPlatformOwner=Boolean(platformOwner);
+    const targetCompanyId=textValue(body.companyId,80)||authenticatedCompanyId||"";
+    if(!targetCompanyId)return jsonResponse({error:"Select a company workspace.",code:"COMPANY_REQUIRED"},400);
+    if(!isPlatformOwner && (targetCompanyId!==authenticatedCompanyId || authenticatedRole!=="company_admin"))return jsonResponse({error:"Only the selected company's administrator can manage its customer widget.",code:"COMPANY_ADMIN_REQUIRED"},403);
+    const {data:company,error:companyError}=await supabase.from("companies").select("id,name,status,plan_name,widget_access_enabled,subscription_access_mode,company_size_tier").eq("id",targetCompanyId).maybeSingle();
+    if(companyError||!company)return jsonResponse({error:"Company was not found.",code:"COMPANY_NOT_FOUND"},404);
+    if(company.widget_access_enabled!==true||!["active","pilot"].includes(String(company.status)))return jsonResponse({error:"This company plan does not currently include customer-widget access.",code:"WIDGET_PLAN_REQUIRED"},403);
+    const {data:existing}=await supabase.from("company_widget_configs").select("*").eq("company_id",targetCompanyId).maybeSingle();
+    if(action==="get_company_widget_settings") {
+      const config=existing||null;
+      return jsonResponse({ok:true,config:config?{
+        id:config.id,widgetKey:config.widget_key,enabled:config.enabled===true,
+        displayName:config.display_name,welcomeMessage:config.welcome_message,accentColor:config.accent_color,
+        allowedOrigins:Array.isArray(config.allowed_origins)?config.allowed_origins:[],
+        serviceRequestEnabled:config.service_request_enabled===true,logoUrl:config.logo_url||null
+      }:null,companyName:company.name},200);
+    }
+    if(action==="rotate_company_widget_key") {
+      const {data:updated,error}=await supabase.from("company_widget_configs").upsert({
+        company_id:targetCompanyId,widget_key:crypto.randomUUID().replace(/-/g,"")+crypto.randomUUID().replace(/-/g,""),
+        enabled:false,display_name:textValue(existing?.display_name,100)||String(company.name||"Pool Service").slice(0,100),
+        welcome_message:textValue(existing?.welcome_message,450)||"Describe the pool or equipment problem and we will help you work through safe next checks.",
+        accent_color:/^#[0-9a-f]{6}$/i.test(String(existing?.accent_color||""))?existing.accent_color:"#075985",
+        allowed_origins:Array.isArray(existing?.allowed_origins)?existing.allowed_origins:[],
+        service_request_enabled:existing?.service_request_enabled===true,
+        created_by:authenticatedUserId,updated_by:authenticatedUserId,updated_at:new Date().toISOString()
+      },{onConflict:"company_id"}).select("id,widget_key").single();
+      if(error||!updated)return jsonResponse({error:"Could not rotate the widget key.",code:"WIDGET_KEY_ROTATION_FAILED"},500);
+      return jsonResponse({ok:true,widgetKey:updated.widget_key,enabled:false},200);
+    }
+    const displayName=textValue(body.displayName,100)||String(company.name||"Pool Service").slice(0,100);
+    const welcomeMessage=textValue(body.welcomeMessage,450)||"Describe the pool or equipment problem and we will help you work through safe next checks.";
+    const accentColor=textValue(body.accentColor,7)||"#075985";
+    if(!/^#[0-9a-f]{6}$/i.test(accentColor))return jsonResponse({error:"Accent color must be a six-digit hexadecimal color.",code:"WIDGET_COLOR_INVALID"},400);
+    const originsRaw=Array.isArray(body.allowedOrigins)?body.allowedOrigins:[];
+    const origins:string[]=[];
+    for(const value of originsRaw.slice(0,30)){
+      try{
+        const u=new URL(String(value));
+        if(u.origin!==String(value)||u.username||u.password||u.pathname!=="/"||u.search||u.hash||
+          (u.protocol!=="https:"&&u.hostname!=="localhost")) return jsonResponse({error:"Each allowed website must be an exact HTTPS origin (for example https://www.example.com) with no path, query or credentials.",code:"WIDGET_ORIGIN_INVALID"},400);
+        if(!origins.includes(u.origin))origins.push(u.origin);
+      }catch{return jsonResponse({error:"One of the allowed website origins is invalid.",code:"WIDGET_ORIGIN_INVALID"},400);}
+    }
+    if(body.enabled===true&&origins.length===0)return jsonResponse({error:"Add at least one allowed HTTPS website origin before enabling the widget.",code:"WIDGET_ORIGIN_REQUIRED"},400);
+    const row={
+      company_id:targetCompanyId,widget_key:existing?.widget_key||crypto.randomUUID().replace(/-/g,"")+crypto.randomUUID().replace(/-/g,""),
+      enabled:body.enabled===true,display_name:displayName,welcome_message:welcomeMessage,accent_color:accentColor,
+      allowed_origins:origins,service_request_enabled:body.serviceRequestEnabled===true,
+      email_notifications_enabled:false,notification_email:null,email_recipient_confirmed:false,
+      sms_notifications_enabled:false,notification_phone:null,sms_recipient_opt_in:false,
+      created_by:existing?.created_by||authenticatedUserId,updated_by:authenticatedUserId,updated_at:new Date().toISOString()
+    };
+    const {data:updated,error}=await supabase.from("company_widget_configs").upsert(row,{onConflict:"company_id"}).select("id,widget_key,enabled,display_name,welcome_message,accent_color,allowed_origins,service_request_enabled").single();
+    if(error||!updated){console.error("Company widget config save failed",{code:error?.code});return jsonResponse({error:"Could not save customer-widget settings.",code:"WIDGET_SETTINGS_SAVE_FAILED"},500);}
+    return jsonResponse({ok:true,config:{id:updated.id,widgetKey:updated.widget_key,enabled:updated.enabled,displayName:updated.display_name,welcomeMessage:updated.welcome_message,accentColor:updated.accent_color,allowedOrigins:updated.allowed_origins,serviceRequestEnabled:updated.service_request_enabled}},200);
+  }
+
+  // Customer-submitted service request. The website origin, company, learning consent, and
+  // rate-limit budget are verified before contact details are stored in the tenant-private queue.
+  if (action === "submit_widget_service_request") {
+    const widget=await loadPublicWidget(customerWidgetKey);
+    if(!widget||widget.config.service_request_enabled!==true)return jsonResponse({error:"Service-request handoff is unavailable for this company website.",code:"WIDGET_SERVICE_REQUEST_DISABLED"},403);
+    const sessionId=textValue(body.sessionId,160), submissionId=textValue(body.submissionId,160);
+    if(!sessionId||!submissionId)return jsonResponse({error:"The widget session or submission ID is missing. Refresh and try again.",code:"WIDGET_SESSION_REQUIRED"},400);
+    const sessionHash=await hashCustomerWidgetSession(customerWidgetKey,sessionId);
+    const {data:consent,error:consentError}=await supabase.from("pooldocai_public_demo_learning_acceptances").select("session_hash")
+      .eq("session_hash",sessionHash).eq("company_id",widget.company.id).eq("widget_key",customerWidgetKey)
+      .eq("acceptance_source","customer_widget").eq("terms_version","2026-10-21-v1").eq("privacy_version","2026-10-21-v1")
+      .eq("accepted_terms",true).eq("acknowledged_privacy",true).eq("acknowledged_diagnostic_learning",true).maybeSingle();
+    if(consentError||!consent)return jsonResponse({error:"Agree to the current terms and privacy notice before requesting service.",code:"CONSENT_REQUIRED"},403);
+    const name=textValue(body.requesterName,120);
+    const email=textValue(body.requesterEmail,254).toLowerCase();
+    const phone=textValue(body.requesterPhone,40);
+    const address=textValue(body.serviceAddress,300);
+    const equipment=scrubPII(textValue(body.equipmentSummary,700)).slice(0,700);
+    const issue=scrubPII(textValue(body.issueSummary,1800)).slice(0,1800);
+    if(!name||(!email&&!phone)|| (email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return jsonResponse({error:"Enter your name and either a valid email address or a phone number.",code:"REQUESTER_CONTACT_REQUIRED"},400);
+    const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("widget-submission:"+customerWidgetKey+":"+submissionId));
+    const idempotencyKey=bytesToHex(new Uint8Array(digest));
+    const {data:cached,error:cacheError}=await supabase.from("service_requests").select("id,status,created_at").eq("company_id",widget.company.id).eq("public_idempotency_key",idempotencyKey).maybeSingle();
+    if(!cacheError&&cached)return jsonResponse({ok:true,serviceRequestId:cached.id,status:cached.status,alreadySubmitted:true},200);
+    const {data:budget,error:budgetError}=await supabase.rpc("pooldocai_consume_widget_service_request",{p_session_hash:sessionHash,p_max_requests:2,p_max_daily_requests:5});
+    if(budgetError)return jsonResponse({error:"Service-request rate protection is temporarily unavailable; no request was created.",code:"SERVICE_REQUEST_GUARD_UNAVAILABLE"},503);
+    const budgetRow=Array.isArray(budget)?budget[0]:budget;
+    if(!budgetRow||budgetRow.allowed!==true)return jsonResponse({error:"This browser has reached its service-request limit. Please contact the company directly.",code:"SERVICE_REQUEST_LIMIT_REACHED",retryAfterSeconds:budgetRow?.retry_after_seconds||3600},429);
+    const rawConversation=Array.isArray(body.conversation)?body.conversation.slice(-16):[];
+    const conversation=rawConversation.map((turn:unknown)=>{
+      const v=objectValue(turn)||{};
+      return {role:textValue(v.role,20)==="assistant"?"assistant":"user",text:scrubPII(textValue(v.text??v.content,1200)).slice(0,1200)};
+    }).filter((turn:AnyRecord)=>turn.text);
+    const summary=[equipment,issue].filter(Boolean).join(" — ").slice(0,2000);
+    const {data:created,error:createError}=await supabase.from("service_requests").insert({
+      company_id:widget.company.id,created_by:null,status:"open",priority:"normal",request_summary:summary,
+      source_type:"customer_widget",requester_name:name,requester_email:email||null,requester_phone:phone||null,
+      service_address:address||null,equipment_summary:equipment||null,troubleshooting_summary:issue||null,
+      conversation_redacted:conversation,widget_config_id:widget.config.id,public_idempotency_key:idempotencyKey
+    }).select("id,status,created_at").single();
+    if(createError||!created){console.error("Customer widget service request insert failed",{code:createError?.code});return jsonResponse({error:"We could not save the service request. Please try again or contact the company directly.",code:"SERVICE_REQUEST_CREATE_FAILED"},500);}
+    return jsonResponse({ok:true,serviceRequestId:created.id,status:created.status,createdAt:created.created_at,message:"Your request was sent to the company service queue. This does not book an appointment; the company will need to contact you."},201);
+  }
+
+  // For troubleshooting turns from a tenant widget, verify website origin and explicit current consent,
+  // then derive company routing and session meter inputs from the stored widget config, never from client tenant IDs.
+  if (body.tenantWidget === true && action === "troubleshoot") {
+    const widget=await loadPublicWidget(customerWidgetKey);
+    if(!widget)return jsonResponse({error:"This company widget is disabled or this website is not authorized.",code:"WIDGET_NOT_AVAILABLE"},403);
+    if(!textValue(body.sessionId,160))return jsonResponse({error:"Widget session is missing. Refresh the page and accept the current notice.",code:"WIDGET_SESSION_REQUIRED"},400);
+    tenantWidgetConfig={...widget.config,...widget.company};
+    tenantWidgetSessionHash=await hashCustomerWidgetSession(customerWidgetKey,textValue(body.sessionId,160));
+    const {data:consent,error:consentError}=await supabase.from("pooldocai_public_demo_learning_acceptances").select("session_hash")
+      .eq("session_hash",tenantWidgetSessionHash).eq("company_id",widget.company.id).eq("widget_key",customerWidgetKey)
+      .eq("acceptance_source","customer_widget").eq("terms_version","2026-10-21-v1").eq("privacy_version","2026-10-21-v1")
+      .eq("accepted_terms",true).eq("acknowledged_privacy",true).eq("acknowledged_diagnostic_learning",true).maybeSingle();
+    if(consentError||!consent)return jsonResponse({error:"Accept the current terms and privacy notice before starting this company’s troubleshooting widget.",code:"CONSENT_REQUIRED"},403);
   }
 
   // Versioned terms/privacy acceptance for an authenticated user and a company workspace.
@@ -1369,7 +1556,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Enforce a maximum of eight unique troubleshooting turns per public browser session and mode.
   // Authenticated company requests are governed by account usage limits instead.
-  if (body.authenticatedApp !== true && action !== "save_technician_job" && action !== "public_page_view") {
+  if (body.authenticatedApp !== true && body.tenantWidget !== true && action !== "save_technician_job" && action !== "public_page_view") {
     const publicSession = textValue(body.sessionId, 160);
     const turnId = textValue(body.demoTurnId, 160);
     if (!publicSession || !turnId) return jsonResponse({ error: "Public demo session is missing. Reload the demo and try again.", code: "DEMO_SESSION_REQUIRED" }, 400);
@@ -1405,19 +1592,21 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Company plans have a separate pooled monthly cap counted once per diagnostic case,
   // not once per assistant turn. The RPC is service-role-only and returns only aggregate usage.
-  const shouldMeterCompanyDiagnostic = body.authenticatedApp === true && Boolean(authenticatedCompanyId) &&
+  const shouldMeterAuthenticatedDiagnostic = body.authenticatedApp === true && Boolean(authenticatedCompanyId) &&
     (action === "troubleshoot" || action === "photo_recognition" || (!noQueryActions.has(action) && Boolean(query.trim())));
-  if (shouldMeterCompanyDiagnostic) {
-    const diagnosticSessionId = textValue(body.diagnosticSessionId, 160);
+  const shouldMeterWidgetDiagnostic = body.tenantWidget === true && action === "troubleshoot" && Boolean(tenantWidgetConfig?.id && tenantWidgetConfig?.company_id);
+  if (shouldMeterAuthenticatedDiagnostic || shouldMeterWidgetDiagnostic) {
+    const companyIdForMeter = shouldMeterAuthenticatedDiagnostic ? String(authenticatedCompanyId) : String(tenantWidgetConfig?.company_id);
+    const diagnosticSessionId = textValue(body.diagnosticSessionId ?? (shouldMeterWidgetDiagnostic ? body.sessionId : ""), 160);
     if (!diagnosticSessionId) {
       return jsonResponse({ error: "The diagnostic session identifier is missing. Start a new troubleshooting conversation.", code: "DIAGNOSTIC_SESSION_ID_REQUIRED" }, 400);
     }
-    const caseDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(authenticatedCompanyId + ":" + diagnosticSessionId));
+    const caseDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(companyIdForMeter + ":" + diagnosticSessionId));
     const caseSessionHash = Array.from(new Uint8Array(caseDigest)).map((b) => b.toString(16).padStart(2, "0")).join("");
     const { data: monthlyUsageData, error: monthlyUsageError } = await supabase.rpc("pooldocai_consume_company_monthly_session", {
-      p_company_id: authenticatedCompanyId,
+      p_company_id: companyIdForMeter,
       p_session_hash: caseSessionHash,
-      p_session_mode: "technician",
+      p_session_mode: shouldMeterWidgetDiagnostic ? "homeowner" : "technician",
     });
     if (monthlyUsageError) {
       console.error("Company pooled-session quota check failed closed", { code: monthlyUsageError.code });
