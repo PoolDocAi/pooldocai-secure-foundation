@@ -154,7 +154,7 @@ const industryCatalogDeclarationIndex = backend.indexOf('let industryCatalogRows
 assert.notEqual(industryCatalogDeclarationIndex, -1, 'industry catalog rows need a handler-scope declaration');
 assert.equal(
   backend.indexOf('industryCatalogRows'),
-  industryCatalogDeclarationIndex,
+  industryCatalogDeclarationIndex + 'let '.length,
   'industryCatalogRows must not be referenced before its declaration (avoids temporal-dead-zone ReferenceError)'
 );
 const initialModelFamiliesIndex = backend.indexOf('let modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);');
