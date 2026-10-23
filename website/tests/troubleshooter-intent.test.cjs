@@ -117,12 +117,19 @@ for (const relativePath of htmlFiles) {
   assert.match(html, /REQUEST A POOL SERVICE TECHNICIAN/, `${relativePath} lacks a prominent technician-service CTA`);
   assert.match(html, /min-h-\[80px\].*text-xl sm:text-2xl/, `${relativePath} technician CTA may be too small for accessible viewing`);
   assert.match(html, /text-3xl sm:text-4xl font-black/, `${relativePath} technician recommendation heading is not large-print`);
-  assert.match(html, /serviceHelpAvailable: true/, `${relativePath} connection-failure fallback does not expose technician help`);
+  assert.match(html, /serviceHelpAvailable: !techMode/, `${relativePath} should expose the generic service handoff only in homeowner mode after a failed lookup`);
+  assert.match(html, /serviceHelpAvailable: currentSurfaceMode !== 'tech'/, `${relativePath} must suppress generic service CTAs in field-tech mode`);
+  assert.match(html, /FIELD-TECH DIAGNOSTIC CONTINUATION/, `${relativePath} should continue technician diagnosis instead of ending at a generic escalation`);
+  assert.match(html, /retrying once before safe fallback/, `${relativePath} should retry a failed technician-mode lookup once`);
+  assert.match(html, /PUMP RUNNING, BUT FLOW IS WEAK/, `${relativePath} should distinguish weak-flow symptoms from a pump that will not start`);
   assert.match(html, /FIRST SAFE CHECK/, `${relativePath} connection-failure fallback lacks a concrete safe first step`);
   assert.match(html, /A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP/, `${relativePath} needs a direct, plain-language technician recommendation`);
   assert.match(html, /technicianRecommended: true/, `${relativePath} should surface a prominent card before the service handoff`);
-  const escalationBranch = sliceBetween(html, 'if (responseObj.requires_technician === true', 'const metadataOnlyResult = isMetadataOnlyKbResponse(payload)');
-  assert.match(escalationBranch, /technicianRecommended: true/, `${relativePath} should mark final escalation as prominent`);
+  const escalationBranch = sliceBetween(html, 'const requiresTechnician =', 'const metadataOnlyResult = isMetadataOnlyKbResponse(payload)');
+  assert.match(escalationBranch, /if \(requiresTechnician && currentSurfaceMode !== 'tech'\)/, `${relativePath} should keep homeowner service escalation`);
+  assert.match(escalationBranch, /if \(requiresTechnician && currentSurfaceMode === 'tech'\)/, `${relativePath} should continue diagnosis in field-tech mode`);
+  assert.match(escalationBranch, /explicitCriticalStop/, `${relativePath} must preserve explicit critical safety stops`);
+  assert.match(escalationBranch, /technicianRecommended: true/, `${relativePath} should mark homeowner service escalation as prominent`);
   assert.doesNotMatch(escalationBranch, /buildTechnicianEscalationTurn\(/, `${relativePath} should show the accessible recommendation before opening the handoff form`);
 }
 
