@@ -4589,8 +4589,12 @@
         // that says “never mix acid and chlorine” is a safety warning, not an instruction to mix.
         const cautionRiskText = cautionText
           .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]?/gi, ' ')
-          .replace(/\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,40}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ');
-        const cautionIsHighRisk = /(gas line|gas valve|gas leak|gas.{0,40}(repair|adjust|test|disconnect|reconnect)|live wire|electrical (panel|work|repair|test|wiring|connection)|breaker panel|open.{0,25}(breaker|electrical|control) panel|reset.{0,20}breaker|voltage test|test.{0,30}(voltage|continuity|amperage)|capacitor|open.{0,20}(filter|pump|heater|motor|control panel)|pressuri[sz]ed|pressure vessel|filter tank|combustion|ignition assembly|burner|refrigerant|sealed system|remove.{0,20}(pressure|filter lid|pump lid)|repair.{0,30}(motor|heater|gas|electrical|wiring)|replace.{0,30}(capacitor|igniter|burner|refrigerant|electrical))/i.test(cautionRiskText) || isDangerousChemicalMixInstruction(cautionRiskText);
+          .replace(/\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,40}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ')
+          // Safety prohibitions and cautionary examples are not instructions to perform the action.
+          .replace(/\b(?:never|do not|don't|must not|should not|avoid)\s+(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on|reset)\b[^.!?]{0,180}[.!?]?/gi, ' ');
+        // Require an affirmative hazardous action. Component names alone (e.g. "capacitor")
+        // must not turn a safe pump triage question into a homeowner safety hold.
+        const cautionIsHighRisk = /\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on|reset)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring|pressure vessel|filter tank|sealed system)\b/i.test(cautionRiskText) || isDangerousChemicalMixInstruction(cautionRiskText);
         const isLatest = index === conversationHistory.length - 1;
         let specialControlHtml = '';
         const serviceCtaIsRecommended = step.technicianRecommended === true;
@@ -5478,6 +5482,13 @@
 })();
 </script>
 <script src="/js/pwa-install.js" defer></script><script src="/js/core.js" defer></script>
-<script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
+<script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();// Account-portal deep links open the same conversation surface in field-technician mode.
+// The public /demo route has no mode query and continues to default to homeowner triage.
+if (new URLSearchParams(window.location.search).get('mode') === 'tech') {
+  window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('modeTechBtn')?.click();
+  }, { once: true });
+}
+</script>
 </body>
 </html>
