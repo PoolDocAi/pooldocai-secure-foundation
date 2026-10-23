@@ -126,3 +126,21 @@ BEGIN
     RAISE EXCEPTION 'anonymous clients can invoke temporary_access_is_valid';
   END IF;
 END $$;
+
+
+-- Explicit company learning consent changes must be audited and must not be a client-callable RPC.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid='public.companies'::regclass
+      AND tgname='companies_diagnostic_learning_consent_audit'
+      AND NOT tgisinternal AND tgenabled <> 'D'
+  ) THEN
+    RAISE EXCEPTION 'company diagnostic-learning consent audit trigger is missing or disabled';
+  END IF;
+  IF has_function_privilege('anon','public.pooldocai_audit_diagnostic_learning_consent()','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_audit_diagnostic_learning_consent()','execute') THEN
+    RAISE EXCEPTION 'trigger-only diagnostic consent audit function is callable through the client API';
+  END IF;
+END $$;
