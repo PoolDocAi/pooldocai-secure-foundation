@@ -106,6 +106,7 @@ assert.equal(helpers.isSpecificSymptomDescription('heater isnt heeting', null), 
 
 for (const relativePath of htmlFiles) {
   const html = fs.readFileSync(path.join(bundleRoot, relativePath), 'utf8');
+  assert.doesNotMatch(html, /\\\$\{(?:replyText|getLocalTroubleshootingFallback\(userText\)|fallback)\}/, relativePath + ' contains an escaped interpolation placeholder');
   assert.match(html, /function normalizeConversationalText\(rawText\)/, `${relativePath} missing conversational normalization`);
   assert.match(html, /sessionContext\.lastUserObservation = q\.slice\(0, 600\)/, `${relativePath} does not preserve each latest typed observation`);
   assert.match(html, /normalizedLatestUserMessage: String\(sessionContext\.normalizedLatestUserMessage \|\| normalizeConversationalText\(userText\)\)/, `${relativePath} does not pass normalized language for continued turns`);
