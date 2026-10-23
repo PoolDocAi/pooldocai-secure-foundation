@@ -7,6 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Keep only the newest CI run for a PR branch active; Supabase test containers are resource-heavy.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   migration-and-worker-checks:
     runs-on: ubuntu-24.04
@@ -26,9 +31,15 @@ jobs:
 
       - name: Validate document worker syntax
         run: node --check document-worker/src/server.js
+      - name: Test worker SSRF and webhook boundaries
+        run: node document-worker/tests/network-webhook-boundary.test.cjs
 
-      - name: Test conversational troubleshooting routing
+      - name: Test conversational troubleshooting routing and script parsing
         run: node website/tests/troubleshooter-intent.test.cjs
+      - name: Test troubleshooter safety stop reasonable boundaries
+        run: node website/tests/safety-stop.test.cjs
+      - name: Test monthly session entitlements, technician sync, and trial RPC scope
+        run: node website/tests/monthly-sessions.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |

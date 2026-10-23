@@ -34,11 +34,11 @@ jobs:
       - name: Test worker SSRF and webhook boundaries
         run: node document-worker/tests/network-webhook-boundary.test.cjs
 
-      - name: Test conversational troubleshooting routing
+      - name: Test conversational troubleshooting routing and script parsing
         run: node website/tests/troubleshooter-intent.test.cjs
       - name: Test troubleshooter safety stop reasonable boundaries
         run: node website/tests/safety-stop.test.cjs
-      - name: Test monthly session entitlements and trial RPC scope
+      - name: Test monthly session entitlements, technician sync, and trial RPC scope
         run: node website/tests/monthly-sessions.test.cjs
 
       - name: Validate Edge Function TypeScript syntax

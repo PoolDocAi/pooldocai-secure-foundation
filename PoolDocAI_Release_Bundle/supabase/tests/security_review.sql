@@ -21,6 +21,28 @@ begin
   if exists (select 1 from pg_policies where schemaname='public' and tablename='companies' and policyname='companies_update_admin' and cmd='UPDATE' and qual ilike '%is_company_admin%') then raise exception 'company admins must not be able to edit subscription-level company controls'; end if;
   if not exists (select 1 from pg_policies where schemaname='public' and tablename='companies' and policyname='companies_insert_platform_owner' and cmd='INSERT' and with_check ilike '%is_platform_admin%') then raise exception 'platform-owner-only company creation policy missing'; end if;
   if has_table_privilege('anon','public.companies','insert') then raise exception 'anon can insert company subscriptions'; end if;
+  -- Trigger-only SECURITY DEFINER functions must not be exposed as client RPCs.
+  if has_function_privilege('anon','public.enforce_company_seat_limit()','execute')
+     or has_function_privilege('authenticated','public.enforce_company_seat_limit()','execute') then
+    raise exception 'trigger-only seat-limit function is directly executable by API roles';
+  end if;
+  if has_function_privilege('anon','public.protect_company_plan_fields()','execute')
+     or has_function_privilege('authenticated','public.protect_company_plan_fields()','execute') then
+    raise exception 'trigger-only company-plan guard is directly executable by API roles';
+  end if;
+  if has_function_privilege('anon','public.pooldocai_audit_initial_document_consent()','execute')
+     or has_function_privilege('authenticated','public.pooldocai_audit_initial_document_consent()','execute') then
+    raise exception 'trigger-only consent audit function is directly executable by API roles';
+  end if;
+  if not exists (select 1 from pg_trigger where tgrelid='public.company_members'::regclass and tgname='company_member_seat_limit' and not tgisinternal and tgenabled <> 'D') then
+    raise exception 'seat-limit trigger was damaged by execute-privilege hardening';
+  end if;
+  if not exists (select 1 from pg_trigger where tgrelid='public.companies'::regclass and tgname='protect_company_plan_fields' and not tgisinternal and tgenabled <> 'D') then
+    raise exception 'company plan protection trigger was damaged by execute-privilege hardening';
+  end if;
+  if not exists (select 1 from pg_trigger where tgrelid='public.company_manuals'::regclass and tgname='company_manuals_initial_consent_audit' and not tgisinternal and tgenabled <> 'D') then
+    raise exception 'initial document consent audit trigger was damaged by execute-privilege hardening';
+  end if;
   if not exists (select 1 from pg_trigger where tgrelid='public.company_members'::regclass and tgname='company_member_default_permissions_insert' and not tgisinternal) then raise exception 'company member default insert trigger missing'; end if;
   if not exists (select 1 from pg_trigger where tgrelid='public.company_members'::regclass and tgname='company_member_self_change_guard' and not tgisinternal) then raise exception 'company member self-change guard missing'; end if;
   if has_table_privilege('authenticated','public.company_member_access_audit','insert') then raise exception 'authenticated can forge member access audit history'; end if;
@@ -92,3 +114,33 @@ begin
     null;
   end;
 end $$;
+
+-- Temporary-account validity RPC is required by restrictive RLS policies, but must not
+-- reveal or validate another user's temporary-access state.
+DO $$
+BEGIN
+  IF position('p_user_id is distinct from (select auth.uid())' IN lower(pg_get_functiondef('public.temporary_access_is_valid(uuid)'::regprocedure))) = 0 THEN
+    RAISE EXCEPTION 'temporary_access_is_valid must deny arbitrary cross-user ID checks';
+  END IF;
+  IF has_function_privilege('anon','public.temporary_access_is_valid(uuid)','execute') THEN
+    RAISE EXCEPTION 'anonymous clients can invoke temporary_access_is_valid';
+  END IF;
+END $$;
+
+
+-- Explicit company learning consent changes must be audited and must not be a client-callable RPC.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid='public.companies'::regclass
+      AND tgname='companies_diagnostic_learning_consent_audit'
+      AND NOT tgisinternal AND tgenabled <> 'D'
+  ) THEN
+    RAISE EXCEPTION 'company diagnostic-learning consent audit trigger is missing or disabled';
+  END IF;
+  IF has_function_privilege('anon','public.pooldocai_audit_diagnostic_learning_consent()','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_audit_diagnostic_learning_consent()','execute') THEN
+    RAISE EXCEPTION 'trigger-only diagnostic consent audit function is callable through the client API';
+  END IF;
+END $$;

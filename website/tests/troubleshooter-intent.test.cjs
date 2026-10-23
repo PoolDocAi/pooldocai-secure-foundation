@@ -189,8 +189,11 @@ assert.ok(refreshedModelFamiliesIndex > industryCatalogLoadIndex, 'model-family 
 const systemPromptIndex = backend.indexOf('const systemPrompt = `You are PoolDocAI');
 assert.ok(systemPromptIndex > refreshedModelFamiliesIndex, 'the system prompt should be composed after catalog-backed model suggestions are refreshed');
 const vm = require('node:vm');
-// Regression guard: Verify all inline scripts parse as executable JavaScript without SyntaxError.
-for (const relPath of htmlFiles) {
+// Regression guard: Verify all inline scripts across all website HTML pages parse as executable JavaScript without SyntaxError.
+const allHtmlFiles = fs.readdirSync(path.join(bundleRoot, 'website'))
+  .filter(f => f.endsWith('.html'))
+  .map(f => path.join('website', f));
+for (const relPath of allHtmlFiles) {
   const content = fs.readFileSync(path.join(bundleRoot, relPath), 'utf8');
   const scripts = content.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
   scripts.forEach((tag, idx) => {

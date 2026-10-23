@@ -1,14 +1,49 @@
 name: Deploy Supabase Edge Function
 on:
   workflow_dispatch:
-  push:
+  workflow_run:
+    workflows: ["PoolDocAI security and migration tests"]
     branches: [main]
-    paths:
-      - 'supabase/functions/clever-handler/**'
-      - 'supabase/functions/stripe-webhook/**'
-      - 'supabase/migrations/**'
+    types:
+      - completed
+
 jobs:
+  pre-deploy-validation:
+    name: Verify release checks before deployment
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Validate document worker syntax
+        run: node --check document-worker/src/server.js
+
+      - name: Test worker SSRF and webhook boundaries
+        run: node document-worker/tests/network-webhook-boundary.test.cjs
+
+      - name: Test conversational troubleshooting routing and script parsing
+        run: node website/tests/troubleshooter-intent.test.cjs
+
+      - name: Test troubleshooter safety stop reasonable boundaries
+        run: node website/tests/safety-stop.test.cjs
+
+      - name: Test monthly session entitlements, technician sync, and trial RPC scope
+        run: node website/tests/monthly-sessions.test.cjs
+
+      - name: Validate Edge Function TypeScript syntax
+        run: |
+          npx --yes esbuild supabase/functions/clever-handler/index.ts --bundle --format=esm --outfile=/tmp/clever-handler-check.js --external:npm:*
+          npx --yes esbuild supabase/functions/stripe-webhook/index.ts --bundle --format=esm --outfile=/tmp/stripe-webhook-check.js --external:npm:*
+
   deploy:
+    name: Deploy to Supabase
+    needs: [pre-deploy-validation]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

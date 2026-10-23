@@ -83,7 +83,7 @@ async function geminiEmbedding(text: string, taskType: "RETRIEVAL_QUERY" | "RETR
     return `[${vals.join(",")}]`;
   } catch { return null; }
 }
-async function utcMonthStartDate(): string { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
+function utcMonthStartDate(): string { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
 
 async function recordModelUsage(supabase: ReturnType<typeof createClient>, companyId: string | null, userId: string | null, model: string, usage: AnyRecord | null, eventType = "ai_request", eventKey?: string) {
   const inputTokens = Number(usage?.input_tokens ?? usage?.promptTokenCount ?? usage?.prompt_token_count ?? 0) || 0;
@@ -821,7 +821,7 @@ async function recordGroundingUsage(
       estimated_cost_usd: estimatedCostUsd,
       cost_source: estimatedCostUsd == null ? "not_priced" : "rate_card_estimate",
       source_event_key: `grounding:${reservationId}`,
-      period_start: await utcMonthStartDate(),
+      period_start: utcMonthStartDate(),
       metadata: { pricing_unit: pricingUnit, price_estimated_from_rate_card: estimatedCostUsd != null },
     });
     if (error && error.code !== "23505") console.warn("Google Search grounding usage metering failed", { code: error.code });
@@ -839,7 +839,7 @@ Deno.serve(async (req: Request) => {
     const parsed = await req.json();
     const record = objectValue(parsed);
     if (!record) return jsonResponse({ error: "Request body must be a JSON object.", code: "INVALID_JSON_BODY" }, 400);
-    body = scrubObject(record) as AnyRecord;
+    body = record as AnyRecord;
   } catch {
     return jsonResponse({ error: "Request body must contain valid JSON.", code: "INVALID_JSON" }, 400);
   }
@@ -1179,7 +1179,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // For troubleshooting turns from a tenant widget, verify website origin and explicit current consent,
   // then derive company routing and session meter inputs from the stored widget config, never from client tenant IDs.
-  if (body.tenantWidget === true && action === "troubleshoot") {
+  const isWidgetRequest = Boolean(customerWidgetKey || body.tenantWidget === true);
+  if (isWidgetRequest && action === "troubleshoot") {
     const widget=await loadPublicWidget(customerWidgetKey);
     if(!widget)return jsonResponse({error:"This company widget is disabled or this website is not authorized.",code:"WIDGET_NOT_AVAILABLE"},403);
     if(!textValue(body.sessionId,160))return jsonResponse({error:"Widget session is missing. Refresh the page and accept the current notice.",code:"WIDGET_SESSION_REQUIRED"},400);
@@ -1628,6 +1629,12 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       if (body.sharedLearningOptIn === true && !isPlatformActor && authenticatedRole !== "company_admin") {
         return jsonResponse({ error: "Only a company administrator can opt a webpage into shared learning.", code: "COMPANY_ADMIN_REQUIRED" }, 403);
       }
+      if (body.rightsAttested !== true) {
+        return jsonResponse({ error: "You must affirmatively attest that you hold sufficient rights to import and process this webpage.", code: "RIGHTS_ATTESTATION_REQUIRED" }, 400);
+      }
+      if (body.sharedLearningOptIn === true && body.generalLearningRightsAttested !== true) {
+        return jsonResponse({ error: "You must affirmatively attest that you hold sufficient rights for shared knowledge before opting in.", code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED" }, 400);
+      }
       try {
         const parsedUrl = new URL(url);
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: "Only public HTTP or HTTPS webpages can be imported.", code: "WEBPAGE_URL_INVALID" }, 400);
@@ -1728,9 +1735,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Company plans have a separate pooled monthly cap counted once per diagnostic case,
   // not once per assistant turn. The RPC is service-role-only and returns only aggregate usage.
-  const shouldMeterAuthenticatedDiagnostic = body.authenticatedApp === true && Boolean(authenticatedCompanyId) &&
+  const shouldMeterAuthenticatedDiagnostic = Boolean(authenticatedUserId && authenticatedCompanyId) &&
     (action === "troubleshoot" || action === "photo_recognition" || (!noQueryActions.has(action) && Boolean(query.trim())));
-  const shouldMeterWidgetDiagnostic = body.tenantWidget === true && action === "troubleshoot" && Boolean(tenantWidgetConfig?.id && tenantWidgetConfig?.company_id);
+  const shouldMeterWidgetDiagnostic = Boolean(tenantWidgetConfig?.id && tenantWidgetConfig?.company_id) &&
+    (action === "troubleshoot" || action === "photo_recognition" || (!noQueryActions.has(action) && Boolean(query.trim())));
   if (shouldMeterAuthenticatedDiagnostic || shouldMeterWidgetDiagnostic) {
     const companyIdForMeter = shouldMeterAuthenticatedDiagnostic ? String(authenticatedCompanyId) : String(tenantWidgetConfig?.company_id);
     const diagnosticSessionId = textValue(body.diagnosticSessionId ?? (shouldMeterWidgetDiagnostic ? body.sessionId : ""), 160);
@@ -1770,6 +1778,9 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   // Technician close-out: persistent case data always requires individual Supabase Auth.
   if (action === "save_technician_job") {
     if (!authenticatedCompanyId || !authenticatedUserId || !(authenticatedRole === "company_admin" || authenticatedPermissions?.canEditJobNotes === true)) return jsonResponse({ error: "Your company account does not have permission to edit job notes. Ask the company admin to enable that seat permission.", code: "JOB_NOTE_EDIT_PERMISSION_REQUIRED" }, 403);
+    if (body.companyId && textValue(body.companyId, 80) !== authenticatedCompanyId) {
+      return jsonResponse({ error: "The queued job belongs to a different company workspace.", code: "TENANT_MISMATCH" }, 403);
+    }
     const notes = textValue(body.diagnosticNotes, 4000);
     const resolution = textValue(body.resolution, 3000);
     const complaint = textValue(body.complaint, 1500);
@@ -2408,7 +2419,7 @@ MANDATORY DIAGNOSTIC ORDER:
     const { error: publicUsageError } = await supabase.from("platform_usage_events").insert({
       company_id: null, user_id: null, event_type: publicAction, units: 1, metric_type: "public_api_request",
       quantity: 1, quantity_unit: "request", provider: "google_gemini", cost_source: "not_priced",
-      period_start: await utcMonthStartDate(), source_event_key: crypto.randomUUID(),
+      period_start: utcMonthStartDate(), source_event_key: crypto.randomUUID(),
       metadata: { authenticated: false, surface: "public_demo", query_length: query.length }
     });
     if (publicUsageError) console.warn("Public API usage metering unavailable", { code: publicUsageError.code });
