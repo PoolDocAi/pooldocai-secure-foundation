@@ -3898,6 +3898,8 @@
         }
 
         if (requiresTechnician && currentSurfaceMode === 'tech') {
+          // FIELD-TECH DIAGNOSTIC CONTINUATION: a generic escalation does not end field diagnosis.
+          // Keep diagnosing against available source material unless a real critical safety stop applies.
           // Do not let a generic backend escalation end field diagnosis. Be transparent
           // about the source gap and give the technician a safe observation to report.
           replyText = getTechnicianModeFallback(userText, 'manual/web source lookup') + '\n\nReport the visible readings/status and retry the next diagnostic step. Do not bypass a genuine safety stop.';
