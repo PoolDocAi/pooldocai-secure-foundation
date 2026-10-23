@@ -149,6 +149,53 @@ function createHarness() {
         }
 
         throw new Error(`Unexpected table in webhook test: ${table}`);
+      },
+
+      rpc(funcName, params) {
+        if (funcName === "pooldocai_claim_stripe_webhook_event") {
+          const eventId = params.p_event_id;
+          const eventType = params.p_event_type;
+          const timeoutSec = params.p_lock_timeout_seconds || 60;
+          const maxAttempts = params.p_max_attempts || 5;
+          const nowMs = Date.now();
+
+          let row = tables.pooldocai_stripe_webhook_events.get(eventId);
+          if (!row) {
+            row = {
+              stripe_event_id: eventId,
+              event_type: eventType,
+              processed: false,
+              attempts: 0,
+              claimed_at: null,
+              processing_error: null
+            };
+            tables.pooldocai_stripe_webhook_events.set(eventId, row);
+          }
+
+          if (row.processed) {
+            return Promise.resolve({ data: { status: "already_processed", processed: true, duplicate: true }, error: null });
+          }
+
+          if (row.claimed_at) {
+            const elapsedSec = (nowMs - new Date(row.claimed_at).getTime()) / 1000;
+            if (elapsedSec < timeoutSec) {
+              const retryAfter = Math.max(1, Math.ceil(timeoutSec - elapsedSec));
+              return Promise.resolve({ data: { status: "in_progress", retry_after: retryAfter, attempts: row.attempts }, error: null });
+            }
+          }
+
+          if (row.attempts >= maxAttempts) {
+            return Promise.resolve({ data: { status: "max_attempts_exceeded", attempts: row.attempts, processing_error: row.processing_error }, error: null });
+          }
+
+          row.claimed_at = new Date(nowMs).toISOString();
+          row.attempts = (row.attempts || 0) + 1;
+          row.event_type = eventType;
+          row.processing_error = null;
+
+          return Promise.resolve({ data: { status: "claimed", attempts: row.attempts }, error: null });
+        }
+        throw new Error(`Unexpected RPC in test harness: ${funcName}`);
       }
     };
   };
@@ -283,7 +330,9 @@ async function runExecutableWebhookTests() {
     harness.tables.pooldocai_stripe_webhook_events.set(eventId, {
       stripe_event_id: eventId,
       event_type: "customer.subscription.updated",
-      processed: false
+      processed: false,
+      claimed_at: new Date().toISOString(),
+      attempts: 1
     });
     const payload = JSON.stringify({ id: eventId, type: "customer.subscription.updated", data: { object: { id: "sub_concurrent" } } });
     const sig = signPayload(payload, WEBHOOK_SECRET);
@@ -291,7 +340,9 @@ async function runExecutableWebhookTests() {
     const resRaced = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
       method: "POST", headers: { "stripe-signature": sig.header }, body: payload
     }));
-    assert.ok(resRaced.status === 200 || resRaced.status === 409);
+    assert.equal(resRaced.status, 409);
+    assert.equal(resRaced.body.in_progress, true);
+    assert.ok(resRaced.headers["retry-after"]);
   }
 
   // Test 4: Out-of-Order Delivery (Older period start skipped)
@@ -556,6 +607,177 @@ async function runExecutableWebhookTests() {
     assert.equal(resValidSuccess.status, 200);
     assert.equal(resValidSuccess.body.processed, true);
     assert.equal(harness.tables.companies.get(companyId).billing_status, "active");
+  }
+
+  // Test 12: Concurrent Claiming and In-Flight Exclusion
+  {
+    const eventId = "evt_simultaneous_race";
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_resub_fleet",
+          status: "active",
+          current_period_start: Math.floor(new Date("2026-04-01T00:00:00.000Z").getTime() / 1000),
+          current_period_end: Math.floor(new Date("2026-05-01T00:00:00.000Z").getTime() / 1000),
+          items: { data: [{ price: "price_fleet_complete_123", quantity: 1 }] },
+          metadata: { pooldocai_company_id: companyId, plan_name: "fleet_complete" }
+        }
+      }
+    });
+    const sig = signPayload(payload, WEBHOOK_SECRET);
+
+    // 12a: Worker A claims the event and is actively in flight
+    harness.tables.pooldocai_stripe_webhook_events.set(eventId, {
+      stripe_event_id: eventId,
+      event_type: "customer.subscription.updated",
+      processed: false,
+      claimed_at: new Date().toISOString(),
+      attempts: 1
+    });
+
+    // Worker B attempts to process the same event concurrently while A is in flight
+    const resB = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sig.header }, body: payload
+    }));
+
+    // Worker B MUST be rejected with HTTP 409 Retry-After and cannot apply the event
+    assert.equal(resB.status, 409);
+    assert.equal(resB.body.in_progress, true);
+    assert.ok(resB.headers["retry-after"]);
+
+    // 12b: Worker A finishes processing and marks row processed
+    harness.tables.pooldocai_stripe_webhook_events.set(eventId, {
+      stripe_event_id: eventId,
+      event_type: "customer.subscription.updated",
+      processed: true,
+      claimed_at: null,
+      attempts: 1
+    });
+
+    // Worker B retries after Worker A finished
+    const resBRetry = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sig.header }, body: payload
+    }));
+
+    // Worker B receives idempotent acknowledgment (HTTP 200 duplicate: true)
+    assert.equal(resBRetry.status, 200);
+    assert.equal(resBRetry.body.ok, true);
+    assert.equal(resBRetry.body.duplicate, true);
+  }
+
+  // Test 13: Crash / Failure Recovery (First attempt errors, second attempt resumes and succeeds)
+  {
+    const eventId = "evt_crash_recovery_test";
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_resub_fleet",
+          status: "active",
+          current_period_start: Math.floor(new Date("2026-04-01T00:00:00.000Z").getTime() / 1000),
+          metadata: { pooldocai_company_id: companyId, plan_name: "fleet_complete" }
+        }
+      }
+    });
+    const sig = signPayload(payload, WEBHOOK_SECRET);
+
+    // Simulate initial attempt that started, failed, and recorded error
+    harness.tables.pooldocai_stripe_webhook_events.set(eventId, {
+      stripe_event_id: eventId,
+      event_type: "customer.subscription.updated",
+      processed: false,
+      claimed_at: null, // released on error
+      attempts: 1,
+      processing_error: "Transient network timeout to database"
+    });
+
+    // Second delivery arrives (e.g. Stripe retry)
+    const resRetry = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sig.header }, body: payload
+    }));
+
+    assert.equal(resRetry.status, 200);
+    assert.equal(resRetry.body.processed, true);
+    const rowAfter = harness.tables.pooldocai_stripe_webhook_events.get(eventId);
+    assert.equal(rowAfter.processed, true);
+    assert.equal(rowAfter.attempts, 2, "Attempts counter incremented on retry");
+    assert.equal(rowAfter.claimed_at, null);
+    assert.equal(rowAfter.processing_error, null);
+  }
+
+  // Test 14: Expired Lease Timeout Recovery (Worker died hard without cleanup)
+  {
+    const eventId = "evt_expired_lease_recovery";
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_resub_fleet",
+          status: "active",
+          current_period_start: Math.floor(new Date("2026-04-01T00:00:00.000Z").getTime() / 1000),
+          metadata: { pooldocai_company_id: companyId, plan_name: "fleet_complete" }
+        }
+      }
+    });
+    const sig = signPayload(payload, WEBHOOK_SECRET);
+
+    // Simulate dead worker that claimed 70 seconds ago (lease expired)
+    harness.tables.pooldocai_stripe_webhook_events.set(eventId, {
+      stripe_event_id: eventId,
+      event_type: "customer.subscription.updated",
+      processed: false,
+      claimed_at: new Date(Date.now() - 70_000).toISOString(),
+      attempts: 1
+    });
+
+    const resExpiredLease = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sig.header }, body: payload
+    }));
+
+    assert.equal(resExpiredLease.status, 200);
+    assert.equal(resExpiredLease.body.processed, true);
+    const rowExpiredAfter = harness.tables.pooldocai_stripe_webhook_events.get(eventId);
+    assert.equal(rowExpiredAfter.processed, true);
+    assert.equal(rowExpiredAfter.attempts, 2);
+  }
+
+  // Test 15: Bounded Retry Protection (Max attempts exceeded)
+  {
+    const eventId = "evt_max_attempts_test";
+    const payload = JSON.stringify({
+      id: eventId,
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_resub_fleet",
+          status: "active",
+          current_period_start: Math.floor(new Date("2026-04-01T00:00:00.000Z").getTime() / 1000),
+          metadata: { pooldocai_company_id: companyId }
+        }
+      }
+    });
+    const sig = signPayload(payload, WEBHOOK_SECRET);
+
+    // Set row to 5 attempts
+    harness.tables.pooldocai_stripe_webhook_events.set(eventId, {
+      stripe_event_id: eventId,
+      event_type: "customer.subscription.updated",
+      processed: false,
+      claimed_at: null,
+      attempts: 5,
+      processing_error: "Repeated unrecoverable error"
+    });
+
+    const resMax = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sig.header }, body: payload
+    }));
+
+    assert.equal(resMax.status, 422);
+    assert.equal(resMax.body.max_attempts_exceeded, true);
   }
 
   console.log("PASS: Executable Stripe webhook event ordering, idempotency, signature, and replay test suite passed.");

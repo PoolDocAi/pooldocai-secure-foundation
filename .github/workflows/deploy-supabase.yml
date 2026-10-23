@@ -51,6 +51,8 @@ jobs:
         run: node website/tests/browser-isolation.test.cjs
       - name: Test fail-closed learning approval and contributor consent verification
         run: node website/tests/learning-consent-fail-closed.test.cjs
+      - name: Test staging configuration and Vercel preview fail-closed guards
+        run: node website/tests/staging-config.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
