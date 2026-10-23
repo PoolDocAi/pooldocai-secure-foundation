@@ -2493,15 +2493,15 @@ MANDATORY DIAGNOSTIC ORDER:
           ? `Find a reputable, symptom-matched swimming-pool water-quality troubleshooting procedure for the reported issue. Prioritize authoritative pool-care organizations or chemical manufacturers. Base advice on measured results, not appearance alone, and do not invent doses. Issue context: ${relevantContext}.`
           : `Search the web now for an authoritative, symptom-matched troubleshooting procedure for this pool issue. Prioritize the installed equipment manufacturer's official support page, manual, service bulletin, or technical documentation; then use reputable pool-industry technical sources where manufacturer guidance is unavailable. Exact make/model may be unknown, so search by equipment category and the customer's natural-language symptom without blocking progress for model identification. Return one safe, applicable next observation or diagnostic check, state what changes the next step, and cite only sources actually returned. Do not use product/catalog listings as repair instructions. Never instruct homeowners to open electrical/gas panels, touch wiring, bypass safeguards, open pressurized equipment, reach into moving parts, or guess/mix chemical doses. Issue context: ${relevantContext}.`;
     try {
+      let forcedGroundingReservationId: string | null = null;
+      const forcedModel = selectDiagnosticModel(action, query);
+      forcedGroundingReservationId = await reserveGroundingBudget(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null, forcedModel);
+      if (!forcedGroundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
       const forcedSearchRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
         body: JSON.stringify({
-          model: (action === "model_triage" || action === "photo_recognition" || /\b(?:clicking|humming|buzzing|error code|fault code|what does .* code mean|heater is clicking|pump is clicking|what is)\b/i.test(query) && query.length < 220)
-            ? "gemini-2.5-flash-lite"
-            : (/\b(?:diagnose|intermittent|multiple|repeatedly|keeps tripping|after replacing|still not working|compare readings|calculate dose|chemical treatment|root cause|step by step)\b/i.test(query) || query.length > 900)
-              ? "gemini-3.8-flash"
-              : "gemini-2.5-flash",
+          model: forcedModel,
           input: [
             "MANDATORY WEB-SEARCH FALLBACK: The initial knowledge-base pass did not produce an applicable and complete source-grounded answer. You MUST use the google_search tool now before drafting. Do not rely on memory alone. If the search tool returns no applicable source, say the system is unsure and offer a technician.",
             `Issue: ${relevantContext}`,
@@ -2520,10 +2520,15 @@ MANDATORY DIAGNOSTIC ORDER:
       let forcedResponse: AnyRecord = {};
       try { forcedResponse = forcedRaw ? JSON.parse(forcedRaw) as AnyRecord : {}; }
       catch { forcedResponse = {}; }
+      const forcedSources = getInteractionSources(forcedResponse);
+      await recordGroundingUsage(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null,
+        body.authenticatedApp === true ? authenticatedUserId : null, textValue(forcedResponse.model, 100) || forcedModel,
+        forcedGroundingReservationId, forcedResponse);
+      await finishGroundingBudget(supabase, forcedGroundingReservationId);
+      forcedGroundingReservationId = null;
       if (forcedSearchRes.ok && !forcedResponse.error && !["failed", "incomplete"].includes(textValue(forcedResponse.status, 40).toLowerCase())) {
         const forcedOutput = getInteractionOutputText(forcedResponse);
         const forcedStructured = parseStructuredDiagnostic(forcedOutput);
-        const forcedSources = getInteractionSources(forcedResponse);
         const forcedReply = forcedStructured ? renderStructuredDiagnostic(forcedStructured) : "";
         const forcedType = textValue(forcedStructured?.response_type, 40).toLowerCase();
         const forcedAlgaeComplete = !isConfirmedAlgaeCase ||
@@ -2563,6 +2568,8 @@ MANDATORY DIAGNOSTIC ORDER:
         });
       }
     } catch (error) {
+      await finishGroundingBudget(supabase, forcedGroundingReservationId);
+      forcedGroundingReservationId = null;
       console.warn("PoolDocAI forced Google Search fallback error:", error instanceof Error ? error.message : String(error));
     }
   }
