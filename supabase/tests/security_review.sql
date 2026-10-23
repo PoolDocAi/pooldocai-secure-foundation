@@ -197,3 +197,75 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+
+-- Migration 033: Stripe webhook atomic event claiming, bounded retry/recovery, and concurrency locking
+DO $$
+DECLARE
+  v_test_event_id text := 'evt_ci_concurrency_test_' || md5(clock_timestamp()::text || random()::text);
+  v_claim1 jsonb;
+  v_claim2 jsonb;
+  v_claim3 jsonb;
+  v_claim4 jsonb;
+  v_claim5 jsonb;
+BEGIN
+  IF to_regprocedure('public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)') IS NULL THEN
+    RAISE EXCEPTION 'atomic pooldocai_claim_stripe_webhook_event function is missing';
+  END IF;
+
+  IF has_function_privilege('anon','public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)','execute') THEN
+    RAISE EXCEPTION 'atomic webhook claim function must not be callable by public/anon/authenticated roles';
+  END IF;
+
+  -- 1. Initial claim on a fresh event succeeds
+  v_claim1 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim1->>'status') <> 'claimed' OR (v_claim1->>'attempts')::int <> 1 THEN
+    RAISE EXCEPTION 'Initial claim failed: %', v_claim1;
+  END IF;
+
+  -- 2. Immediate second claim while lease is active is rejected with in_progress
+  v_claim2 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim2->>'status') <> 'in_progress' OR (v_claim2->>'retry_after')::int < 1 THEN
+    RAISE EXCEPTION 'Concurrent active claim unexpectedly succeeded: %', v_claim2;
+  END IF;
+
+  -- 3. Simulate first attempt crashing/failing and lease expiring (e.g. claimed_at 70 seconds ago)
+  UPDATE public.pooldocai_stripe_webhook_events
+  SET claimed_at = clock_timestamp() - interval '70 seconds',
+      processing_error = 'Simulated worker crash'
+  WHERE stripe_event_id = v_test_event_id;
+
+  -- 4. Retry claim after lease expiration acquires the claim on attempt 2
+  v_claim3 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim3->>'status') <> 'claimed' OR (v_claim3->>'attempts')::int <> 2 THEN
+    RAISE EXCEPTION 'Retry after lease expiry failed: %', v_claim3;
+  END IF;
+
+  -- 5. Mark event processed successfully
+  UPDATE public.pooldocai_stripe_webhook_events
+  SET processed = true,
+      processed_at = clock_timestamp(),
+      claimed_at = NULL,
+      processing_error = NULL
+  WHERE stripe_event_id = v_test_event_id;
+
+  -- 6. Subsequent deliveries of fully processed event return already_processed (idempotent)
+  v_claim4 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim4->>'status') <> 'already_processed' OR (v_claim4->>'duplicate')::boolean <> true THEN
+    RAISE EXCEPTION 'Processed event was not acknowledged idempotently: %', v_claim4;
+  END IF;
+
+  -- 7. Test bounded attempts: simulate 5 failed attempts on a new event
+  v_test_event_id := 'evt_ci_max_attempts_' || md5(clock_timestamp()::text || random()::text);
+  INSERT INTO public.pooldocai_stripe_webhook_events (stripe_event_id, event_type, processed, attempts, claimed_at)
+  VALUES (v_test_event_id, 'invoice.payment_failed', false, 5, clock_timestamp() - interval '70 seconds');
+
+  v_claim5 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'invoice.payment_failed', 60, 5);
+  IF (v_claim5->>'status') <> 'max_attempts_exceeded' THEN
+    RAISE EXCEPTION 'Max attempts exceeded was not enforced: %', v_claim5;
+  END IF;
+
+  -- Clean up test events
+  DELETE FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id LIKE 'evt_ci_%';
+END $$;

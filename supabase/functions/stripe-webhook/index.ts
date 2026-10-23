@@ -65,21 +65,46 @@ Deno.serve(async (req: Request) => {
   if (!eventId.startsWith("evt_") || !eventType || !obj) return json({ error: "Stripe event is missing its ID, type or object." }, 400);
 
   const db = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: existing, error: existingError } = await db.from("pooldocai_stripe_webhook_events").select("stripe_event_id,processed").eq("stripe_event_id", eventId).maybeSingle();
-  if (existingError) return json({ error: "Could not check webhook idempotency." }, 500);
-  if (existing?.processed) return json({ ok: true, duplicate: true });
-  if (!existing) {
-    const { error: ledgerError } = await db.from("pooldocai_stripe_webhook_events").insert({ stripe_event_id: eventId, event_type: eventType, processed: false });
-    if (ledgerError?.code === "23505") {
-      // Another delivery claimed the event between SELECT and INSERT. Do not apply
-      // the same event concurrently; Stripe will retry and can resume an unprocessed row.
-      const { data: raced } = await db.from("pooldocai_stripe_webhook_events").select("processed").eq("stripe_event_id", eventId).maybeSingle();
-      if (raced?.processed) return json({ ok: true, duplicate: true });
-      return new Response(JSON.stringify({ error: "This webhook event is already being processed; retry shortly." }), { status: 409, headers: { "content-type": "application/json; charset=utf-8", "retry-after": "5", "cache-control": "no-store" } });
-    }
-    if (ledgerError) return json({ error: "Could not record verified webhook event." }, 500);
-  } else {
-    await db.from("pooldocai_stripe_webhook_events").update({ processing_error: null, event_type: eventType }).eq("stripe_event_id", eventId);
+
+  // Atomic event claim with lease and bounded retries
+  const { data: claimData, error: claimError } = await db.rpc("pooldocai_claim_stripe_webhook_event", {
+    p_event_id: eventId,
+    p_event_type: eventType,
+    p_lock_timeout_seconds: 60,
+    p_max_attempts: 5
+  });
+
+  if (claimError) {
+    console.error("Atomic event claim RPC error", { eventId, error: claimError.message });
+    return json({ error: "Could not acquire webhook event lock." }, 500);
+  }
+
+  const claimStatus = claimData?.status;
+  if (claimStatus === "already_processed") {
+    return json({ ok: true, duplicate: true });
+  }
+
+  if (claimStatus === "in_progress") {
+    const retryAfter = Math.max(1, Number(claimData?.retry_after || 5));
+    return new Response(JSON.stringify({ error: "This webhook event is currently being processed by another worker; retry shortly.", in_progress: true }), {
+      status: 409,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "retry-after": String(retryAfter),
+        "cache-control": "no-store"
+      }
+    });
+  }
+
+  if (claimStatus === "max_attempts_exceeded") {
+    return new Response(JSON.stringify({ error: "Webhook event exceeded maximum processing retry attempts.", max_attempts_exceeded: true }), {
+      status: 422,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
+    });
+  }
+
+  if (claimStatus !== "claimed") {
+    return json({ error: "Unexpected event claim state." }, 500);
   }
 
   try {
@@ -101,7 +126,7 @@ Deno.serve(async (req: Request) => {
     }
     if (!companyId) {
       // Store and acknowledge unrelated Stripe events without modifying any tenant.
-      await db.from("pooldocai_stripe_webhook_events").update({ processed: true, processed_at: new Date().toISOString(), processing_error: "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation." }).eq("stripe_event_id", eventId);
+      await db.from("pooldocai_stripe_webhook_events").update({ processed: true, processed_at: new Date().toISOString(), claimed_at: null, processing_error: "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation." }).eq("stripe_event_id", eventId);
       return json({ ok: true, ignored: true, reason: "no_company_match" });
     }
     const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id,billing_period_start").eq("id", companyId).maybeSingle();
@@ -130,6 +155,7 @@ Deno.serve(async (req: Request) => {
         await db.from("pooldocai_stripe_webhook_events").update({
           processed: true,
           processed_at: new Date().toISOString(),
+          claimed_at: null,
           processing_error: isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active)."
         }).eq("stripe_event_id", eventId);
         return json({ ok: true, ignored: true, reason: isOldSubscription ? "stale_old_subscription" : "stale_out_of_order_event" });
@@ -176,6 +202,7 @@ Deno.serve(async (req: Request) => {
         await db.from("pooldocai_stripe_webhook_events").update({
           processed: true,
           processed_at: new Date().toISOString(),
+          claimed_at: null,
           processing_error: isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active)."
         }).eq("stripe_event_id", eventId);
         return json({ ok: true, ignored: true, reason: isOldSubscriptionInvoice ? "stale_old_subscription_invoice" : "stale_out_of_order_invoice" });
@@ -193,12 +220,12 @@ Deno.serve(async (req: Request) => {
       if (updateError) throw new Error(`Verified webhook could not update company billing state (${updateError.code}).`);
     }
     await db.from("platform_usage_events").insert({ company_id: companyId, event_type: `stripe_${eventType}`, units: 1, metric_type: "billing_event", quantity: 1, quantity_unit: "webhook_event", source_event_key: eventId, metadata: { stripe_event_id: eventId, stripe_event_type: eventType, handled: handled.includes(eventType) } });
-    const { error: finishError } = await db.from("pooldocai_stripe_webhook_events").update({ processed: true, processed_at: new Date().toISOString(), processing_error: null }).eq("stripe_event_id", eventId);
+    const { error: finishError } = await db.from("pooldocai_stripe_webhook_events").update({ processed: true, processed_at: new Date().toISOString(), claimed_at: null, processing_error: null }).eq("stripe_event_id", eventId);
     if (finishError) throw new Error("Could not mark the Stripe webhook event as processed.");
     return json({ ok: true, processed: true });
   } catch (error) {
     const message = String((error as Error)?.message || "Webhook processing failed").slice(0, 500);
-    await db.from("pooldocai_stripe_webhook_events").update({ processing_error: message }).eq("stripe_event_id", eventId);
+    await db.from("pooldocai_stripe_webhook_events").update({ processing_error: message, claimed_at: null }).eq("stripe_event_id", eventId);
     console.error("Stripe webhook processing failed", { eventId, type: eventType, message });
     return json({ error: "Verified webhook could not be applied; Stripe may retry safely.", code: "STRIPE_WEBHOOK_APPLY_FAILED" }, 500);
   }
