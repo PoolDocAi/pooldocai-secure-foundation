@@ -1234,13 +1234,21 @@
           const company = Array.isArray(m.companies) ? m.companies[0] : m.companies;
           return m.status === 'active' && company && ['pilot','active'].includes(String(company.status||'').toLowerCase());
         }) || members[0];
+        const newUserId = session?.user?.id || null;
+        const newCompanyId = activeMembership?.company_id || null;
+        if(APP_SESSION && (APP_SESSION.user?.id !== newUserId || APP_SESSION.companyId !== newCompanyId)){
+          if(typeof window.teardownAuthenticatedBrowserState==='function') window.teardownAuthenticatedBrowserState();
+        }
         APP_SESSION = session;
-        APP_SESSION.companyId = activeMembership?.company_id || null;
+        APP_SESSION.companyId = newCompanyId;
         document.body.classList.remove('app-auth-required');
         document.body.classList.add('secure-app-ready');
         document.getElementById('secureLoginGate').style.display='none';
         document.getElementById('secureAppIdentity').textContent = `${session.user.email || 'Signed in'} · ${members[0].role.replace('_',' ')}`;
         updateIntegratedTechNotesVisibility();
+        if(typeof window.loadAuthenticatedUserState === 'function') {
+          window.loadAuthenticatedUserState();
+        }
       } catch(err) { status.textContent = err?.message || 'Could not verify your company access.'; }
       finally { secureRevealBusy=false; }
     }
@@ -1257,11 +1265,18 @@
         } catch(err){status.textContent=err?.message||'Sign-in failed. Try again.';}
         finally {btn.disabled=false;btn.textContent='Sign in and open troubleshooter';}
       });
-      document.getElementById('secureAppSignOut').addEventListener('click',async()=>{APP_SESSION=null;await secureClient.auth.signOut();});
+      document.getElementById('secureAppSignOut').addEventListener('click',async()=>{
+        if(typeof window.teardownAuthenticatedBrowserState==='function') window.teardownAuthenticatedBrowserState();
+        else APP_SESSION=null;
+        await secureClient.auth.signOut();
+      });
       secureClient.auth.getSession().then(({data,error})=>{if(error)status.textContent=error.message; if(data?.session)void revealSecureApp(data.session);});
       secureClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>{
         if(session) void revealSecureApp(session);
-        else { APP_SESSION=null; document.body.classList.remove('secure-app-ready'); document.body.classList.add('app-auth-required'); document.getElementById('secureLoginGate').style.display='flex'; }
+        else {
+          if(typeof window.teardownAuthenticatedBrowserState==='function') window.teardownAuthenticatedBrowserState();
+          else { APP_SESSION=null; document.body.classList.remove('secure-app-ready'); document.body.classList.add('app-auth-required'); document.getElementById('secureLoginGate').style.display='flex'; }
+        }
       },0));
     });
   </script>
@@ -1832,6 +1847,71 @@
       awaitingTriageResponse: false,
       awaitingTriageStage: null
     };
+
+    function teardownAuthenticatedBrowserState() {
+      conversationHistory = [];
+      lastTurnRequest = null;
+      dispatchMilestone = null;
+      if (typeof createDiagnosticSessionId === 'function') {
+        diagnosticSessionId = createDiagnosticSessionId();
+      }
+      sessionContext = {
+        category: null,
+        subType: null,
+        heatSource: null,
+        brand: null,
+        model: null,
+        makeConfirmed: false,
+        modelConfirmed: false,
+        modelFamilySelected: false,
+        genericMode: false,
+        hasNoScreen: false,
+        isSilent: false,
+        isHumming: false,
+        symptom: null,
+        currentStep: 0,
+        ruledOut: [],
+        skippedSteps: [],
+        lastRecommendedStep: null,
+        initialTriageComplete: false,
+        operatingStateConfirmed: false,
+        awaitingTriageResponse: false,
+        awaitingTriageStage: null
+      };
+      if (typeof resetWaterHelpState === 'function') resetWaterHelpState();
+      else waterHelpState = { stage: 'idle', initialSymptom: '' };
+      if (typeof resetAlgaeTriageState === 'function') resetAlgaeTriageState();
+      else algaeTriageState = { stage: 'idle', initialSymptom: '', waterQualityResults: '', causeConfirmed: false };
+      if (typeof waterBalanceMode !== 'undefined') {
+        waterBalanceMode = { active: false, stepIdx: 0, poolGallons: 0, values: {} };
+      }
+
+      const notesForm = document.getElementById('integratedTechNotesForm');
+      if (notesForm && typeof notesForm.reset === 'function') notesForm.reset();
+      const notesStatus = document.getElementById('integratedNotesStatus');
+      if (notesStatus) notesStatus.textContent = 'Notes are not saved until you select Save Field Notes.';
+      const notesPanel = document.getElementById('integratedTechNotesPanel');
+      if (notesPanel) notesPanel.style.display = 'none';
+
+      const bodyEl = document.getElementById('walkthroughBody');
+      if (bodyEl) {
+        bodyEl.innerHTML = '';
+        bodyEl.dataset.renderedCount = '0';
+      }
+      const draftEl = document.getElementById('liveDemoCustomInput');
+      if (draftEl) draftEl.value = '';
+      const passEl = document.getElementById('securePassword');
+      if (passEl) passEl.value = '';
+      const identEl = document.getElementById('secureAppIdentity');
+      if (identEl) identEl.textContent = 'Sign-in required';
+
+      APP_SESSION = null;
+      document.body.classList.remove('secure-app-ready');
+      document.body.classList.add('app-auth-required');
+      const gate = document.getElementById('secureLoginGate');
+      if (gate) gate.style.display = 'flex';
+    }
+    window.teardownAuthenticatedBrowserState = teardownAuthenticatedBrowserState;
 
     // Water Help intake is separate from algae remediation so cloudy, discolored, and flow issues
     // are routed deliberately rather than being incorrectly treated as green-pool cases.
@@ -5569,6 +5649,12 @@
       if (latest && Number(latest.updatedAt) > lastAppliedAt) applyState(latest);
     }
   });
+
+  window.loadAuthenticatedUserState = function () {
+    const saved = safeRead();
+    if (saved) applyState(saved);
+    else if (typeof renderInteractiveConversation === 'function') renderInteractiveConversation();
+  };
 
   // Restore only after the main PoolDocAI script has initialized its state and event handlers.
   const saved = safeRead();

@@ -45,6 +45,8 @@ jobs:
         run: node website/tests/stripe-simulation.test.cjs
       - name: Test Stripe checkout runtime execution and billing portal
         run: node website/tests/stripe-checkout-handler.test.cjs
+      - name: Test authenticated browser state teardown and cross-account isolation
+        run: node website/tests/browser-isolation.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
