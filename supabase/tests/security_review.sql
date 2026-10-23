@@ -114,3 +114,15 @@ begin
     null;
   end;
 end $$;
+
+-- Temporary-account validity RPC is required by restrictive RLS policies, but must not
+-- reveal or validate another user's temporary-access state.
+DO $$
+BEGIN
+  IF position('p_user_id is distinct from (select auth.uid())' IN lower(pg_get_functiondef('public.temporary_access_is_valid(uuid)'::regprocedure))) = 0 THEN
+    RAISE EXCEPTION 'temporary_access_is_valid must deny arbitrary cross-user ID checks';
+  END IF;
+  IF has_function_privilege('anon','public.temporary_access_is_valid(uuid)','execute') THEN
+    RAISE EXCEPTION 'anonymous clients can invoke temporary_access_is_valid';
+  END IF;
+END $$;
