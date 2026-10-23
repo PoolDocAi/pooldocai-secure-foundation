@@ -16,6 +16,12 @@ assert.match(app, /photo_recognition[^\n]{0,250}diagnosticSessionId/, "photo dia
 assert.match(handler, /pooldocai_consume_company_monthly_session/, "server calls the pooled monthly session RPC");
 assert.match(handler, /MONTHLY_QUOTA_GUARD_UNAVAILABLE/, "usage-check errors fail closed");
 assert.match(handler, /MONTHLY_SESSION_LIMIT_REACHED/, "monthly entitlement exhaustion prevents further troubleshooting");
+assert.match(handler, /pooldocai_reserve_grounding_budget/, "Google Search grounding reserves budget before provider requests");
+assert.match(handler, /pooldocai_finish_grounding_budget/, "grounding budget reservations are released after requests");
+assert.match(handler, /POOLDOCAI_GROUNDING_GLOBAL_DAILY_LIMIT/, "grounding calls have a global bounded budget");
+assert.match(handler, /POOLDOCAI_GROUNDING_COMPANY_DAILY_LIMIT/, "grounding calls have a per-company bounded budget");
+assert.match(handler, /body\.tenantWidget === true[\s\S]{0,220}tenantWidgetConfig\?\.company_id/, "tenant widget grounding is charged to the owning company budget");
+assert.match(handler, /Live source search is temporarily unavailable because its safety budget is unavailable or exhausted/, "grounding budget errors fail closed");
 assert.match(handler, /pooldocai_get_company_session_usage/, "company usage reports include pooled sessions");
 assert.match(handler, /diagnostic_sessions_allowance/, "API output exposes included session allowance");
 assert.match(planMigration, /REVOKE ALL ON FUNCTION public\.pooldocai_consume_company_monthly_session\(uuid,text,text\) FROM PUBLIC, anon, authenticated/i, "monthly consumption RPC is not available to client roles");
