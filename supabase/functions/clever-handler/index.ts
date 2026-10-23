@@ -780,7 +780,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const query = textValue(body.query ?? body.message ?? body.userMessage ?? body.user_message ?? body.question ?? body.input ?? body.prompt, 5000);
   const action = textValue(body.action ?? body.action_type, 80).toLowerCase();
   const noQueryActions = new Set([
-    "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "public_page_view", "photo_recognition",
+    "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "accept_company_legal", "public_page_view", "photo_recognition",
     "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
     "review_learning_case", "list_learning_review_queue", "review_company_document",
     "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
@@ -863,7 +863,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       };
       // Prevent pool-specific diagnostic/safety rules from running for an industry module that is merely planned.
       const {data:activeIndustry}=await supabase.from("industry_modules").select("industry_key,status").eq("industry_key",authenticatedIndustryKey).eq("status","active").maybeSingle();
-      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
+      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","accept_company_legal","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
         return jsonResponse({error:"This company's industry module is not active yet. PoolDocAI will not apply pool-specific troubleshooting or safety rules to an unreviewed industry.",code:"INDUSTRY_MODULE_NOT_ACTIVE",industryKey:authenticatedIndustryKey},409);
       }
       const documentAction = ["process_company_manual","import_company_webpage"].includes(action);
@@ -881,6 +881,34 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     } else if (!( ["review_learning_case", "list_learning_review_queue", "platform_list_account_statuses", "invite_company_member", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials", "review_company_document", "process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action))) {
       return jsonResponse({ error: "This login has no active membership for the selected company.", code: "COMPANY_MEMBERSHIP_REQUIRED" }, 403);
     }
+  }
+
+  // Versioned terms/privacy acceptance for an authenticated user and a company workspace.
+  // Acceptance is recorded server-side before any company document can be inserted.
+  if (action === "accept_company_legal") {
+    if (!authenticatedUserId || body.authenticatedApp !== true) {
+      return jsonResponse({ error: "Sign in with an individual company account before accepting terms.", code: "AUTH_REQUIRED" }, 401);
+    }
+    const targetCompanyId = textValue(body.companyId, 80) || authenticatedCompanyId || "";
+    if (!targetCompanyId) return jsonResponse({ error: "Select a company workspace first.", code: "COMPANY_REQUIRED" }, 400);
+    if (authenticatedCompanyId && targetCompanyId !== authenticatedCompanyId) {
+      return jsonResponse({ error: "You cannot accept terms on behalf of another company workspace.", code: "COMPANY_SCOPE_MISMATCH" }, 403);
+    }
+    if (body.termsAccepted !== true || body.privacyAccepted !== true) {
+      return jsonResponse({ error: "Please confirm that you have read and agree to the current Terms and Privacy Policy.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 400);
+    }
+    const { data: acceptedCompany, error: companyError } = await supabase.from("companies").select("id").eq("id", targetCompanyId).maybeSingle();
+    if (companyError || !acceptedCompany) return jsonResponse({ error: "The selected company workspace was not found.", code: "COMPANY_NOT_FOUND" }, 404);
+    const { error: acceptError } = await supabase.from("pooldocai_legal_acceptances").upsert({
+      user_id: authenticatedUserId, company_id: targetCompanyId,
+      terms_version: "2026-10-21-v1", privacy_version: "2026-10-21-v1",
+      accepted_at: new Date().toISOString(), acceptance_source: "authenticated_workspace"
+    }, { onConflict: "user_id,company_id,terms_version,privacy_version" });
+    if (acceptError) {
+      console.error("Company legal acceptance failed", { code: acceptError.code });
+      return jsonResponse({ error: "Your Terms and Privacy acceptance could not be recorded; no upload has started.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
+    }
+    return jsonResponse({ ok: true, termsVersion: "2026-10-21-v1", privacyVersion: "2026-10-21-v1" }, 200);
   }
 
   // Temporary full-experience trial credentials. Every operation is platform-owner-only.
@@ -1256,6 +1284,22 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (action === "import_company_webpage") {
       const url = textValue(body.url, 2000);
       if (!url) return jsonResponse({ error: "Enter a public webpage URL.", code: "WEBPAGE_URL_REQUIRED" }, 400);
+      if (body.documentRightsAttested !== true) {
+        return jsonResponse({ error: "Confirm that you have permission to upload and process this webpage before importing it.", code: "DOCUMENT_RIGHTS_ATTESTATION_REQUIRED" }, 400);
+      }
+      const requestedDocumentType = textValue(body.documentType, 30).toLowerCase() || "other";
+      if (body.sharedLearningOptIn === true && ["company_manual","sop","policy"].includes(requestedDocumentType)) {
+        return jsonResponse({ error: "Company-specific manuals, SOPs, and policies must stay private and cannot enter shared learning.", code: "PRIVATE_DOCUMENT_CANNOT_BE_SHARED" }, 400);
+      }
+      if (body.sharedLearningOptIn === true && body.generalLearningRightsAttested !== true) {
+        return jsonResponse({ error: "Separate permission to redistribute eligible non-confidential information is required for shared-learning participation.", code: "GENERAL_LEARNING_RIGHTS_REQUIRED" }, 400);
+      }
+      const { data: agreement, error: agreementError } = await supabase.from("pooldocai_legal_acceptances").select("id")
+        .eq("user_id", authenticatedUserId).eq("company_id", targetCompanyId)
+        .eq("terms_version", "2026-10-21-v1").eq("privacy_version", "2026-10-21-v1").maybeSingle();
+      if (agreementError || !agreement) {
+        return jsonResponse({ error: "Accept the current Terms and Privacy Policy in this workspace before importing documents.", code: "LEGAL_ACCEPTANCE_REQUIRED" }, 403);
+      }
       // Shared-learning consent is a company-admin decision, even if a delegated uploader
       // invokes this server-side path that uses the privileged Supabase client.
       if (body.sharedLearningOptIn === true && !isPlatformActor && authenticatedRole !== "company_admin") {
@@ -1264,7 +1308,13 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       try {
         const parsedUrl = new URL(url);
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: "Only public HTTP or HTTPS webpages can be imported.", code: "WEBPAGE_URL_INVALID" }, 400);
-        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({ company_id: targetCompanyId, uploaded_by: authenticatedUserId, title: textValue(body.title,250) || parsedUrl.hostname, storage_path: `${targetCompanyId}/web-${crypto.randomUUID()}.html`, content_type: "text/html", file_size: 0, document_type: textValue(body.documentType,30) || "other", source_url: parsedUrl.toString(), original_filename: parsedUrl.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: "queued" }).select("id,company_id").single();
+        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({ company_id: targetCompanyId, uploaded_by: authenticatedUserId, title: textValue(body.title,250) || parsedUrl.hostname, storage_path: `${targetCompanyId}/web-${crypto.randomUUID()}.html`, content_type: "text/html", file_size: 0, document_type: textValue(body.documentType,30) || "other", source_url: parsedUrl.toString(), original_filename: parsedUrl.hostname, reference_enabled: true,
+          shared_learning_opt_in: body.sharedLearningOptIn === true,
+          learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null,
+          rights_attested_at: new Date().toISOString(), rights_attested_by: authenticatedUserId,
+          knowledge_scope: body.sharedLearningOptIn === true ? "general_candidate" : "company_private",
+          general_learning_rights_attested: body.sharedLearningOptIn === true && body.generalLearningRightsAttested === true,
+          extraction_status: "queued" }).select("id,company_id").single();
         if (registerError || !registered) return jsonResponse({ error: "Could not register the webpage source.", code: "WEBPAGE_REGISTER_FAILED" }, 500);
         return jsonResponse(await queueManual(registered.id), 202);
       } catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : "Webpage import failed.", code: "DOCUMENT_IMPORT_FAILED" }, 502); }
