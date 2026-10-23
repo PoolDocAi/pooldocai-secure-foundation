@@ -11,6 +11,15 @@ function section(start, end) {
   return worker.slice(i, j);
 }
 
+const health = section("if (req.method === 'GET' && req.url === '/health') {", "if (req.method !== 'POST' || req.url !== '/process')");
+assert.match(health, /document_processing_jobs/);
+assert.match(health, /oldQueued/);
+assert.match(health, /stuckProcessing/);
+assert.match(health, /return json\(res, healthy \? 200 : 503/);
+assert.match(health, /database: 'unavailable'/);
+assert.doesNotMatch(health, /company_id|tenant_id|manual_id|filename|last_error/,
+  'health response must not reveal tenant, customer or document details');
+
 const addressCheck = section('function isPrivateAddress(ip)', 'async function safeUrl(');
 assert.match(addressCheck, /100 && p\[1\] >= 64/);
 assert.match(addressCheck, /firstGroup < 0x2000/);
