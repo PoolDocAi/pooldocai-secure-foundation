@@ -578,6 +578,23 @@
 
       </div>
     </div>
+  <div id="integratedTechNotesPanel" class="max-w-5xl mx-auto px-4 pb-10" style="display:none">
+    <div class="rounded-2xl border border-sky-300/30 bg-slate-950 p-5 sm:p-6 text-white">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><h3 class="text-lg font-extrabold">Field Notes · This Troubleshooting Session</h3><p class="mt-1 text-sm text-slate-300">Record observations and the outcome without leaving the technician troubleshooter. Saved notes stay with your company and enter learning review only as a pending candidate.</p></div>
+        <span class="rounded-full bg-sky-400/15 px-3 py-1 text-xs font-bold text-sky-200">Technician workspace</span>
+      </div>
+      <form id="integratedTechNotesForm" class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="text-sm font-semibold">Equipment category<input id="integratedNotesCategory" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" maxlength="120" placeholder="Pool pump, filter, heater…"></label>
+        <label class="text-sm font-semibold">Manufacturer / model<input id="integratedNotesEquipment" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" maxlength="240" placeholder="Pentair IntelliFlo…"></label>
+        <label class="sm:col-span-2 text-sm font-semibold">Reported issue<textarea id="integratedNotesComplaint" rows="2" maxlength="1500" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" placeholder="Describe the symptom. Do not include customer names, addresses, phone numbers, or other personal information."></textarea></label>
+        <label class="sm:col-span-2 text-sm font-semibold">Field observations, readings and tests<textarea id="integratedNotesDiagnostic" rows="3" maxlength="4000" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" placeholder="What did you observe? What tests/readings were completed? What did the manuals or troubleshooting establish?"></textarea></label>
+        <label class="sm:col-span-2 text-sm font-semibold">Resolution / next step<textarea id="integratedNotesResolution" rows="2" maxlength="3000" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" placeholder="Resolved, follow-up needed, parts required, or next diagnostic step…"></textarea></label>
+        <div class="sm:col-span-2 flex flex-wrap items-center gap-3"><button id="integratedNotesSave" type="submit" class="rounded-lg bg-sky-500 px-5 py-3 font-bold text-slate-950 hover:bg-sky-400">Save Field Notes</button><p id="integratedNotesStatus" role="status" aria-live="polite" class="text-sm text-slate-300">Notes are not saved until you select Save Field Notes.</p></div>
+      </form>
+    </div>
+  </div>
+
   </section>
 
   <!-- 5. TWO-TRACK PRICING (COMPLETE VS. TECH-ONLY), SPLIT QUOTAS & ROI CALCULATOR -->
@@ -1216,6 +1233,7 @@
         document.body.classList.add('secure-app-ready');
         document.getElementById('secureLoginGate').style.display='none';
         document.getElementById('secureAppIdentity').textContent = `${session.user.email || 'Signed in'} · ${members[0].role.replace('_',' ')}`;
+        updateIntegratedTechNotesVisibility();
       } catch(err) { status.textContent = err?.message || 'Could not verify your company access.'; }
       finally { secureRevealBusy=false; }
     }
@@ -5111,12 +5129,21 @@
         .replace(/"/g, '&quot;');
     }
 
+    function updateIntegratedTechNotesVisibility() {
+      const panel = document.getElementById('integratedTechNotesPanel');
+      if (!panel) return;
+      const visible = currentSurfaceMode === 'tech' && document.body.classList.contains('secure-app-ready');
+      panel.style.display = visible ? 'block' : 'none';
+    }
+
     // =========================================================================
     // 9. EVENT DELEGATION
     // =========================================================================
     document.addEventListener('click', function (e) {
       if (e.target.closest('#modeHomeownerBtn')) {
         currentSurfaceMode = 'homeowner';
+        document.body.classList.remove('tech-notes-mode');
+        updateIntegratedTechNotesVisibility();
         document.getElementById('modeHomeownerBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer";
         document.getElementById('modeTechBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
         document.getElementById('walkthroughHeaderTitle').textContent = "PoolDocAI — 24/7 Homeowner Troubleshooting Assistant";
@@ -5127,6 +5154,8 @@
 
       if (e.target.closest('#modeTechBtn')) {
         currentSurfaceMode = 'tech';
+        document.body.classList.add('tech-notes-mode');
+        updateIntegratedTechNotesVisibility();
         document.getElementById('modeTechBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer";
         document.getElementById('modeHomeownerBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
         document.getElementById('walkthroughHeaderTitle').textContent = "PoolDocAI — Field Technician Mobile Copilot";
@@ -5204,6 +5233,32 @@
         e.preventDefault();
         submitInChatServiceRequest(srForm);
       }
+    });
+
+    document.getElementById('integratedTechNotesForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('integratedNotesStatus');
+      const button = document.getElementById('integratedNotesSave');
+      const diagnosticNotes = document.getElementById('integratedNotesDiagnostic').value.trim();
+      const complaint = document.getElementById('integratedNotesComplaint').value.trim() || String(sessionContext.symptom || '').slice(0,1500);
+      const resolution = document.getElementById('integratedNotesResolution').value.trim();
+      if (!diagnosticNotes && !complaint && !resolution) { status.textContent = 'Add an issue, field observation, or resolution before saving.'; return; }
+      button.disabled = true; status.textContent = 'Saving securely to your company job records…';
+      try {
+        const headers = secureAuthHeaders();
+        const response = await fetch(TROUBLESHOOTER_ENDPOINT, { method:'POST', headers, body:JSON.stringify({
+          action:'save_technician_job', authenticatedApp:true, sessionId:'tech-'+APP_SESSION.user.id,
+          source:'troubleshooter', complaint, diagnosticNotes, resolution,
+          equipmentCategory:document.getElementById('integratedNotesCategory').value.trim() || String(sessionContext.category || ''),
+          manufacturer:document.getElementById('integratedNotesEquipment').value.trim() || String(sessionContext.brand || ''),
+          model:String(sessionContext.model || ''), outcome:resolution ? 'follow_up_required' : 'in_progress'
+        })});
+        const result = await response.json().catch(()=>({}));
+        if (!response.ok || result.error) throw new Error(result.error || 'Could not save field notes.');
+        status.textContent = result.message || 'Field notes saved to your company job records.';
+      } catch (error) {
+        status.textContent = error?.message || 'Could not save field notes. Check your sign-in and job-note permissions.';
+      } finally { button.disabled = false; }
     });
 
     document.getElementById('chatInputForm')?.addEventListener('submit', (e) => {
