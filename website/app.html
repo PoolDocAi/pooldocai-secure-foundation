@@ -5403,13 +5403,22 @@
    anti-spam honeypot. Storage failures are deliberately non-fatal. */
 (function () {
   'use strict';
-  const STORAGE_KEY = 'pooldocai.crossTabState.v1';
+  function getStorageKey() {
+    const userId = (typeof APP_SESSION !== 'undefined' && APP_SESSION?.user?.id) ? APP_SESSION.user.id : null;
+    if (typeof SECURE_APP_MODE !== 'undefined' && SECURE_APP_MODE) {
+      if (!userId) return null;
+      return 'pooldocai.authenticatedCrossTabState.' + userId + '.v1';
+    }
+    return 'pooldocai.crossTabState.v1';
+  }
   let lastAppliedAt = 0;
   let restoring = false;
 
   function safeRead() {
+    const k = getStorageKey();
+    if (!k) return null;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(k);
       return raw ? JSON.parse(raw) : null;
     } catch (_) { return null; }
   }
@@ -5452,7 +5461,7 @@
           }))
         }
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const k = getStorageKey(); if (k) localStorage.setItem(k, JSON.stringify(state));
       lastAppliedAt = state.updatedAt;
     } catch (err) {
       console.warn('PoolDocAI could not save this tab state locally.', err);

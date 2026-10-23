@@ -839,7 +839,7 @@ Deno.serve(async (req: Request) => {
     const parsed = await req.json();
     const record = objectValue(parsed);
     if (!record) return jsonResponse({ error: "Request body must be a JSON object.", code: "INVALID_JSON_BODY" }, 400);
-    body = scrubObject(record) as AnyRecord;
+    body = record as AnyRecord;
   } catch {
     return jsonResponse({ error: "Request body must contain valid JSON.", code: "INVALID_JSON" }, 400);
   }
@@ -1179,7 +1179,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // For troubleshooting turns from a tenant widget, verify website origin and explicit current consent,
   // then derive company routing and session meter inputs from the stored widget config, never from client tenant IDs.
-  if (body.tenantWidget === true && action === "troubleshoot") {
+  const isWidgetRequest = Boolean(customerWidgetKey || body.tenantWidget === true);
+  if (isWidgetRequest && action === "troubleshoot") {
     const widget=await loadPublicWidget(customerWidgetKey);
     if(!widget)return jsonResponse({error:"This company widget is disabled or this website is not authorized.",code:"WIDGET_NOT_AVAILABLE"},403);
     if(!textValue(body.sessionId,160))return jsonResponse({error:"Widget session is missing. Refresh the page and accept the current notice.",code:"WIDGET_SESSION_REQUIRED"},400);
@@ -1734,9 +1735,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Company plans have a separate pooled monthly cap counted once per diagnostic case,
   // not once per assistant turn. The RPC is service-role-only and returns only aggregate usage.
-  const shouldMeterAuthenticatedDiagnostic = body.authenticatedApp === true && Boolean(authenticatedCompanyId) &&
+  const shouldMeterAuthenticatedDiagnostic = Boolean(authenticatedUserId && authenticatedCompanyId) &&
     (action === "troubleshoot" || action === "photo_recognition" || (!noQueryActions.has(action) && Boolean(query.trim())));
-  const shouldMeterWidgetDiagnostic = body.tenantWidget === true && action === "troubleshoot" && Boolean(tenantWidgetConfig?.id && tenantWidgetConfig?.company_id);
+  const shouldMeterWidgetDiagnostic = Boolean(tenantWidgetConfig?.id && tenantWidgetConfig?.company_id) &&
+    (action === "troubleshoot" || action === "photo_recognition" || (!noQueryActions.has(action) && Boolean(query.trim())));
   if (shouldMeterAuthenticatedDiagnostic || shouldMeterWidgetDiagnostic) {
     const companyIdForMeter = shouldMeterAuthenticatedDiagnostic ? String(authenticatedCompanyId) : String(tenantWidgetConfig?.company_id);
     const diagnosticSessionId = textValue(body.diagnosticSessionId ?? (shouldMeterWidgetDiagnostic ? body.sessionId : ""), 160);

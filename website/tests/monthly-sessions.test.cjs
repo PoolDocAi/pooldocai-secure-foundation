@@ -107,4 +107,8 @@ assert.match(trialMigration, /temporary_access_storage_expiry_guard ON storage.o
 assert.ok(handler.includes('code: "RIGHTS_ATTESTATION_REQUIRED"'), "webpage import enforces affirmative rights attestation");
 assert.ok(handler.includes('code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED"'), "webpage shared-learning opt-in enforces affirmative general rights attestation");
 
+assert.ok(handler.includes('body = record as AnyRecord;'), 'clever-handler preserves request body without global PII destruction');
+assert.ok(handler.includes('const shouldMeterAuthenticatedDiagnostic = Boolean(authenticatedUserId && authenticatedCompanyId)'), 'metering relies on verified server auth, not client-controlled flags');
+assert.ok(app.includes('pooldocai.authenticatedCrossTabState.'), 'app.html scopes cross-tab persistence to the authenticated user');
+
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
