@@ -41,6 +41,9 @@ jobs:
       - name: Test monthly session entitlements, technician sync, and trial RPC scope
         run: node website/tests/monthly-sessions.test.cjs
 
+      - name: Test Stripe billing alignment and simulated webhook replay
+        run: node website/tests/stripe-simulation.test.cjs
+
       - name: Validate Edge Function TypeScript syntax
         run: |
           npx --yes esbuild supabase/functions/clever-handler/index.ts --bundle --format=esm --outfile=/tmp/clever-handler-check.js --external:npm:*

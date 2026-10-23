@@ -104,22 +104,25 @@ Deno.serve(async (req: Request) => {
       await db.from("pooldocai_stripe_webhook_events").update({ processed: true, processed_at: new Date().toISOString(), processing_error: "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation." }).eq("stripe_event_id", eventId);
       return json({ ok: true, ignored: true, reason: "no_company_match" });
     }
-    const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id").eq("id", companyId).maybeSingle();
+    const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id,billing_period_start").eq("id", companyId).maybeSingle();
     if (companyError || !company) throw new Error("No matching PoolDocAI company exists for this verified Stripe event.");
 
     const update: Record<string, unknown> = {};
     if (customerId) { update.stripe_customer_id = customerId; update.billing_customer_ref = customerId; }
     if (subscriptionId) { update.stripe_subscription_id = subscriptionId; update.billing_subscription_ref = subscriptionId; }
     if (subscriptionObject) {
-      // Guard against out-of-order event delivery: skip stale updates if a newer period is already recorded.
+      // Guard against out-of-order event delivery: skip stale updates if a newer period is already recorded or from an old subscription.
       const eventPeriodStart = isoSeconds(subscriptionObject.current_period_start);
-      if (eventPeriodStart && company.billing_period_start && new Date(eventPeriodStart).getTime() < new Date(company.billing_period_start).getTime()) {
+      const isStalePeriod = Boolean(eventPeriodStart && company.billing_period_start && new Date(eventPeriodStart).getTime() < new Date(company.billing_period_start).getTime());
+      const isOldSubscription = Boolean(company.stripe_subscription_id && subscriptionId && subscriptionId !== company.stripe_subscription_id && eventPeriodStart && company.billing_period_start && new Date(eventPeriodStart).getTime() <= new Date(company.billing_period_start).getTime());
+
+      if (isStalePeriod || isOldSubscription) {
         await db.from("pooldocai_stripe_webhook_events").update({
           processed: true,
           processed_at: new Date().toISOString(),
-          processing_error: "Stale out-of-order event skipped (newer period already active)."
+          processing_error: isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active)."
         }).eq("stripe_event_id", eventId);
-        return json({ ok: true, ignored: true, reason: "stale_out_of_order_event" });
+        return json({ ok: true, ignored: true, reason: isOldSubscription ? "stale_old_subscription" : "stale_out_of_order_event" });
       }
 
       const subsStatus = String(subscriptionObject.status || "");

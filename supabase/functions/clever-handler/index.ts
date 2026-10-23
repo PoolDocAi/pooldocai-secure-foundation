@@ -1454,10 +1454,48 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       const customer=String(company.stripe_customer_id||company.billing_customer_ref||"");if(!customer)return jsonResponse({error:"No Stripe customer is associated with this company yet. Start checkout after configuring Stripe.",code:"STRIPE_CUSTOMER_NOT_FOUND"},409);
       const form=new URLSearchParams({customer,return_url:`${appBaseUrl()}/admin.html?billing=returned`});const response=await fetch("https://api.stripe.com/v1/billing_portal/sessions",{method:"POST",headers:{Authorization:`Bearer ${stripeKey}`,"Content-Type":"application/x-www-form-urlencoded"},body:form});const data=await response.json().catch(()=>({}));if(!response.ok||!data.url)return jsonResponse({error:"Stripe billing portal could not be created. Check the Stripe account and portal configuration.",code:"STRIPE_PORTAL_FAILED"},502);return jsonResponse({ok:true,url:data.url},200);
     }
-    const plan=textValue(body.planName||company.plan_name,40).toLowerCase();const priceEnv=({starter:"STRIPE_PRICE_STARTER",professional:"STRIPE_PRICE_PROFESSIONAL",enterprise:"STRIPE_PRICE_ENTERPRISE",pilot:"STRIPE_PRICE_PILOT"} as Record<string,string>)[plan];const priceId=priceEnv?Deno.env.get(priceEnv):null;
-    if(!priceId)return jsonResponse({error:`Stripe checkout is prepared but the price for ${plan} is not configured. After creating a Stripe account and a recurring Price, add ${priceEnv||"STRIPE_PRICE_STARTER/PROFESSIONAL/ENTERPRISE"} to Supabase Edge Function Secrets.`,code:"STRIPE_PRICE_NOT_CONFIGURED"},503);
-    const seats=Number(body.seatQuantity??company.seat_limit);if(!Number.isInteger(seats)||seats<1||seats>500)return jsonResponse({error:"Requested seats must be between 1 and 500.",code:"INVALID_SEAT_QUANTITY"},400);
-    const form=new URLSearchParams();form.set("mode","subscription");form.set("line_items[0][price]",priceId);form.set("line_items[0][quantity]",String(seats));form.set("success_url",`${appBaseUrl()}/admin.html?billing=success`);form.set("cancel_url",`${appBaseUrl()}/admin.html?billing=cancelled`);form.set("client_reference_id",targetCompanyId);form.set("metadata[pooldocai_company_id]",targetCompanyId);form.set("metadata[plan_name]",plan);form.set("metadata[seat_limit]",String(seats));form.set("subscription_data[metadata][pooldocai_company_id]",targetCompanyId);form.set("subscription_data[metadata][plan_name]",plan);form.set("subscription_data[metadata][seat_limit]",String(seats));
+    const canonicalPlanEnvs: Record<string, string> = {
+      solo_tech: "STRIPE_PRICE_SOLO_TECH",
+      solo_complete: "STRIPE_PRICE_SOLO_COMPLETE",
+      pro_tech: "STRIPE_PRICE_PRO_TECH",
+      pro_complete: "STRIPE_PRICE_PRO_COMPLETE",
+      fleet_tech: "STRIPE_PRICE_FLEET_TECH",
+      fleet_complete: "STRIPE_PRICE_FLEET_COMPLETE",
+      starter: "STRIPE_PRICE_STARTER",
+      professional: "STRIPE_PRICE_PROFESSIONAL",
+      enterprise: "STRIPE_PRICE_ENTERPRISE",
+      pilot: "STRIPE_PRICE_PILOT"
+    };
+    const defaultPackageSeats: Record<string, number> = {
+      solo_tech: 1, solo_complete: 1,
+      pro_tech: 5, pro_complete: 5,
+      fleet_tech: 15, fleet_complete: 15,
+      starter: 2, professional: 5, enterprise: 25, pilot: 2
+    };
+    const plan = textValue(body.planName || company.plan_name, 40).toLowerCase();
+    const priceEnv = canonicalPlanEnvs[plan];
+    const priceId = priceEnv ? Deno.env.get(priceEnv) : null;
+    if (!priceId) return jsonResponse({ error: `Stripe checkout is prepared but the price for ${plan} is not configured. After creating a Stripe account and a recurring Price, add ${priceEnv || "STRIPE_PRICE_SOLO_TECH/PRO_COMPLETE/etc."} to Supabase Edge Function Secrets.`, code: "STRIPE_PRICE_NOT_CONFIGURED" }, 503);
+
+    // Each tier is billed as a fixed package price that includes a default seat allowance.
+    // We do not multiply the package price by seat count unless explicit per-seat add-on pricing is configured.
+    const packageSeatAllowance = defaultPackageSeats[plan] || 1;
+    const requestedSeats = Number(body.seatQuantity ?? company.seat_limit ?? packageSeatAllowance);
+    const effectiveSeats = Math.max(packageSeatAllowance, (Number.isInteger(requestedSeats) && requestedSeats >= 1) ? requestedSeats : packageSeatAllowance);
+
+    const form = new URLSearchParams();
+    form.set("mode", "subscription");
+    form.set("line_items[0][price]", priceId);
+    form.set("line_items[0][quantity]", "1"); // Package pricing: 1 package subscription unit
+    form.set("success_url", `${appBaseUrl()}/admin.html?billing=success`);
+    form.set("cancel_url", `${appBaseUrl()}/admin.html?billing=cancelled`);
+    form.set("client_reference_id", targetCompanyId);
+    form.set("metadata[pooldocai_company_id]", targetCompanyId);
+    form.set("metadata[plan_name]", plan);
+    form.set("metadata[seat_limit]", String(effectiveSeats));
+    form.set("subscription_data[metadata][pooldocai_company_id]", targetCompanyId);
+    form.set("subscription_data[metadata][plan_name]", plan);
+    form.set("subscription_data[metadata][seat_limit]", String(effectiveSeats));
     if(company.stripe_customer_id||company.billing_customer_ref)form.set("customer",String(company.stripe_customer_id||company.billing_customer_ref));else if(company.billing_email)form.set("customer_email",String(company.billing_email));
     const response=await fetch("https://api.stripe.com/v1/checkout/sessions",{method:"POST",headers:{Authorization:`Bearer ${stripeKey}`,"Content-Type":"application/x-www-form-urlencoded"},body:form});const data=await response.json().catch(()=>({}));if(!response.ok||!data.url)return jsonResponse({error:"Stripe Checkout could not be created. Verify the test/live Stripe secret and configured Price ID.",code:"STRIPE_CHECKOUT_FAILED"},502);
     await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:"billing_checkout_created",units:1,metric_type:"billing_event",quantity:1,quantity_unit:"checkout",metadata:{plan_name:plan,seat_quantity:seats,stripe_session_id:data.id}});
