@@ -32,6 +32,7 @@ assert.match(trialMigration, /p_user_id IS DISTINCT FROM \(SELECT auth\.uid\(\)\
 
 
 const admin = fs.readFileSync(path.join(root, "website", "admin.html"), "utf8");
+const demo = fs.readFileSync(path.join(root, "website", "demo.html"), "utf8");
 const publicDemo = fs.readFileSync(path.join(root, "website", "demo.html"), "utf8");
 const pricing = fs.readFileSync(path.join(root, "website", "pricing.html"), "utf8");
 const terms = fs.readFileSync(path.join(root, "website", "terms.html"), "utf8");
@@ -79,4 +80,17 @@ assert.ok(invitationBranch.includes("body.termsAccepted !== true || body.privacy
 assert.ok(invitationBranch.includes("pooldocai_legal_acceptances"), "account activation records versioned legal acceptance server-side");
 assert.ok(invitationBranch.includes('acceptance_source: "account_creation"'), "legal acceptance is recorded as an account-creation event");
 
-console.log("PASS: monthly pooled-session limits, usage reporting and temporary-access RPC scoping");
+// Regression coverage for false-positive safety holds and account-portal technician entry.
+for (const [name, html] of [["authenticated workspace", app], ["public demo", demo]]) {
+  const riskBlock = html.slice(html.indexOf("const cautionRiskText"), html.indexOf("const isLatest", html.indexOf("const cautionRiskText")));
+  assert.ok(riskBlock.includes("Safety prohibitions and cautionary examples are not instructions"), name + " ignores safety prohibitions during risk detection");
+  assert.ok(riskBlock.includes("replace(") && riskBlock.includes("(?:never|do not|don't|must not|should not|avoid)"), name + " strips negative safety instructions before risk detection");
+  assert.ok(riskBlock.includes("const cautionIsHighRisk = ") && riskBlock.includes("(?:open|remove|touch|test|repair"), name + " requires an affirmative risky action, not just a component name");
+}
+assert.ok(app.includes("new URLSearchParams(window.location.search).get('mode') === 'tech'"), "account portal can deep-link directly to field-tech mode");
+assert.ok(admin.includes('href="/app?mode=tech">Open Field Technician Troubleshooter'), "account portal opens field-tech troubleshooting by default");
+assert.ok(app.includes('id="integratedTechNotesPanel"'), "authenticated troubleshooter contains an inline field-notes panel");
+assert.ok(app.includes('action:\'save_technician_job\''), "inline field notes save through the authenticated job-record endpoint");
+assert.ok(app.includes('updateIntegratedTechNotesVisibility()'), "inline notes are shown only in authenticated field-tech mode");
+
+console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
