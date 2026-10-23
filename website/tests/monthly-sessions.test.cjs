@@ -84,10 +84,10 @@ assert.ok(invitationBranch.includes('acceptance_source: "account_creation"'), "l
 for (const [name, html] of [["authenticated workspace", app], ["public demo", demo]]) {
   const riskBlock = html.slice(html.indexOf("const cautionRiskText"), html.indexOf("const isLatest", html.indexOf("const cautionRiskText")));
   assert.ok(riskBlock.includes("Safety prohibitions and cautionary examples are not instructions"), name + " ignores safety prohibitions during risk detection");
-  assert.ok(riskBlock.includes(".replace(/\\\\b(?:never|do not|don't|must not|should not|avoid)\\\\s+"), name + " strips negative safety instructions before risk detection");
-  assert.ok(riskBlock.includes("const cautionIsHighRisk = /\\\\b(?:open|remove|touch|test|repair"), name + " requires an affirmative risky action, not just a component name");
+  assert.ok(riskBlock.includes(".replace(/\b(?:never|do not|don't|must not|should not|avoid)\s+"), name + " strips negative safety instructions before risk detection");
+  assert.ok(riskBlock.includes("const cautionIsHighRisk = /\b(?:open|remove|touch|test|repair"), name + " requires an affirmative risky action, not just a component name");
 }
-assert.match(app, /new URLSearchParams\\(window\\.location\\.search\\)\\.get\\('mode'\\) === 'tech'/, "account portal can deep-link directly to field-tech mode");
-assert.match(admin, /href="\\/app\\?mode=tech">Open Field Technician Troubleshooter/, "account portal opens field-tech troubleshooting by default");
+assert.ok(app.includes("new URLSearchParams(window.location.search).get('mode') === 'tech'"), "account portal can deep-link directly to field-tech mode");
+assert.ok(admin.includes('href="/app?mode=tech">Open Field Technician Troubleshooter'), "account portal opens field-tech troubleshooting by default");
 
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
