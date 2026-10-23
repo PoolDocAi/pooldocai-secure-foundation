@@ -1776,6 +1776,14 @@
     let lastTurnRequest = null;
     let dispatchMilestone = null;
 
+    function createDiagnosticSessionId() {
+      try { if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID(); } catch (_) {}
+      return 'pdai-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    }
+    // Stable for one diagnostic conversation only; the account-level request budget continues
+    // to use account ID independently. A new conversation receives a new metering key.
+    let diagnosticSessionId = createDiagnosticSessionId();
+
     let sessionContext = {
       category: null,
       subType: null,
@@ -3052,6 +3060,7 @@
     }
 
     function resetConversationToGreeting() {
+      diagnosticSessionId = createDiagnosticSessionId();
       resetWaterHelpState();
       resetAlgaeTriageState();
       waterBalanceMode.active = false;
@@ -3699,6 +3708,7 @@
         action_type: action,
         authenticatedApp: true,
         sessionId: APP_SESSION?.user?.id ? ('account-' + APP_SESSION.user.id) : '',
+        diagnosticSessionId,
         message: backendText,
         user_message: backendText,
         userMessage: backendText,
@@ -5207,7 +5217,7 @@
       reader.onload = async () => {
         try {
           const headers = secureAuthHeaders();
-          const response = await fetch(TROUBLESHOOTER_ENDPOINT,{method:'POST',headers,body:JSON.stringify({action:'photo_recognition',imageData:String(reader.result),authenticatedApp:true,sessionId:APP_SESSION?.user?.id?('account-'+APP_SESSION.user.id):''})});
+          const response = await fetch(TROUBLESHOOTER_ENDPOINT,{method:'POST',headers,body:JSON.stringify({action:'photo_recognition',imageData:String(reader.result),authenticatedApp:true,sessionId:APP_SESSION?.user?.id?('account-'+APP_SESSION.user.id):'',diagnosticSessionId})});
           const result = await response.json();
           if (!response.ok || result.error) throw new Error(result.error || 'Photo recognition unavailable');
           const c=result.candidate||{};
