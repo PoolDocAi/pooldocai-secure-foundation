@@ -4,10 +4,10 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
-    { "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" }] },
-    { "source": "/learning-review", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
-    { "source": "/admin", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
-    { "source": "/app", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
-    { "source": "/technician", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+    { "source": "/admin(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" }, { "key": "Cache-Control", "value": "no-store, must-revalidate" }] },
+    { "source": "/app(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" }, { "key": "Cache-Control", "value": "no-store, must-revalidate" }] },
+    { "source": "/technician(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" }, { "key": "Cache-Control", "value": "no-store, must-revalidate" }] },
+    { "source": "/learning-review(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" }, { "key": "Cache-Control", "value": "no-store, must-revalidate" }] },
+    { "source": "/accept-invite(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" }, { "key": "Cache-Control", "value": "no-store, must-revalidate" }] }
   ]
 }

@@ -103,26 +103,52 @@ async function runStagingConfigTests() {
     {
       const rawConfigSource = originalConfig;
 
-      // Simulate browser environment on a vercel preview host
-      const sandbox = {
-        window: {
-          location: { hostname: "pooldocai-pr-14.vercel.app" }
-        },
-        console: {
-          error: (msg) => { sandbox.lastError = msg; },
-          log: () => {},
-          warn: () => {}
-        }
-      };
+      // 4A: Production Hostname ending in .vercel.app must NOT halt
+      {
+        const sandboxProd = {
+          window: {
+            location: { hostname: "pooldocai-secure-foundation.vercel.app" }
+          },
+          console: {
+            error: (msg) => { sandboxProd.lastError = msg; },
+            log: () => {},
+            warn: () => {}
+          }
+        };
 
-      const script = new vm.Script(rawConfigSource);
-      const context = vm.createContext(sandbox);
-      script.runInContext(context);
+        const scriptProd = new vm.Script(rawConfigSource);
+        const contextProd = vm.createContext(sandboxProd);
+        scriptProd.runInContext(contextProd);
 
-      assert.equal(sandbox.window.POOLDOCAI_CONFIG.supabaseUrl, null, "Preview host must halt and set supabaseUrl to null if pointing to production");
-      assert.equal(sandbox.window.POOLDOCAI_CONFIG.publicAnonKey, null);
-      assert.ok(String(sandbox.lastError).includes("SECURITY HALT"), "Must log SECURITY HALT error");
-      console.log("PASS: Test 4 - Client runtime defense-in-depth halts execution when preview host has production config.");
+        assert.equal(sandboxProd.window.POOLDOCAI_CONFIG.isProductionDomain, true);
+        assert.equal(sandboxProd.window.POOLDOCAI_CONFIG.isPreviewHost, false);
+        assert.ok(sandboxProd.window.POOLDOCAI_CONFIG.supabaseUrl !== null, "Production hostname must not have supabaseUrl cleared");
+        assert.equal(sandboxProd.lastError, undefined, "Production hostname must not trigger security halt");
+      }
+
+      // 4B: Preview Hostname ending in .vercel.app MUST halt on production credentials
+      {
+        const sandboxPreview = {
+          window: {
+            location: { hostname: "pooldocai-pr-14.vercel.app" }
+          },
+          console: {
+            error: (msg) => { sandboxPreview.lastError = msg; },
+            log: () => {},
+            warn: () => {}
+          }
+        };
+
+        const scriptPreview = new vm.Script(rawConfigSource);
+        const contextPreview = vm.createContext(sandboxPreview);
+        scriptPreview.runInContext(contextPreview);
+
+        assert.equal(sandboxPreview.window.POOLDOCAI_CONFIG.supabaseUrl, null, "Preview host must halt and set supabaseUrl to null if pointing to production");
+        assert.equal(sandboxPreview.window.POOLDOCAI_CONFIG.publicAnonKey, null);
+        assert.ok(String(sandboxPreview.lastError).includes("SECURITY HALT"), "Must log SECURITY HALT error");
+      }
+
+      console.log("PASS: Test 4 - Client runtime defense-in-depth halts execution when preview host has production config, while allowing production .vercel.app.");
     }
 
   } finally {

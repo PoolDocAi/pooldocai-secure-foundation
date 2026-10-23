@@ -51,6 +51,8 @@ jobs:
         run: node website/tests/learning-consent-fail-closed.test.cjs
       - name: Test staging configuration and Vercel preview fail-closed guards
         run: node website/tests/staging-config.test.cjs
+      - name: Test environment-specific indexing and SEO directives
+        run: node website/tests/seo-indexing.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
