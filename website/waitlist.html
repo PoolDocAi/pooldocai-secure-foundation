@@ -3729,7 +3729,7 @@
           // Homeowner mode keeps the clear customer-facing service handoff.
           const equipmentLabel = getSessionEquipmentLabel(' • ');
           const clearServiceReply = replyText && !/technician is the recommended next step/i.test(replyText)
-            ? \`**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**\n\n\${replyText}\`
+            ? \`**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**\n\n${replyText}\`
             : (replyText || '**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**');
           const turn = {
             userMsg: shownText,
@@ -3749,7 +3749,7 @@
         if (requiresTechnician && currentSurfaceMode === 'tech') {
           // Do not let a generic backend escalation end field diagnosis. Be transparent
           // about the source gap and give the technician a safe observation to report.
-          replyText = \`**FIELD-TECH DIAGNOSTIC CONTINUATION**\n\nThe response did not verify a reliable model-specific next repair procedure. I will not treat a generic service recommendation as the end of technician-mode diagnosis.\n\n\${getLocalTroubleshootingFallback(userText)}\n\nReport the visible readings/status and retry the next diagnostic step. Do not bypass a genuine safety stop.\`;
+          replyText = \`**FIELD-TECH DIAGNOSTIC CONTINUATION**\n\nThe response did not verify a reliable model-specific next repair procedure. I will not treat a generic service recommendation as the end of technician-mode diagnosis.\n\n${getLocalTroubleshootingFallback(userText)}\n\nReport the visible readings/status and retry the next diagnostic step. Do not bypass a genuine safety stop.\`;
         }
 
         const metadataOnlyResult = isMetadataOnlyKbResponse(payload);
@@ -3812,8 +3812,8 @@
           userMsg: shownText,
           backendMsg: userText,
           aiReply: techMode
-            ? \`⚠️ **LIVE LOOKUP UNAVAILABLE AFTER RETRY**\n\n\${fallback}\n\nThis is a non-invasive observation, not a verified model-specific repair procedure. The live manual/web lookup did not complete after one retry. Report the observations above and retry the next step when the connection is available; no generic service handoff has been added to technician mode.\`
-            : \`⚠️ **LIVE TROUBLESHOOTING CONNECTION INTERRUPTED**\n\n\${fallback}\n\nThe live manual/web lookup did not finish on this turn. The observation above is general safety guidance, not a verified model-specific procedure. You can retry, or choose the large technician-service option if you need hands-on help.\`,
+            ? \`⚠️ **LIVE LOOKUP UNAVAILABLE AFTER RETRY**\n\n${fallback}\n\nThis is a non-invasive observation, not a verified model-specific repair procedure. The live manual/web lookup did not complete after one retry. Report the observations above and retry the next step when the connection is available; no generic service handoff has been added to technician mode.\`
+            : \`⚠️ **LIVE TROUBLESHOOTING CONNECTION INTERRUPTED**\n\n${fallback}\n\nThe live manual/web lookup did not finish on this turn. The observation above is general safety guidance, not a verified model-specific procedure. You can retry, or choose the large technician-service option if you need hands-on help.\`,
           citation: 'Connection status: Live source verification did not complete',
           serviceHelpAvailable: !techMode,
           choices: techMode
