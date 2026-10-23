@@ -69,4 +69,13 @@ assert.doesNotMatch(publicDemo, /PoolDocAI can save privacy-minimized troublesho
 assert.match(app, /const SECURE_APP_MODE = true;/, "authenticated troubleshooter uses the authenticated application mode");
 assert.doesNotMatch(app, /ensurePublicDemoLearningConsent|pooldocaiPublicDemoConsent/, "authenticated troubleshooting does not invoke public-demo learning consent");
 
+const invitePage = fs.readFileSync(path.join(root, "website", "accept-invite.html"), "utf8");
+assert.match(invitePage, /id="accountLegalAcceptance"/, "new invitees must explicitly accept Terms/Privacy during account activation");
+assert.match(invitePage, /termsAccepted:true,privacyAccepted:true/, "account activation sends the user's legal acceptance to the server");
+assert.match(invitePage, /you will not be asked again for the same versions during troubleshooting/i, "terms acceptance is described as a one-time versioned account agreement");
+const invitationBranch = handler.slice(handler.indexOf('if(action==="accept_company_invitation")'), handler.indexOf('if(action==="revoke_company_invitation")'));
+assert.ok(invitationBranch.includes("body.termsAccepted !== true || body.privacyAccepted !== true"), "the server rejects account activation without Terms/Privacy acceptance");
+assert.ok(invitationBranch.includes("pooldocai_legal_acceptances"), "account activation records versioned legal acceptance server-side");
+assert.ok(invitationBranch.includes('acceptance_source: "account_creation"'), "legal acceptance is recorded as an account-creation event");
+
 console.log("PASS: monthly pooled-session limits, usage reporting and temporary-access RPC scoping");
