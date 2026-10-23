@@ -1790,7 +1790,8 @@
     // =========================================================================
     // 2. PERSISTENT MULTI-TURN SESSION CONTEXT WITH LOCKED CATEGORY & MEMORY
     // =========================================================================
-    let currentSurfaceMode = 'homeowner';
+    const requestedSurfaceMode = new URLSearchParams(window.location.search).get('mode');
+    let currentSurfaceMode = requestedSurfaceMode === 'tech' ? 'tech' : 'homeowner';
     let conversationHistory = [];
     let lastTurnRequest = null;
     let dispatchMilestone = null;
@@ -4611,7 +4612,7 @@
           .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]?/gi, ' ')
           .replace(/\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,40}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ')
           // Safety prohibitions and cautionary examples are not instructions to perform the action.
-          .replace(/\b(?:never|do not|don't|must not|should not|avoid)\s+(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on|reset)\b[^.!?]{0,180}[.!?]?/gi, ' ');
+          .replace(/\b(?:never|do not|don't|must not|should not|avoid)\b[^.!?]*[.!?]?/gi, ' ');
         // Require an affirmative hazardous action. Component names alone (e.g. "capacitor")
         // must not turn a safe pump triage question into a homeowner safety hold.
         const cautionIsHighRisk = /\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on|reset)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring|pressure vessel|filter tank|sealed system)\b/i.test(cautionRiskText) || isDangerousChemicalMixInstruction(cautionRiskText);
