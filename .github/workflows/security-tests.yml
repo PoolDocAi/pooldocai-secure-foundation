@@ -29,6 +29,8 @@ jobs:
 
       - name: Test conversational troubleshooting routing
         run: node website/tests/troubleshooter-intent.test.cjs
+      - name: Test monthly session entitlements and trial RPC scope
+        run: node website/tests/monthly-sessions.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
