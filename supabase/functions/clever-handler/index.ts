@@ -1349,7 +1349,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         user_id: authenticatedUserId, company_id: invite.company_id,
         terms_version: "2026-10-21-v1", privacy_version: "2026-10-21-v1",
         accepted_at: new Date().toISOString(), acceptance_source: "account_creation"
-      }, { onConflict: "user_id,company_id,terms_version,privacy_version" });
+      }, { onConflict: "user_id,company_id,terms_version,privacy_version", ignoreDuplicates: true });
       if(invite.status==="accepted") {
         const { error: legalError } = await recordAccountLegalAcceptance();
         if (legalError) return jsonResponse({ error: "Your agreement could not be recorded. Please retry.", code: "LEGAL_ACCEPTANCE_RECORD_FAILED" }, 500);
