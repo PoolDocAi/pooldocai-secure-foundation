@@ -2484,6 +2484,7 @@ MANDATORY DIAGNOSTIC ORDER:
     (!initialHasEvidence || !initialActionComplete || !initialAlgaePlanComplete) && Boolean(geminiKey);
   if (shouldRunFallbackSearch && geminiKey) {
     forcedWebSearchAttempted = true;
+    let forcedGroundingReservationId: string | null = null;
     const relevantContext = [category, brand, model, textValue(context.subType ?? context.sub_type, 120), symptom].filter(Boolean).join(" | ").slice(0, 900);
     const searchNeed = isConfirmedAlgaeCase
       ? `Find a reputable, applicable green-pool/algae-remediation procedure for a residential swimming pool. Prioritize an official pool-industry source or pool-chemical/manufacturer support source. It must explain free chlorine target selection relative to CYA/stabilizer, brushing, circulation/filtration, testing/redosing, and how to verify completion. Use the provided chemistry only for calculations the source and product label actually support: ${waterQualityResults}. Do not invent doses.`
@@ -2493,7 +2494,6 @@ MANDATORY DIAGNOSTIC ORDER:
           ? `Find a reputable, symptom-matched swimming-pool water-quality troubleshooting procedure for the reported issue. Prioritize authoritative pool-care organizations or chemical manufacturers. Base advice on measured results, not appearance alone, and do not invent doses. Issue context: ${relevantContext}.`
           : `Search the web now for an authoritative, symptom-matched troubleshooting procedure for this pool issue. Prioritize the installed equipment manufacturer's official support page, manual, service bulletin, or technical documentation; then use reputable pool-industry technical sources where manufacturer guidance is unavailable. Exact make/model may be unknown, so search by equipment category and the customer's natural-language symptom without blocking progress for model identification. Return one safe, applicable next observation or diagnostic check, state what changes the next step, and cite only sources actually returned. Do not use product/catalog listings as repair instructions. Never instruct homeowners to open electrical/gas panels, touch wiring, bypass safeguards, open pressurized equipment, reach into moving parts, or guess/mix chemical doses. Issue context: ${relevantContext}.`;
     try {
-      let forcedGroundingReservationId: string | null = null;
       const forcedModel = selectDiagnosticModel(action, query);
       forcedGroundingReservationId = await reserveGroundingBudget(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null, forcedModel);
       if (!forcedGroundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
