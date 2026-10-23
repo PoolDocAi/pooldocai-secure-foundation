@@ -167,9 +167,24 @@ Deno.serve(async (req: Request) => {
       if (subscriptionId) { update.stripe_subscription_id = subscriptionId; update.billing_subscription_ref = subscriptionId; }
       const plan = String(metadata.plan_name || ""); if (["starter","professional","enterprise","pilot"].includes(plan)) update.plan_name = plan;
       const seats = Number(metadata.seat_limit); if (Number.isInteger(seats) && seats >= 1 && seats <= 500) update.seat_limit = seats;
-    } else if (eventType === "invoice.payment_failed") update.billing_status = "past_due";
-    else if (eventType === "invoice.payment_succeeded" || eventType === "invoice.paid") {
-      if (["past_due","manual_review","not_configured"].includes(String(company.billing_status || ""))) update.billing_status = "active";
+    } else if (eventType.startsWith("invoice.")) {
+      const invoicePeriodStart = isoSeconds(obj.period_start || asObject((asObject(obj.lines).data || [])[0]?.period).start);
+      const isOldSubscriptionInvoice = Boolean(company.stripe_subscription_id && subscriptionId && subscriptionId !== company.stripe_subscription_id);
+      const isStaleInvoicePeriod = Boolean(invoicePeriodStart && company.billing_period_start && new Date(invoicePeriodStart).getTime() < new Date(company.billing_period_start).getTime());
+
+      if (isOldSubscriptionInvoice || isStaleInvoicePeriod) {
+        await db.from("pooldocai_stripe_webhook_events").update({
+          processed: true,
+          processed_at: new Date().toISOString(),
+          processing_error: isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active)."
+        }).eq("stripe_event_id", eventId);
+        return json({ ok: true, ignored: true, reason: isOldSubscriptionInvoice ? "stale_old_subscription_invoice" : "stale_out_of_order_invoice" });
+      }
+
+      if (eventType === "invoice.payment_failed") update.billing_status = "past_due";
+      else if (eventType === "invoice.payment_succeeded" || eventType === "invoice.paid") {
+        if (["past_due","manual_review","not_configured"].includes(String(company.billing_status || ""))) update.billing_status = "active";
+      }
     }
 
     const handled = ["checkout.session.completed","customer.subscription.created","customer.subscription.updated","customer.subscription.deleted","invoice.payment_failed","invoice.payment_succeeded","invoice.paid"];

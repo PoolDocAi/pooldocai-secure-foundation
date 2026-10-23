@@ -1621,16 +1621,26 @@ function isCriticalPoolHazardText(rawText: string): boolean {
           return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
         }
       }
-      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,case_learning_opt_in").eq("id", item.case_id).maybeSingle();
-      if (item.case_id && (!caseRow || caseRow.case_learning_opt_in !== true)) {
-        return jsonResponse({ error: "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.", code: "CASE_LEARNING_OPT_IN_REQUIRED" }, 403);
+      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,case_learning_opt_in,learning_permission_granted,legal_terms_version").eq("id", item.case_id).maybeSingle();
+      const isPublicDemoCase = item.tenant_id === null;
+      const hasCaseConsent = Boolean(
+        caseRow?.case_learning_opt_in === true ||
+        (isPublicDemoCase && caseRow?.learning_permission_granted === true && caseRow?.legal_terms_version)
+      );
+      if (item.case_id && (!caseRow || !hasCaseConsent)) {
+        return jsonResponse({
+          error: isPublicDemoCase
+            ? "Public demo case-level learning permission was not granted. This case cannot be published."
+            : "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.",
+          code: "CASE_LEARNING_OPT_IN_REQUIRED"
+        }, 403);
       }
       const lesson = (editedLesson || scrubPII(String(item.proposed_lesson_redacted || ""))).slice(0,4000);
       const chemicalRisk = /\b(muriatic acid|cal[- ]?hypo|trichlor|sodium bicarbonate|chlorine dose|chemical dosing|acid dose|ppm dose|lsi|saturation index)\b/i.test(lesson);
       if (chemicalRisk && !/senior|manager|qualified/i.test(note)) return jsonResponse({ error: "This lesson contains potential chemical dosing or water-balance guidance. A qualified senior technician or manager sign-off must be recorded in the review note.", code: "CHEMICAL_REVIEW_REQUIRED" }, 400);
       if (lesson.length < 40) return jsonResponse({ error: "The redacted lesson is too short to publish.", code: "LESSON_TOO_SHORT" }, 400);
 
-      // Transaction-safe RPC approval with dual-opt-in enforcement and lock
+      // Transaction-safe RPC approval with dual-opt-in enforcement and lock. Fail closed: no direct publication fallback.
       const { error: rpcErr } = await supabase.rpc("pooldocai_approve_learning_case", {
         p_queue_id: queueId,
         p_lesson: lesson,
@@ -1639,23 +1649,27 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       });
 
       if (rpcErr) {
+        console.error("Atomic learning approval failed; publication blocked", { queueId, error: rpcErr.message });
         if (rpcErr.message?.includes("Governing company diagnostic learning opt-in is required")) {
           return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
         }
-        if (rpcErr.message?.includes("Case-level learning consent was not granted")) {
+        if (rpcErr.message?.includes("Case-level learning consent was not granted") || rpcErr.message?.includes("Public demo case-level learning consent was not granted")) {
           return jsonResponse({ error: "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.", code: "CASE_LEARNING_OPT_IN_REQUIRED" }, 403);
         }
-        const { error: publishError } = await supabase.from("shared_learning_knowledge").upsert({ source_case_id: item.case_id, source_queue_id: item.id, source_company_id: item.tenant_id, source_kind: item.source_kind, equipment_category: caseRow?.equipment_category || null, manufacturer_normalized: caseRow?.manufacturer_normalized || null, model_normalized: caseRow?.model_normalized || null, lesson_redacted: lesson, approved_by: authenticatedUserId, consent_snapshot: item.source_kind === "company_manual" ? true : null, review_history: [{ action: "approved", actor: authenticatedUserId, at: new Date().toISOString(), note }] }, { onConflict: "source_queue_id" });
-        if (publishError) return jsonResponse({ error: "Could not publish approved shared knowledge.", code: "PUBLISH_FAILED" }, 500);
-        await supabase.from("diagnostic_cases").update({ approved_for_learning: true, privacy_reviewed_at: new Date().toISOString() }).eq("id", item.case_id);
+        if (rpcErr.message?.includes("Source company manual opt-in consent is missing")) {
+          return jsonResponse({ error: "The source company's current opt-in consent is missing. This item cannot be approved.", code: "SOURCE_CONSENT_REQUIRED" }, 403);
+        }
+        return jsonResponse({ error: "Atomic approval transaction failed; no shared knowledge was published.", code: "APPROVAL_TRANSACTION_FAILED" }, 500);
       }
+
+      return jsonResponse({ ok: true, status: "approved", publishedToSharedRetrieval: true, modelTraining: false }, 200);
     }
-    const nextStatus = decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "pending";
+    const nextStatus = decision === "reject" ? "rejected" : "pending";
     const { error: updateError } = await supabase.from("learning_review_queue").update({ status: nextStatus, reviewed_by: authenticatedUserId, reviewed_at: new Date().toISOString() }).eq("id", queueId);
     if (updateError) return jsonResponse({ error: "Could not save review decision.", code: "REVIEW_SAVE_FAILED" }, 500);
-    if (decision !== "approve") await supabase.from("shared_learning_knowledge").delete().eq("source_queue_id", queueId);
-    await supabase.from("learning_review_audit").insert({ queue_id: queueId, case_id: item.case_id, actor_user_id: authenticatedUserId, action: decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "reopened", note_redacted: note || null });
-    return jsonResponse({ ok: true, status: nextStatus, publishedToSharedRetrieval: decision === "approve", modelTraining: false }, 200);
+    await supabase.from("shared_learning_knowledge").delete().eq("source_queue_id", queueId);
+    await supabase.from("learning_review_audit").insert({ queue_id: queueId, case_id: item.case_id, actor_user_id: authenticatedUserId, action: decision === "reject" ? "rejected" : "reopened", note_redacted: note || null });
+    return jsonResponse({ ok: true, status: nextStatus, publishedToSharedRetrieval: false, modelTraining: false }, 200);
   }
 
   // Technician job records always require an individual authenticated company account.
@@ -2048,7 +2062,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         outcome_evidence_redacted: "Visitor explicitly reported that the troubleshooting resolved the issue.",
         last_activity_at: new Date().toISOString(), resolution_summary_redacted: answer,
         equipment_category: category || null, manufacturer_normalized: manufacturer || null, model_normalized: model || null,
-        learning_permission_granted: true, legal_terms_version: termsVersion
+        learning_permission_granted: true, legal_terms_version: termsVersion,
+        case_learning_opt_in: true, learning_terms_version: termsVersion
       }).eq("id", publicCaseId);
       if (updateError) return jsonResponse({ error: "Could not update the review case.", code: "PUBLIC_DEMO_CASE_UPDATE_FAILED" }, 500);
     } else {
@@ -2059,7 +2074,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         equipment_category: category || null, manufacturer_normalized: manufacturer || null, model_normalized: model || null,
         symptom_redacted: issue, resolution_summary_redacted: answer,
         source_ids: ["public-demo"], technician_verified: false, approved_for_learning: false,
-        learning_permission_granted: true, legal_terms_version: termsVersion
+        learning_permission_granted: true, legal_terms_version: termsVersion,
+        case_learning_opt_in: true, learning_terms_version: termsVersion
       }).select("id").single();
       if (caseError || !caseRow) {
         console.error("Public demo case creation failed", { code: caseError?.code });
@@ -2112,22 +2128,42 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     const { data: comp } = await supabase.from("companies").select("diagnostic_learning_opt_in").eq("id", authenticatedCompanyId).maybeSingle();
     const companyOptedIn = Boolean(comp?.diagnostic_learning_opt_in);
     const caseOptedIn = body.caseLearningOptIn === true;
-    const termsVersion = textValue(body.learningTermsVersion ?? body.termsVersion, 40) || (caseOptedIn ? "2026-10-v1" : null);
+
+    // Authoritative server-side contributor terms verification: do not rely only on client flags or client version strings
+    let contributorConsentValid = false;
+    let authoritativeTermsVersion: string | null = null;
+    if (caseOptedIn && authenticatedCompanyId && authenticatedUserId) {
+      const { data: legalRow, error: legalErr } = await supabase
+        .from("pooldocai_legal_acceptances")
+        .select("terms_version,accepted_at")
+        .eq("user_id", authenticatedUserId)
+        .eq("company_id", authenticatedCompanyId)
+        .order("accepted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!legalErr && legalRow?.terms_version) {
+        contributorConsentValid = true;
+        authoritativeTermsVersion = String(legalRow.terms_version);
+      }
+    }
+
+    const effectiveCaseOptIn = Boolean(caseOptedIn && contributorConsentValid);
 
     const { data: caseRow, error: caseError } = await supabase.from("diagnostic_cases").insert({
       tenant_id: authenticatedCompanyId, case_status: status, equipment_category: category || null,
       manufacturer_normalized: manufacturer || null, model_normalized: model || null,
       symptom_redacted: issue, resolution_summary_redacted: answer || null,
       source_ids: ["authenticated-troubleshooter"], technician_verified: false, approved_for_learning: false,
-      case_learning_opt_in: caseOptedIn,
-      learning_terms_version: termsVersion
+      case_learning_opt_in: effectiveCaseOptIn,
+      learning_terms_version: authoritativeTermsVersion
     }).select("id").single();
     if (caseError || !caseRow) { console.error("Learning case capture failed", { code: caseError?.code }); return jsonResponse({ error: "Could not record this troubleshooting case for review.", code: "LEARNING_CAPTURE_FAILED" }, 500); }
     const stepText = [issue ? `Reported issue: ${issue}` : "", answer ? `PoolDocAI response: ${answer}` : ""].filter(Boolean).join("\n").slice(0, 1200);
     await supabase.from("diagnostic_case_steps").insert({ case_id: caseRow.id, step_number: 1, step_type: "observation", prompt_redacted: stepText, result_summary_redacted: answer || null, source_ids: ["authenticated-troubleshooter"] });
 
-    // Only queue for shared learning review if BOTH governing company has opted in AND case-level opt-in was provided
-    if (companyOptedIn && caseOptedIn) {
+    // Only queue for shared learning review if BOTH governing company has opted in AND contributor terms are verified
+    if (companyOptedIn && effectiveCaseOptIn) {
       const lesson = `Equipment: ${category || "unspecified"}; manufacturer: ${manufacturer || "unspecified"}; model: ${model || "unspecified"}. Issue: ${issue || "not supplied"}. Guidance/outcome: ${answer || "not supplied"}`.slice(0, 2000);
       const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: caseRow.id, tenant_id: authenticatedCompanyId, source_kind: "authenticated_troubleshooter", proposed_lesson_redacted: lesson, supporting_source_ids: ["authenticated-troubleshooter"], status: "pending" });
       if (queueError) { console.error("Learning review queue insert failed", { code: queueError.code }); return jsonResponse({ error: "Case saved but learning review queueing failed.", code: "LEARNING_QUEUE_FAILED", caseId: caseRow.id }, 500);

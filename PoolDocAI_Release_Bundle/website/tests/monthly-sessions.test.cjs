@@ -144,8 +144,8 @@ assert.ok(caseConsentMigration.includes("case_learning_opt_in boolean NOT NULL D
 assert.ok(caseConsentMigration.includes("learning_terms_version text"), "migration 031 adds learning_terms_version to diagnostic_cases");
 assert.ok(caseConsentMigration.includes("pooldocai_audit_case_learning_consent"), "migration 031 creates case-level consent audit and revocation trigger");
 assert.ok(caseConsentMigration.includes("pooldocai_approve_learning_case"), "migration 031 creates atomic approval RPC");
-assert.ok(handler.includes('case_learning_opt_in: caseOptedIn'), "clever-handler persists explicit case_learning_opt_in");
-assert.ok(handler.includes('learning_terms_version: termsVersion'), "clever-handler records applicable terms version on diagnostic case");
+assert.ok(handler.includes('case_learning_opt_in: effectiveCaseOptIn') || handler.includes('case_learning_opt_in: caseOptedIn'), "clever-handler persists explicit case_learning_opt_in");
+assert.ok(handler.includes('learning_terms_version: authoritativeTermsVersion') || handler.includes('learning_terms_version: termsVersion'), "clever-handler records applicable terms version on diagnostic case");
 assert.ok(handler.includes('code: "CASE_LEARNING_OPT_IN_REQUIRED"'), "clever-handler rechecks case-level opt-in before publishing");
 assert.ok(handler.includes('action === "withdraw_case_learning_consent"'), "clever-handler provides dedicated case consent withdrawal handler");
 assert.ok(handler.includes('pooldocai_approve_learning_case'), "clever-handler invokes transaction-safe learning approval function");

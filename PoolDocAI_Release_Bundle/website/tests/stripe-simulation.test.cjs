@@ -444,6 +444,120 @@ async function runExecutableWebhookTests() {
     assert.equal(resUnrelated.body.reason, "no_company_match");
   }
 
+  // Test 9: Stale Invoice from Superseded Subscription Cannot Degrade Newer Subscription
+  {
+    // The company is currently on sub_resub_fleet (active).
+    const currentSubId = harness.tables.companies.get(companyId).stripe_subscription_id;
+    assert.equal(currentSubId, "sub_resub_fleet");
+    assert.equal(harness.tables.companies.get(companyId).billing_status, "active");
+
+    // A delayed failed invoice arrives belonging to the OLD subscription sub_initial_123
+    const oldSubInvoicePayload = JSON.stringify({
+      id: "evt_inv_fail_old_sub",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_old_sub_fail",
+          customer: "cus_sim_123",
+          subscription: "sub_initial_123",
+          period_start: Math.floor(new Date("2026-03-01T00:00:00.000Z").getTime() / 1000)
+        }
+      }
+    });
+    const sigOldInv = signPayload(oldSubInvoicePayload, WEBHOOK_SECRET);
+    const resOldInv = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sigOldInv.header }, body: oldSubInvoicePayload
+    }));
+    assert.equal(resOldInv.status, 200);
+    assert.equal(resOldInv.body.ignored, true);
+    assert.equal(resOldInv.body.reason, "stale_old_subscription_invoice");
+
+    // Confirm company billing status was NOT degraded to past_due
+    assert.equal(harness.tables.companies.get(companyId).billing_status, "active");
+  }
+
+  // Test 10: Stale Out-of-Order Invoice for Current Subscription Cannot Overwrite Newer Period
+  {
+    // A delayed payment failure arrives with period_start in February 2026 (older than April 2026)
+    const febTimestamp = Math.floor(new Date("2026-02-01T00:00:00.000Z").getTime() / 1000);
+    const stalePeriodPayload = JSON.stringify({
+      id: "evt_inv_fail_stale_period",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_stale_feb_fail",
+          customer: "cus_sim_123",
+          subscription: "sub_resub_fleet",
+          period_start: febTimestamp
+        }
+      }
+    });
+    const sigStale = signPayload(stalePeriodPayload, WEBHOOK_SECRET);
+    const resStale = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sigStale.header }, body: stalePeriodPayload
+    }));
+    assert.equal(resStale.status, 200);
+    assert.equal(resStale.body.ignored, true);
+    assert.equal(resStale.body.reason, "stale_out_of_order_invoice");
+
+    // Company remains active
+    assert.equal(harness.tables.companies.get(companyId).billing_status, "active");
+  }
+
+  // Test 11: Duplicate Invoice Delivery Handled Idempotently
+  {
+    // Send a valid payment failure for the current period
+    const aprTimestamp = Math.floor(new Date("2026-04-01T00:00:00.000Z").getTime() / 1000);
+    const validFailPayload = JSON.stringify({
+      id: "evt_inv_fail_current",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_current_fail",
+          customer: "cus_sim_123",
+          subscription: "sub_resub_fleet",
+          period_start: aprTimestamp
+        }
+      }
+    });
+    const sigValidFail = signPayload(validFailPayload, WEBHOOK_SECRET);
+    const resValidFail = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sigValidFail.header }, body: validFailPayload
+    }));
+    assert.equal(resValidFail.status, 200);
+    assert.equal(resValidFail.body.processed, true);
+    assert.equal(harness.tables.companies.get(companyId).billing_status, "past_due");
+
+    // Deliver the exact duplicate event
+    const resDuplicate = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sigValidFail.header }, body: validFailPayload
+    }));
+    assert.equal(resDuplicate.status, 200);
+    assert.equal(resDuplicate.body.ok, true);
+    assert.equal(resDuplicate.body.duplicate, true);
+
+    // Send a valid payment recovery for the current period
+    const validSuccessPayload = JSON.stringify({
+      id: "evt_inv_success_current",
+      type: "invoice.payment_succeeded",
+      data: {
+        object: {
+          id: "in_current_success",
+          customer: "cus_sim_123",
+          subscription: "sub_resub_fleet",
+          period_start: aprTimestamp
+        }
+      }
+    });
+    const sigValidSuccess = signPayload(validSuccessPayload, WEBHOOK_SECRET);
+    const resValidSuccess = await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST", headers: { "stripe-signature": sigValidSuccess.header }, body: validSuccessPayload
+    }));
+    assert.equal(resValidSuccess.status, 200);
+    assert.equal(resValidSuccess.body.processed, true);
+    assert.equal(harness.tables.companies.get(companyId).billing_status, "active");
+  }
+
   console.log("PASS: Executable Stripe webhook event ordering, idempotency, signature, and replay test suite passed.");
 }
 
