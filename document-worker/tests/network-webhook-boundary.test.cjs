@@ -30,7 +30,7 @@ assert.match(webhooks, /pooldocai_finish_service_request_webhook/);
 assert.match(webhooks, /safeUrl\(config\.target_url, \{ requireHttps: true \}\)/);
 assert.match(webhooks, /x-pooldocai-signature/);
 assert.match(webhooks, /requestPinnedUrl\(target/);
-assert.match(webhooks, /p_retryable:\s*!permanentlyBlocked/);
+assert.match(webhooks, /retryable:\s*!permanentlyBlocked/);
 assert.match(worker, /setInterval\(\(\) => \{ void pollWebhookQueue\(\); \}, 5000\)/);
 
 console.log('Worker outbound-network and signed-webhook boundary checks passed.');
