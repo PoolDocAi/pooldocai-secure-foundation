@@ -25,7 +25,7 @@ GRANT EXECUTE ON FUNCTION public.temporary_access_is_valid(uuid) TO authenticate
 COMMENT ON FUNCTION public.temporary_access_is_valid(uuid) IS
   'Restrictive RLS expiry gate that only answers for the invoking authenticated user; arbitrary cross-user validity probes return false.';
 -- Extend restrictive temporary-account expiry policy to storage.objects so expired/revoked temporary credentials cannot read or upload files.
-DO $
+DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'storage' AND tablename = 'objects') THEN
     DROP POLICY IF EXISTS temporary_access_storage_expiry_guard ON storage.objects;
@@ -34,6 +34,6 @@ BEGIN
       USING (public.temporary_access_is_valid(auth.uid()))
       WITH CHECK (public.temporary_access_is_valid(auth.uid()));
   END IF;
-END $;
+END $$;
 
 COMMIT;
