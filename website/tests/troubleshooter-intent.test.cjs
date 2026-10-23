@@ -146,6 +146,16 @@ assert.match(backend, /technicianRecommended: sourceLookupUncertain \|\| generat
 assert.match(backend, /same conversational-understanding and source-based diagnostic methodology across pumps\/motors, filters, valves, heaters, automation\/controllers, schedules\/timers, cleaners, sanitizer\/chlorine systems, lighting, circulation\/flow, water chemistry/, 'backend system prompt should apply the same method across categories');
 assert.match(backend, /MANDATORY SEARCH OVERRIDE: You must invoke Google Search grounding/, 'fallback should explicitly require web search');
 assert.match(backend, /dirt comes back|returns are weak/, 'backend actionability should recognize filter/flow symptoms');
+assert.ok(
+  backend.includes('.lte("valid_from",rateLookupTime)') &&
+  backend.includes('.or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)'),
+  'Edge Function token-cost estimates must use the rate card valid at the time of use, not only open-ended rows'
+);
+assert.ok(
+  backend.includes('.lte("valid_from", rateLookupTime)') &&
+  backend.includes('.or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)'),
+  'Google Search grounding estimates must use the rate card valid at the time of use'
+);
 
 // Regression guard for the production failure caused by using industryCatalogRows before its
 // lexical declaration. The catalog is fetched after initial KB retrieval, so model-family
