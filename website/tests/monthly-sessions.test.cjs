@@ -97,4 +97,9 @@ assert.ok(app.includes('id="integratedTechNotesPanel"'), "authenticated troubles
 assert.ok(app.includes('action:\'save_technician_job\''), "inline field notes save through the authenticated job-record endpoint");
 assert.ok(app.includes('updateIntegratedTechNotesVisibility()'), "inline notes are shown only in authenticated field-tech mode");
 
+assert.ok(handler.includes("8a. MODE-SPECIFIC FIRST STEPS (mandatory)"), "server prompt includes mandatory mode-specific diagnostic behavior");
+assert.ok(handler.includes("pump-not-starting"), "homeowner pump-start symptoms have a safe-first-step path");
+assert.ok(handler.includes("whether the pump display or indicator lights are on"), "homeowner pump-start triage begins with non-invasive observations");
+assert.ok(handler.includes("Do not begin by directing the homeowner to reset or test a breaker"), "homeowner pump-start triage avoids electrical repair instructions");
+assert.ok(handler.includes("mode: techMode ?"), "prompt case context identifies server-derived mode");
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
