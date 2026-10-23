@@ -3577,7 +3577,115 @@
       return '**TECHNICIAN MODE — ' + String(reason).toUpperCase() + ' DID NOT PRODUCE A VERIFIED PROCEDURE**\n\nThe system has not verified an applicable model-specific procedure for this turn. The observation below is a conservative diagnostic starting point, not a confirmed manufacturer procedure. Continue with recorded observations and the next source-backed step; do not infer that an unverified repair is approved.\n\n' + fallback;
     }
 
+
+    let publicDemoConsentDialogPromise = null;
+
+    async function getPublicDemoLearningSessionHash() {
+      const rawSessionId = getPublicDemoSessionId(currentSurfaceMode);
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawSessionId));
+      return Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function publicDemoLearningRequest(action, payload) {
+      const response = await fetch(TROUBLESHOOTER_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action, ...payload })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || 'PoolDocAI could not save the consent or diagnostic note.');
+      return result;
+    }
+
+    async function ensurePublicDemoLearningConsent() {
+      const acceptanceKey = 'pooldocai_public_demo_learning_accepted_v1_' + publicDemoModeSlug();
+      if (sessionStorage.getItem(acceptanceKey) === '1') return true;
+      if (publicDemoConsentDialogPromise) return publicDemoConsentDialogPromise;
+      publicDemoConsentDialogPromise = new Promise(resolve => {
+        let finished = false;
+        const finish = accepted => {
+          if (finished) return;
+          finished = true;
+          overlay.remove();
+          publicDemoConsentDialogPromise = null;
+          resolve(accepted);
+        };
+        const overlay = document.createElement('div');
+        overlay.id = 'pooldocaiPublicDemoConsent';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'pooldocaiPublicDemoConsentTitle');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.82);display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = '<div style="width:100%;max-width:560px;max-height:90vh;overflow:auto;background:#fff;color:#0f172a;border-radius:18px;padding:22px;box-shadow:0 25px 75px rgba(0,0,0,.35);font:15px/1.55 system-ui,sans-serif;">' +
+          '<h2 id="pooldocaiPublicDemoConsentTitle" style="font-size:22px;font-weight:800;margin:0 0 10px;">Before you start</h2>' +
+          '<p style="margin:0 0 10px;">PoolDocAI can save privacy-minimized troubleshooting messages and outcomes from this demo to help improve its general diagnostic knowledge. Personal contact details are redacted where detected. Do not enter private customer information or upload confidential company procedures.</p>' +
+          '<p style="margin:0 0 14px;">Any learning candidate remains pending until a PoolDocAI platform administrator reviews it. This does not automatically train or fine-tune a model.</p>' +
+          '<button type="button" id="pooldocaiReviewPrivacyBtn" style="background:none;border:0;padding:0;color:#0369a1;text-decoration:underline;font-weight:700;cursor:pointer;margin-bottom:14px;">Review Privacy, Data Handling &amp; Terms of Use</button>' +
+          '<label style="display:flex;align-items:flex-start;gap:9px;padding:10px 0;font-size:14px;"><input id="pooldocaiPublicDemoConsentCheckbox" type="checkbox" style="width:17px;height:17px;flex:0 0 17px;margin-top:3px;"> <span>I agree to the Terms of Use and Privacy/Data Handling notice, and I consent to the privacy-minimized troubleshooting information described above being considered for PoolDocAI general diagnostic learning.</span></label>' +
+          '<p id="pooldocaiPublicDemoConsentStatus" role="status" aria-live="polite" style="min-height:22px;color:#b91c1c;margin:2px 0 10px;"></p>' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;"><button id="pooldocaiPublicDemoConsentContinue" type="button" style="background:#0369a1;color:white;padding:11px 16px;border:0;border-radius:10px;font-weight:800;cursor:pointer;">Agree and continue</button><button id="pooldocaiPublicDemoConsentCancel" type="button" style="background:#e2e8f0;color:#0f172a;padding:11px 16px;border:0;border-radius:10px;font-weight:700;cursor:pointer;">Not now</button></div>' +
+          '</div>';
+        document.body.appendChild(overlay);
+        overlay.querySelector('#pooldocaiReviewPrivacyBtn').addEventListener('click', () => {
+          if (typeof window.openPrivacyModal === 'function') window.openPrivacyModal();
+          else overlay.querySelector('#pooldocaiPublicDemoConsentStatus').textContent = 'The policy panel is not available on this page. Please use the site navigation to review the policy.';
+        });
+        overlay.querySelector('#pooldocaiPublicDemoConsentCancel').addEventListener('click', () => finish(false));
+        overlay.querySelector('#pooldocaiPublicDemoConsentContinue').addEventListener('click', async event => {
+          const button = event.currentTarget;
+          const checkbox = overlay.querySelector('#pooldocaiPublicDemoConsentCheckbox');
+          const status = overlay.querySelector('#pooldocaiPublicDemoConsentStatus');
+          if (!checkbox.checked) { status.textContent = 'Check the box to agree before continuing.'; return; }
+          button.disabled = true;
+          button.textContent = 'Recording consent…';
+          status.textContent = '';
+          try {
+            const sessionHash = await getPublicDemoLearningSessionHash();
+            await publicDemoLearningRequest('record_public_demo_consent', {
+              sessionHash,
+              demoMode: currentSurfaceMode === 'tech' ? 'field-tech' : 'homeowner',
+              acceptanceSource: 'public_demo',
+              acceptedTerms: true,
+              acknowledgedPrivacy: true,
+              acknowledgedDiagnosticLearning: true
+            });
+            sessionStorage.setItem(acceptanceKey, '1');
+            finish(true);
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = 'Agree and continue';
+            status.textContent = error?.message || 'Consent could not be recorded. The troubleshooting request was not sent.';
+          }
+        });
+        overlay.querySelector('#pooldocaiPublicDemoConsentCheckbox').focus();
+      });
+      return publicDemoConsentDialogPromise;
+    }
+
+    async function capturePublicDemoTurn(userText, assistantResponse, outcomeStatus = 'in_progress') {
+      const acceptanceKey = 'pooldocai_public_demo_learning_accepted_v1_' + publicDemoModeSlug();
+      if (sessionStorage.getItem(acceptanceKey) !== '1') return null;
+      try {
+        const sessionHash = await getPublicDemoLearningSessionHash();
+        return await publicDemoLearningRequest('capture_public_demo_turn', {
+          sessionHash,
+          turnId: String(activePublicDemoTurnId || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random())),
+          demoMode: currentSurfaceMode === 'tech' ? 'field-tech' : 'homeowner',
+          userMessage: String(userText || '').slice(0, 1800),
+          assistantResponse: String(assistantResponse || '').slice(0, 3600),
+          outcomeStatus,
+          category: String(sessionContext.category || '').slice(0, 120),
+          manufacturer: String(sessionContext.brand || '').slice(0, 120),
+          model: String(sessionContext.model || '').slice(0, 120)
+        });
+      } catch (error) {
+        console.warn('Privacy-minimized public demo capture was not saved.', error?.message || 'capture error');
+        return null;
+      }
+    }
+
     async function requestSupabaseTroubleshootingTurn(userText, action = 'troubleshoot', displayText = '', retryLevel = 0) {
+      if (retryLevel === 0 && !(await ensurePublicDemoLearningConsent())) return;
       if (retryLevel === 0) { if (publicDemoTurns() >= PUBLIC_DEMO_TURN_LIMIT) { showDemoWaitlistNotice(`You have used all 8 turns in the ${currentSurfaceMode === 'tech' ? 'Field Tech Mobile App' : 'Homeowner Triage'} demo. The other demo mode has its own separate 8-turn allowance.`); return; } sessionStorage.setItem(publicDemoCountKey(), String(publicDemoTurns()+1)); updatePublicDemoTurnMeter(); activePublicDemoTurnId=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random()); }
       const shownText = displayText || userText;
       lastTurnRequest = { userText, action, displayText };
@@ -3762,6 +3870,7 @@
             serviceHelpAvailable: false,
             choices: []
           });
+          await capturePublicDemoTurn(userText, replyText || 'Safety stop', 'in_progress');
           renderInteractiveConversation();
           return;
         }
@@ -3783,6 +3892,7 @@
             equipment: equipmentLabel
           };
           conversationHistory.push(turn);
+          await capturePublicDemoTurn(userText, clearServiceReply, 'in_progress');
           renderInteractiveConversation();
           return;
         }
@@ -3846,6 +3956,7 @@
         conversationHistory.push(turn);
         const dispatchNote = buildSupabaseDispatchNote(payload, replyText, action);
         renderInteractiveConversation(dispatchNote);
+        await capturePublicDemoTurn(userText, replyText, 'in_progress');
       } catch (error) {
         console.error('PoolDocAI troubleshooting lookup unavailable:', error);
         const timedOut = error?.name === 'AbortError';
@@ -4595,7 +4706,27 @@
         : [];
       const choicesHtml = visibleChoices.length > 0
         ? `<div class="text-xs font-bold uppercase tracking-wider text-emerald-400">Suggested Auto-Replies:</div><div class="flex flex-wrap gap-2">${visibleChoices.map(c => `<button type="button" data-wb-val="${escapeHtml(c.wbVal !== undefined ? c.wbVal : '')}" data-followup-action="${escapeHtml(c.action || '')}" data-followup-prompt="${escapeHtml(c.prompt || '')}" data-followup-label="${escapeHtml(c.label)}" class="demo-followup-btn px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-sky-500 hover:text-slate-950 text-sky-300 border border-slate-700 font-bold text-xs cursor-pointer">${escapeHtml(c.label)}</button>`).join('')}</div>` : '';
-      actionEl.innerHTML = `${switchButton}${choicesHtml}`;
+      const publicDemoLearningOutcomeHtml = latestStep && !['critical_stop', 'emergency_stop'].includes(String(latestStep.type || '').toLowerCase()) && sessionStorage.getItem('pooldocai_public_demo_learning_accepted_v1_' + publicDemoModeSlug()) === '1'
+        ? '<div class="mt-4 rounded-xl border border-slate-700 bg-slate-900/70 p-3"><div class="text-xs font-bold text-slate-200 mb-2">Did this resolve the issue?</div><div class="flex flex-wrap gap-2"><button type="button" id="publicDemoResolvedBtn" class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold">Yes, resolved</button><button type="button" id="publicDemoUnresolvedBtn" class="px-3 py-2 rounded-lg bg-slate-700 text-slate-100 text-xs font-bold">Still not resolved</button></div><p id="publicDemoLearningOutcomeStatus" role="status" class="text-xs text-slate-300 mt-2"></p></div>'
+        : '';
+      actionEl.innerHTML = `${switchButton}${choicesHtml}${publicDemoLearningOutcomeHtml}`;
+      const resolvedOutcomeBtn = document.getElementById('publicDemoResolvedBtn');
+      const unresolvedOutcomeBtn = document.getElementById('publicDemoUnresolvedBtn');
+      const outcomeStatusEl = document.getElementById('publicDemoLearningOutcomeStatus');
+      const submitDemoOutcome = async status => {
+        if (resolvedOutcomeBtn) resolvedOutcomeBtn.disabled = true;
+        if (unresolvedOutcomeBtn) unresolvedOutcomeBtn.disabled = true;
+        if (outcomeStatusEl) outcomeStatusEl.textContent = 'Saving your feedback…';
+        const currentReply = conversationHistory[conversationHistory.length - 1];
+        const result = await capturePublicDemoTurn(lastTurnRequest?.userText || currentReply?.backendMsg || currentReply?.userMsg || '', currentReply?.aiReply || '', status);
+        if (outcomeStatusEl) {
+          outcomeStatusEl.textContent = status === 'customer_reported_resolved' && result?.learningStatus === 'pending_platform_review'
+            ? 'Thank you. A proposed lesson is pending PoolDocAI review and is not published automatically.'
+            : result ? 'Thank you — your privacy-minimized feedback was recorded.' : 'Feedback could not be recorded right now. You can continue troubleshooting.';
+        }
+      };
+      resolvedOutcomeBtn?.addEventListener('click', () => submitDemoOutcome('customer_reported_resolved'));
+      unresolvedOutcomeBtn?.addEventListener('click', () => submitDemoOutcome('unresolved'));
       renderDispatchNote(customDispatchNote);
 
       const drainSelect = document.getElementById('drainSelectCheckbox');
