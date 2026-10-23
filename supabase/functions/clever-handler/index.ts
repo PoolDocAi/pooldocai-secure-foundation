@@ -2358,12 +2358,22 @@ MANDATORY DIAGNOSTIC ORDER:
     if (publicUsageError) console.warn("Public API usage metering unavailable", { code: publicUsageError.code });
   }
 
+  // Public marketing demos use only the global budget; company widgets and signed-in
+  // workspaces additionally consume the owning tenant's grounding budget.
+  const groundingCompanyId: string | null = body.authenticatedApp === true
+    ? (authenticatedCompanyId ? String(authenticatedCompanyId) : null)
+    : body.tenantWidget === true
+      ? (tenantWidgetConfig?.company_id ? String(tenantWidgetConfig.company_id) : null)
+      : null;
+  const groundingUserId: string | null = body.authenticatedApp === true && authenticatedUserId
+    ? String(authenticatedUserId) : null;
+
   if (geminiKey) {
     let groundingReservationId: string | null = null;
     try {
       // Reserve a bounded grounding slot before making a Search-enabled provider request.
       const selectedModel = selectDiagnosticModel(action, query);
-      groundingReservationId = await reserveGroundingBudget(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null, selectedModel);
+      groundingReservationId = await reserveGroundingBudget(supabase, groundingCompanyId, selectedModel);
       if (!groundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
       const geminiRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
@@ -2387,8 +2397,8 @@ MANDATORY DIAGNOSTIC ORDER:
       let response: AnyRecord = {};
       try { response = raw ? JSON.parse(raw) as AnyRecord : {}; } catch { response = { rawBody: raw.slice(0, 500) }; }
       const groundingSources = getInteractionSources(response);
-      await recordGroundingUsage(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null,
-        body.authenticatedApp === true ? authenticatedUserId : null, textValue(response.model, 100) || selectedModel,
+      await recordGroundingUsage(supabase, groundingCompanyId,
+        groundingUserId, textValue(response.model, 100) || selectedModel,
         groundingReservationId, response);
       await finishGroundingBudget(supabase, groundingReservationId);
       groundingReservationId = null;
@@ -2495,7 +2505,7 @@ MANDATORY DIAGNOSTIC ORDER:
           : `Search the web now for an authoritative, symptom-matched troubleshooting procedure for this pool issue. Prioritize the installed equipment manufacturer's official support page, manual, service bulletin, or technical documentation; then use reputable pool-industry technical sources where manufacturer guidance is unavailable. Exact make/model may be unknown, so search by equipment category and the customer's natural-language symptom without blocking progress for model identification. Return one safe, applicable next observation or diagnostic check, state what changes the next step, and cite only sources actually returned. Do not use product/catalog listings as repair instructions. Never instruct homeowners to open electrical/gas panels, touch wiring, bypass safeguards, open pressurized equipment, reach into moving parts, or guess/mix chemical doses. Issue context: ${relevantContext}.`;
     try {
       const forcedModel = selectDiagnosticModel(action, query);
-      forcedGroundingReservationId = await reserveGroundingBudget(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null, forcedModel);
+      forcedGroundingReservationId = await reserveGroundingBudget(supabase, groundingCompanyId, forcedModel);
       if (!forcedGroundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
       const forcedSearchRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
@@ -2521,8 +2531,8 @@ MANDATORY DIAGNOSTIC ORDER:
       try { forcedResponse = forcedRaw ? JSON.parse(forcedRaw) as AnyRecord : {}; }
       catch { forcedResponse = {}; }
       const forcedSources = getInteractionSources(forcedResponse);
-      await recordGroundingUsage(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null,
-        body.authenticatedApp === true ? authenticatedUserId : null, textValue(forcedResponse.model, 100) || forcedModel,
+      await recordGroundingUsage(supabase, groundingCompanyId,
+        groundingUserId, textValue(forcedResponse.model, 100) || forcedModel,
         forcedGroundingReservationId, forcedResponse);
       await finishGroundingBudget(supabase, forcedGroundingReservationId);
       forcedGroundingReservationId = null;
