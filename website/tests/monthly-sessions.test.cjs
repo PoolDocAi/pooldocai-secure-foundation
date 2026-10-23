@@ -7,6 +7,7 @@ const handler = fs.readFileSync(path.join(root, "supabase", "functions", "clever
 const planMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "202610220003_plan_entitlements_pooled_sessions_branding.sql"), "utf8");
 const tierMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "202610220004_three_size_tiers_founders_pricing.sql"), "utf8");
 const trialMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20261023030000_temporary_access_validity_rpc_scope.sql"), "utf8");
+const storagePolicyMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20261023060000_storage_temporary_access_expiry_policy.sql"), "utf8");
 
 assert.match(app, /function createDiagnosticSessionId\(\)/, "app creates a unique diagnostic session ID");
 assert.match(app, /diagnosticSessionId = createDiagnosticSessionId\(\)/, "starting a new conversation rotates the diagnostic ID");
@@ -102,7 +103,7 @@ assert.ok(handler.includes("pump-not-starting"), "homeowner pump-start symptoms 
 assert.ok(handler.includes("whether the pump display or indicator lights are on"), "homeowner pump-start triage begins with non-invasive observations");
 assert.ok(handler.includes("Do not begin by directing the homeowner to reset or test a breaker"), "homeowner pump-start triage avoids electrical repair instructions");
 assert.ok(handler.includes("mode: techMode ?"), "prompt case context identifies server-derived mode");
-assert.match(trialMigration, /temporary_access_storage_expiry_guard ON storage.objects/i, "temporary trial account expiry gate is applied to storage.objects");
+assert.match(storagePolicyMigration, /temporary_access_storage_expiry_guard ON storage.objects/i, "temporary trial account expiry gate is applied to storage.objects via forward-only migration");
 
 assert.ok(handler.includes('code: "RIGHTS_ATTESTATION_REQUIRED"'), "webpage import enforces affirmative rights attestation");
 assert.ok(handler.includes('code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED"'), "webpage shared-learning opt-in enforces affirmative general rights attestation");
