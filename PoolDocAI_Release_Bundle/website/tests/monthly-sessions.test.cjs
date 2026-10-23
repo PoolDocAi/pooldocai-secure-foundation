@@ -138,4 +138,16 @@ assert.ok(handler.includes('learningStatus: "company_private"'), 'cases without 
 assert.ok(handler.includes('PRIVATE_DOCUMENT_CANNOT_BE_SHARED') && handler.includes('set_manual_learning_consent'), 'SOPs and company manuals cannot be opted into shared learning via consent updates');
 assert.ok(handler.includes('knowledge_scope: next ? "general_candidate" : "company_private"'), 'document consent update flips knowledge_scope appropriately');
 
-console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
+// Group 5 regressions: case-level learning consent, terms version, and automatic withdrawal revocation
+const caseConsentMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20261023070000_case_level_learning_consent_dual_opt_in.sql"), "utf8");
+assert.ok(caseConsentMigration.includes("case_learning_opt_in boolean NOT NULL DEFAULT false"), "migration 031 adds case_learning_opt_in to diagnostic_cases");
+assert.ok(caseConsentMigration.includes("learning_terms_version text"), "migration 031 adds learning_terms_version to diagnostic_cases");
+assert.ok(caseConsentMigration.includes("pooldocai_audit_case_learning_consent"), "migration 031 creates case-level consent audit and revocation trigger");
+assert.ok(caseConsentMigration.includes("pooldocai_approve_learning_case"), "migration 031 creates atomic approval RPC");
+assert.ok(handler.includes('case_learning_opt_in: caseOptedIn'), "clever-handler persists explicit case_learning_opt_in");
+assert.ok(handler.includes('learning_terms_version: termsVersion'), "clever-handler records applicable terms version on diagnostic case");
+assert.ok(handler.includes('code: "CASE_LEARNING_OPT_IN_REQUIRED"'), "clever-handler rechecks case-level opt-in before publishing");
+assert.ok(handler.includes('action === "withdraw_case_learning_consent"'), "clever-handler provides dedicated case consent withdrawal handler");
+assert.ok(handler.includes('pooldocai_approve_learning_case'), "clever-handler invokes transaction-safe learning approval function");
+
+console.log("PASS: monthly pooled-session limits, safety-hold routing, technician entry, and case-level learning consent passed.");

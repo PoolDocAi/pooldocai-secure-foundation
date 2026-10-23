@@ -894,7 +894,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const noQueryActions = new Set([
     "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "accept_company_legal", "accept_public_demo_learning", "get_customer_widget_config", "submit_widget_service_request", "get_company_widget_settings", "save_company_widget_settings", "rotate_company_widget_key", "public_page_view", "photo_recognition",
     "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
-    "review_learning_case", "list_learning_review_queue", "review_company_document",
+    "review_learning_case", "list_learning_review_queue", "withdraw_case_learning_consent", "review_company_document",
     "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
   ]);
   if (!query && !noQueryActions.has(action)) return jsonResponse({ error: "A non-empty query or message is required.", code: "QUERY_REQUIRED" }, 400);
@@ -1498,7 +1498,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     form.set("subscription_data[metadata][seat_limit]", String(effectiveSeats));
     if(company.stripe_customer_id||company.billing_customer_ref)form.set("customer",String(company.stripe_customer_id||company.billing_customer_ref));else if(company.billing_email)form.set("customer_email",String(company.billing_email));
     const response=await fetch("https://api.stripe.com/v1/checkout/sessions",{method:"POST",headers:{Authorization:`Bearer ${stripeKey}`,"Content-Type":"application/x-www-form-urlencoded"},body:form});const data=await response.json().catch(()=>({}));if(!response.ok||!data.url)return jsonResponse({error:"Stripe Checkout could not be created. Verify the test/live Stripe secret and configured Price ID.",code:"STRIPE_CHECKOUT_FAILED"},502);
-    await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:"billing_checkout_created",units:1,metric_type:"billing_event",quantity:1,quantity_unit:"checkout",metadata:{plan_name:plan,seat_quantity:seats,stripe_session_id:data.id}});
+    await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:"billing_checkout_created",units:1,metric_type:"billing_event",quantity:1,quantity_unit:"checkout",metadata:{plan_name:plan,seat_quantity:effectiveSeats,stripe_session_id:data.id}});
     return jsonResponse({ok:true,url:data.url},200);
   }
 
@@ -1621,14 +1621,34 @@ function isCriticalPoolHazardText(rawText: string): boolean {
           return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
         }
       }
-      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized").eq("id", item.case_id).maybeSingle();
+      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,case_learning_opt_in").eq("id", item.case_id).maybeSingle();
+      if (item.case_id && (!caseRow || caseRow.case_learning_opt_in !== true)) {
+        return jsonResponse({ error: "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.", code: "CASE_LEARNING_OPT_IN_REQUIRED" }, 403);
+      }
       const lesson = (editedLesson || scrubPII(String(item.proposed_lesson_redacted || ""))).slice(0,4000);
       const chemicalRisk = /\b(muriatic acid|cal[- ]?hypo|trichlor|sodium bicarbonate|chlorine dose|chemical dosing|acid dose|ppm dose|lsi|saturation index)\b/i.test(lesson);
       if (chemicalRisk && !/senior|manager|qualified/i.test(note)) return jsonResponse({ error: "This lesson contains potential chemical dosing or water-balance guidance. A qualified senior technician or manager sign-off must be recorded in the review note.", code: "CHEMICAL_REVIEW_REQUIRED" }, 400);
       if (lesson.length < 40) return jsonResponse({ error: "The redacted lesson is too short to publish.", code: "LESSON_TOO_SHORT" }, 400);
-      const { error: publishError } = await supabase.from("shared_learning_knowledge").upsert({ source_case_id: item.case_id, source_queue_id: item.id, source_company_id: item.tenant_id, source_kind: item.source_kind, equipment_category: caseRow?.equipment_category || null, manufacturer_normalized: caseRow?.manufacturer_normalized || null, model_normalized: caseRow?.model_normalized || null, lesson_redacted: lesson, approved_by: authenticatedUserId, consent_snapshot: item.source_kind === "company_manual" ? true : null, review_history: [{ action: "approved", actor: authenticatedUserId, at: new Date().toISOString(), note }] }, { onConflict: "source_queue_id" });
-      if (publishError) return jsonResponse({ error: "Could not publish approved shared knowledge.", code: "PUBLISH_FAILED" }, 500);
-      await supabase.from("diagnostic_cases").update({ approved_for_learning: true, privacy_reviewed_at: new Date().toISOString() }).eq("id", item.case_id);
+
+      // Transaction-safe RPC approval with dual-opt-in enforcement and lock
+      const { error: rpcErr } = await supabase.rpc("pooldocai_approve_learning_case", {
+        p_queue_id: queueId,
+        p_lesson: lesson,
+        p_reviewed_by: authenticatedUserId,
+        p_review_note: note || null
+      });
+
+      if (rpcErr) {
+        if (rpcErr.message?.includes("Governing company diagnostic learning opt-in is required")) {
+          return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
+        }
+        if (rpcErr.message?.includes("Case-level learning consent was not granted")) {
+          return jsonResponse({ error: "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.", code: "CASE_LEARNING_OPT_IN_REQUIRED" }, 403);
+        }
+        const { error: publishError } = await supabase.from("shared_learning_knowledge").upsert({ source_case_id: item.case_id, source_queue_id: item.id, source_company_id: item.tenant_id, source_kind: item.source_kind, equipment_category: caseRow?.equipment_category || null, manufacturer_normalized: caseRow?.manufacturer_normalized || null, model_normalized: caseRow?.model_normalized || null, lesson_redacted: lesson, approved_by: authenticatedUserId, consent_snapshot: item.source_kind === "company_manual" ? true : null, review_history: [{ action: "approved", actor: authenticatedUserId, at: new Date().toISOString(), note }] }, { onConflict: "source_queue_id" });
+        if (publishError) return jsonResponse({ error: "Could not publish approved shared knowledge.", code: "PUBLISH_FAILED" }, 500);
+        await supabase.from("diagnostic_cases").update({ approved_for_learning: true, privacy_reviewed_at: new Date().toISOString() }).eq("id", item.case_id);
+      }
     }
     const nextStatus = decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "pending";
     const { error: updateError } = await supabase.from("learning_review_queue").update({ status: nextStatus, reviewed_by: authenticatedUserId, reviewed_at: new Date().toISOString() }).eq("id", queueId);
@@ -2092,12 +2112,15 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     const { data: comp } = await supabase.from("companies").select("diagnostic_learning_opt_in").eq("id", authenticatedCompanyId).maybeSingle();
     const companyOptedIn = Boolean(comp?.diagnostic_learning_opt_in);
     const caseOptedIn = body.caseLearningOptIn === true;
+    const termsVersion = textValue(body.learningTermsVersion ?? body.termsVersion, 40) || (caseOptedIn ? "2026-10-v1" : null);
 
     const { data: caseRow, error: caseError } = await supabase.from("diagnostic_cases").insert({
       tenant_id: authenticatedCompanyId, case_status: status, equipment_category: category || null,
       manufacturer_normalized: manufacturer || null, model_normalized: model || null,
       symptom_redacted: issue, resolution_summary_redacted: answer || null,
-      source_ids: ["authenticated-troubleshooter"], technician_verified: false, approved_for_learning: false
+      source_ids: ["authenticated-troubleshooter"], technician_verified: false, approved_for_learning: false,
+      case_learning_opt_in: caseOptedIn,
+      learning_terms_version: termsVersion
     }).select("id").single();
     if (caseError || !caseRow) { console.error("Learning case capture failed", { code: caseError?.code }); return jsonResponse({ error: "Could not record this troubleshooting case for review.", code: "LEARNING_CAPTURE_FAILED" }, 500); }
     const stepText = [issue ? `Reported issue: ${issue}` : "", answer ? `PoolDocAI response: ${answer}` : ""].filter(Boolean).join("\n").slice(0, 1200);
@@ -2112,6 +2135,44 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       return jsonResponse({ ok: true, captured: true, caseId: caseRow.id, learningStatus: "pending_privacy_review" }, 200);
     }
     return jsonResponse({ ok: true, captured: true, caseId: caseRow.id, learningStatus: "company_private" }, 200);
+  }
+
+
+  // Explicit withdrawal of case-level shared-learning consent.
+  // Immediately revokes shared knowledge publication while keeping private diagnostic records intact.
+  if (action === "withdraw_case_learning_consent") {
+    if (body.authenticatedApp !== true || !authenticatedCompanyId || !authenticatedUserId) {
+      return jsonResponse({ error: "An authenticated company login is required.", code: "AUTH_REQUIRED" }, 401);
+    }
+    const targetCaseId = textValue(body.caseId, 80);
+    if (!targetCaseId) return jsonResponse({ error: "Provide the caseId to withdraw consent.", code: "CASE_ID_REQUIRED" }, 400);
+
+    const { data: platformAdmin } = await supabase.from("platform_admins").select("user_id").eq("user_id", authenticatedUserId).maybeSingle();
+    const isPlatformOwner = Boolean(platformAdmin);
+
+    const { data: caseRecord, error: caseErr } = await supabase.from("diagnostic_cases").select("id,tenant_id,case_learning_opt_in").eq("id", targetCaseId).maybeSingle();
+    if (caseErr || !caseRecord) return jsonResponse({ error: "Diagnostic case not found.", code: "CASE_NOT_FOUND" }, 404);
+    if (!isPlatformOwner && caseRecord.tenant_id !== authenticatedCompanyId) {
+      return jsonResponse({ error: "You cannot modify another company's case.", code: "TENANT_MISMATCH" }, 403);
+    }
+
+    const { error: withdrawErr } = await supabase.from("diagnostic_cases").update({
+      case_learning_opt_in: false,
+      approved_for_learning: false,
+      privacy_reviewed_at: null
+    }).eq("id", targetCaseId);
+
+    if (withdrawErr) return jsonResponse({ error: "Could not withdraw case learning consent.", code: "CONSENT_WITHDRAWAL_FAILED" }, 500);
+
+    await supabase.from("shared_learning_knowledge").delete().eq("source_case_id", targetCaseId);
+    await supabase.from("learning_review_queue").update({ status: "rejected" }).eq("case_id", targetCaseId).eq("status", "pending");
+
+    return jsonResponse({
+      ok: true,
+      caseId: targetCaseId,
+      status: "consent_withdrawn",
+      message: "Case-level shared-learning consent has been withdrawn. Private diagnostic record remains usable in your company workspace."
+    }, 200);
   }
 
   // Image recognition is an explicit, transient action. Never persist or log image bytes.

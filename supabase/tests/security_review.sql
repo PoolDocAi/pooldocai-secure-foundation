@@ -184,3 +184,16 @@ BEGIN
     RAISE EXCEPTION 'atomic learning approval function must not be callable by public/anon/authenticated roles';
   END IF;
 END $$;
+
+-- Migration 030: Restrictive temporary-account Storage expiry guard
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'storage' AND tablename = 'objects') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'temporary_access_storage_expiry_guard'
+    ) THEN
+      RAISE EXCEPTION 'storage.objects is missing restrictive policy temporary_access_storage_expiry_guard';
+    END IF;
+  END IF;
+END $$;
