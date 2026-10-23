@@ -733,6 +733,94 @@ function buildMetadataOnlyReply(rows: AnyRecord[]): string {
   return summaries.join("\n");
 }
 
+
+function selectDiagnosticModel(action: string, query: string): string {
+  if ((action === "model_triage" || action === "photo_recognition" ||
+      /\b(?:clicking|humming|buzzing|error code|fault code|what does .* code mean|heater is clicking|pump is clicking|what is)\b/i.test(query) && query.length < 220)) {
+    return "gemini-2.5-flash-lite";
+  }
+  if (/\b(?:diagnose|intermittent|multiple|repeatedly|keeps tripping|after replacing|still not working|compare readings|calculate dose|chemical treatment|root cause|step by step)\b/i.test(query) || query.length > 900) {
+    return "gemini-3.8-flash";
+  }
+  return "gemini-2.5-flash";
+}
+
+function boundedPositiveLimit(name: string, fallback: number): number {
+  const configured = Number(Deno.env.get(name));
+  return Number.isSafeInteger(configured) && configured > 0 ? Math.min(configured, 1_000_000) : fallback;
+}
+
+async function reserveGroundingBudget(supabase: any, companyId: string | null, model: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("pooldocai_reserve_grounding_budget", {
+    p_company_id: companyId,
+    p_model: model,
+    p_reserved_units: 1,
+    p_global_limit: boundedPositiveLimit("POOLDOCAI_GROUNDING_GLOBAL_DAILY_LIMIT", 5000),
+    p_company_limit: boundedPositiveLimit("POOLDOCAI_GROUNDING_COMPANY_DAILY_LIMIT", 500),
+  });
+  if (error) {
+    console.warn("Google Search grounding budget reservation failed", { code: error.code });
+    return null;
+  }
+  return typeof data === "string" && /^[0-9a-f-]{36}$/i.test(data) ? data : null;
+}
+
+async function finishGroundingBudget(supabase: any, reservationId: string | null): Promise<void> {
+  if (!reservationId) return;
+  const { error } = await supabase.rpc("pooldocai_finish_grounding_budget", { p_reservation_id: reservationId });
+  if (error) console.warn("Google Search grounding budget reservation cleanup failed", { code: error.code });
+}
+
+async function recordGroundingUsage(
+  supabase: any,
+  companyId: string | null,
+  userId: string | null,
+  model: string,
+  reservationId: string | null,
+  response: AnyRecord,
+): Promise<void> {
+  if (!reservationId) return;
+  const steps = Array.isArray(response.steps) ? response.steps : [];
+  const searchWasInvoked = steps.some((rawStep: unknown) => {
+    const step = objectValue(rawStep);
+    return textValue(step?.type, 80).toLowerCase().includes("google_search");
+  });
+  if (!searchWasInvoked) return;
+  let estimatedCostUsd: number | null = null;
+  let pricingUnit: string | null = null;
+  try {
+    const { data: rates, error: rateError } = await supabase.from("pooldocai_model_rate_cards")
+      .select("grounding_usd_per_1000_units,grounding_pricing_unit")
+      .eq("provider", "google_gemini").eq("model", model).eq("active", true).is("valid_to", null)
+      .order("valid_from", { ascending: false }).limit(1);
+    const rate = rates?.[0];
+    if (!rateError && rate?.grounding_usd_per_1000_units != null) {
+      const cost = Number(rate.grounding_usd_per_1000_units) / 1000;
+      if (Number.isFinite(cost) && cost >= 0) estimatedCostUsd = cost;
+      pricingUnit = textValue(rate.grounding_pricing_unit, 80) || null;
+    }
+    const { error } = await supabase.from("platform_usage_events").insert({
+      company_id: companyId,
+      user_id: userId,
+      event_type: "google_search_grounding",
+      units: 1,
+      metric_type: "grounding_queries",
+      quantity: 1,
+      quantity_unit: pricingUnit || "grounding_unit",
+      provider: "google_gemini",
+      model,
+      estimated_cost_usd: estimatedCostUsd,
+      cost_source: estimatedCostUsd == null ? "not_priced" : "rate_card_estimate",
+      source_event_key: `grounding:${reservationId}`,
+      period_start: await utcMonthStartDate(),
+      metadata: { pricing_unit: pricingUnit, price_estimated_from_rate_card: estimatedCostUsd != null },
+    });
+    if (error && error.code !== "23505") console.warn("Google Search grounding usage metering failed", { code: error.code });
+  } catch (error) {
+    console.warn("Google Search grounding usage metering unavailable", { error: error instanceof Error ? error.message.slice(0, 120) : "unknown" });
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: JSON_HEADERS });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed. Use POST.", code: "METHOD_NOT_ALLOWED" }, 405);
@@ -2271,9 +2359,12 @@ MANDATORY DIAGNOSTIC ORDER:
   }
 
   if (geminiKey) {
+    let groundingReservationId: string | null = null;
     try {
-      // Gemini 3.8 Flash via the current Interactions API. Google Search grounding is
-      // available as a built-in tool and its citations/results are returned in steps.
+      // Reserve a bounded grounding slot before making a Search-enabled provider request.
+      const selectedModel = selectDiagnosticModel(action, query);
+      groundingReservationId = await reserveGroundingBudget(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null, selectedModel);
+      if (!groundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
       const geminiRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
         headers: {
@@ -2281,11 +2372,7 @@ MANDATORY DIAGNOSTIC ORDER:
           "x-goog-api-key": geminiKey,
         },
         body: JSON.stringify({
-          model: (action === "model_triage" || action === "photo_recognition" || /\b(?:clicking|humming|buzzing|error code|fault code|what does .* code mean|heater is clicking|pump is clicking|what is)\b/i.test(query) && query.length < 220)
-            ? "gemini-2.5-flash-lite"
-            : (/\b(?:diagnose|intermittent|multiple|repeatedly|keeps tripping|after replacing|still not working|compare readings|calculate dose|chemical treatment|root cause|step by step)\b/i.test(query) || query.length > 900)
-              ? "gemini-3.8-flash"
-              : "gemini-2.5-flash",
+          model: selectedModel,
           input: interactionInput,
           system_instruction: systemPrompt,
           tools: [{ type: "google_search" }],
@@ -2299,6 +2386,12 @@ MANDATORY DIAGNOSTIC ORDER:
       const raw = await geminiRes.text();
       let response: AnyRecord = {};
       try { response = raw ? JSON.parse(raw) as AnyRecord : {}; } catch { response = { rawBody: raw.slice(0, 500) }; }
+      const groundingSources = getInteractionSources(response);
+      await recordGroundingUsage(supabase, body.authenticatedApp === true ? authenticatedCompanyId : null,
+        body.authenticatedApp === true ? authenticatedUserId : null, textValue(response.model, 100) || selectedModel,
+        groundingReservationId, response);
+      await finishGroundingBudget(supabase, groundingReservationId);
+      groundingReservationId = null;
 
       if (!geminiRes.ok) {
         const apiErr = objectValue(response.error);
@@ -2313,7 +2406,7 @@ MANDATORY DIAGNOSTIC ORDER:
         const outputText = getInteractionOutputText(response);
         const usageObject=objectValue(response.usage)||objectValue(response.usageMetadata)||objectValue(response.usage_metadata);
         if(usageObject)await recordModelUsage(supabase,authenticatedCompanyId,authenticatedUserId,textValue(response.model,100)||"gemini-unknown",usageObject,"ai_provider_usage");
-        webSources = getInteractionSources(response);
+        webSources = groundingSources;
         const structured = parseStructuredDiagnostic(outputText);
         if (structured) {
           structuredResponse = structured;
@@ -2354,6 +2447,8 @@ MANDATORY DIAGNOSTIC ORDER:
         }
       }
     } catch (error) {
+      await finishGroundingBudget(supabase, groundingReservationId);
+      groundingReservationId = null;
       geminiError = error instanceof Error ? error.message : String(error);
       console.error("PoolDocAI Gemini Interactions network/timeout failure:", geminiError);
     }
