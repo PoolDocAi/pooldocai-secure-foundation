@@ -1108,8 +1108,11 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if(!isOwner&&(!targetCompanyId||targetCompanyId!==authenticatedCompanyId||authenticatedRole!=="company_admin"))return jsonResponse({error:"Only a company administrator can access company usage reports.",code:"USAGE_PERMISSION_REQUIRED"},403);
     if(isOwner&&action!=="platform_usage_export"&&!targetCompanyId)return jsonResponse({error:"Choose a company for its usage report.",code:"COMPANY_REQUIRED"},400);
     const targetIds: string[] = action==="platform_usage_export" ? (await supabase.from("companies").select("id")).data?.map((c:any)=>String(c.id))||[] : [targetCompanyId];
-    const {data:companiesForUsage,error:companyUsageError}=await supabase.from("companies").select("id,name,status,plan_name,seat_limit,monthly_ai_request_limit,monthly_document_character_limit,storage_limit_bytes,industry_key,billing_period_start,current_period_end").in("id",targetIds);
+    const {data:companiesForUsage,error:companyUsageError}=await supabase.from("companies").select("id,name,status,plan_name,seat_limit,monthly_ai_request_limit,monthly_document_character_limit,storage_limit_bytes,industry_key,billing_period_start,current_period_end,monthly_session_allowance,widget_access_enabled,company_size_tier,subscription_access_mode").in("id",targetIds);
     if(companyUsageError)return jsonResponse({error:"Could not load company billing periods.",code:"USAGE_COMPANIES_READ_FAILED"},500);
+    const {data:monthlySessionRows,error:monthlySessionError}=await supabase.rpc("pooldocai_get_company_session_usage",{p_company_ids:targetIds});
+    if(monthlySessionError)return jsonResponse({error:"Could not load pooled diagnostic-session usage.",code:"MONTHLY_USAGE_READ_FAILED"},500);
+    const monthlySessionMap=new Map<string,AnyRecord>((monthlySessionRows||[]).map((row:any)=>[String(row.company_id),row]));
     const nowMs=Date.now();const currentMonthStart=new Date();currentMonthStart.setUTCDate(1);currentMonthStart.setUTCHours(0,0,0,0);
     const cycles=new Map<string,{start:Date;end:Date|null}>();
     for(const c of companiesForUsage||[]){
@@ -1125,6 +1128,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       const cycle=cycles.get(company.id)||{start:currentMonthStart,end:null};
       const ce=(events||[]).filter((e:any)=>e.company_id===company.id&&new Date(e.created_at).getTime()>=cycle.start.getTime()&&(!cycle.end||new Date(e.created_at).getTime()<cycle.end!.getTime()));
       const cm=(manuals||[]).filter((m:any)=>m.company_id===company.id);
+      const sessionUsage=monthlySessionMap.get(String(company.id));
       const aiRequests=ce.filter((e:any)=>e.metric_type==="ai_request").reduce((n:number,e:any)=>n+Number(e.quantity||e.units||0),0);
       const documentCharacters=ce.filter((e:any)=>e.metric_type==="document_characters").reduce((n:number,e:any)=>n+Number(e.extracted_characters||e.quantity||0),0);
       const documentsProcessedInPeriod=ce.filter((e:any)=>e.event_type==="document_extraction").length;
@@ -1134,7 +1138,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       const docReady=cm.filter((m:any)=>m.extraction_status==="ready").length;const alerts:any[]=[];
       const check=(metric:string,value:number,limit:any)=>{if(limit==null||Number(limit)<=0)return;const pct=value/Number(limit)*100;for(const threshold of [80,100])if(pct>=threshold)alerts.push({metric_type:metric,threshold_percent:threshold,observed_value:value,limit_value:Number(limit),percent:Math.round(pct)});};
       check("ai_requests",aiRequests,company.monthly_ai_request_limit);check("document_characters",documentCharacters,company.monthly_document_character_limit);check("storage_bytes",storageBytes,company.storage_limit_bytes);
-      return {company_id:company.id,company_name:company.name,company_status:company.status,industry_key:company.industry_key,plan_name:company.plan_name,period_start:cycle.start.toISOString(),period_end:cycle.end?.toISOString()||null,period_basis:cycle.end?"stripe_billing_cycle":(company.billing_period_start?"calendar_month_fallback":"calendar_month"),ai_requests:aiRequests,documents_total:cm.length,documents_processed_this_month:documentsProcessedInPeriod,documents_processed_in_period:documentsProcessedInPeriod,documents_ready:docReady,document_characters:documentCharacters,storage_bytes:storageBytes,input_tokens:inputTokens,output_tokens:outputTokens,estimated_cost_usd:estimatedCost,cost_priced_events:costValues.length,unpriced_events:ce.length-costValues.length,limits:{ai_requests:company.monthly_ai_request_limit,document_characters:company.monthly_document_character_limit,storage_bytes:company.storage_limit_bytes},alerts};
+      return {company_id:company.id,company_name:company.name,company_status:company.status,industry_key:company.industry_key,plan_name:company.plan_name,company_size_tier:company.company_size_tier||null,subscription_access_mode:company.subscription_access_mode||null,diagnostic_sessions_used:Number(sessionUsage?.sessions_used||0),diagnostic_sessions_allowance:Number(sessionUsage?.sessions_allowance??company.monthly_session_allowance??0),diagnostic_sessions_remaining:Number(sessionUsage?.sessions_remaining??company.monthly_session_allowance??0),widget_access_enabled:Boolean(sessionUsage?.widget_access_enabled??company.widget_access_enabled??false),period_start:cycle.start.toISOString(),period_end:cycle.end?.toISOString()||null,period_basis:cycle.end?"stripe_billing_cycle":(company.billing_period_start?"calendar_month_fallback":"calendar_month"),ai_requests:aiRequests,documents_total:cm.length,documents_processed_this_month:documentsProcessedInPeriod,documents_processed_in_period:documentsProcessedInPeriod,documents_ready:docReady,document_characters:documentCharacters,storage_bytes:storageBytes,input_tokens:inputTokens,output_tokens:outputTokens,estimated_cost_usd:estimatedCost,cost_priced_events:costValues.length,unpriced_events:ce.length-costValues.length,limits:{ai_requests:company.monthly_ai_request_limit,document_characters:company.monthly_document_character_limit,storage_bytes:company.storage_limit_bytes},alerts};
     });
     for(const result of results)for(const alert of result.alerts)await supabase.from("pooldocai_usage_alerts").upsert({company_id:result.company_id,period_start:String(result.period_start).slice(0,10),metric_type:alert.metric_type,threshold_percent:alert.threshold_percent,observed_value:alert.observed_value,limit_value:alert.limit_value,status:"open"},{onConflict:"company_id,period_start,metric_type,threshold_percent",ignoreDuplicates:true});
     const allEvents=(events||[]).filter((e:any)=>{const cycle=cycles.get(e.company_id);return cycle&&new Date(e.created_at).getTime()>=cycle.start.getTime()&&(!cycle.end||new Date(e.created_at).getTime()<cycle.end.getTime());});
@@ -1347,6 +1351,45 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const quotaRow = Array.isArray(quota.data) ? quota.data[0] : quota.data;
   if (quotaRow && quotaRow.allowed === false) {
     return jsonResponse({ error: "You've reached the troubleshooting limit for this session. To keep service reliable, wait before trying again or start a technician handoff.", code: "SESSION_LIMIT_REACHED", retryAfterSeconds: quotaRow.retry_after_seconds ?? 3600 }, 429);
+  }
+
+  // Company plans have a separate pooled monthly cap counted once per diagnostic case,
+  // not once per assistant turn. The RPC is service-role-only and returns only aggregate usage.
+  const shouldMeterCompanyDiagnostic = body.authenticatedApp === true && Boolean(authenticatedCompanyId) &&
+    (action === "troubleshoot" || action === "photo_recognition" || (!noQueryActions.has(action) && Boolean(query.trim())));
+  if (shouldMeterCompanyDiagnostic) {
+    const diagnosticSessionId = textValue(body.diagnosticSessionId, 160);
+    if (!diagnosticSessionId) {
+      return jsonResponse({ error: "The diagnostic session identifier is missing. Start a new troubleshooting conversation.", code: "DIAGNOSTIC_SESSION_ID_REQUIRED" }, 400);
+    }
+    const caseDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(authenticatedCompanyId + ":" + diagnosticSessionId));
+    const caseSessionHash = Array.from(new Uint8Array(caseDigest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const { data: monthlyUsageData, error: monthlyUsageError } = await supabase.rpc("pooldocai_consume_company_monthly_session", {
+      p_company_id: authenticatedCompanyId,
+      p_session_hash: caseSessionHash,
+      p_session_mode: "technician",
+    });
+    if (monthlyUsageError) {
+      console.error("Company pooled-session quota check failed closed", { code: monthlyUsageError.code });
+      return jsonResponse({ error: "Company monthly usage protection is temporarily unavailable. Please try again shortly.", code: "MONTHLY_QUOTA_GUARD_UNAVAILABLE" }, 503);
+    }
+    const monthlyUsage = Array.isArray(monthlyUsageData) ? monthlyUsageData[0] : monthlyUsageData;
+    if (!monthlyUsage || typeof monthlyUsage.allowed !== "boolean") {
+      console.error("Company pooled-session quota RPC returned no decision.");
+      return jsonResponse({ error: "Company monthly usage protection returned no decision. Please try again shortly.", code: "MONTHLY_QUOTA_DECISION_MISSING" }, 503);
+    }
+    if (monthlyUsage.allowed === false) {
+      return jsonResponse({
+        error: "This company has used its included monthly diagnostic sessions. Contact the company administrator to review the plan or usage.",
+        code: "MONTHLY_SESSION_LIMIT_REACHED",
+        usage: {
+          used: Number(monthlyUsage.used || 0),
+          allowance: Number(monthlyUsage.allowance || 0),
+          remaining: Number(monthlyUsage.remaining || 0),
+          periodStart: monthlyUsage.period_start || null,
+        },
+      }, 429);
+    }
   }
 
   // Technician close-out: persistent case data always requires individual Supabase Auth.
