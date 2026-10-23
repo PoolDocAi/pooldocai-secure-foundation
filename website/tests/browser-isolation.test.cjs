@@ -7,12 +7,18 @@ const root = path.resolve(__dirname, "../..");
 const appHtml = fs.readFileSync(path.join(root, "website", "app.html"), "utf8");
 const demoHtml = fs.readFileSync(path.join(root, "website", "demo.html"), "utf8");
 
-// Verify source markers
-assert.ok(appHtml.includes("function teardownAuthenticatedBrowserState()"), "app.html declares teardownAuthenticatedBrowserState");
-assert.ok(appHtml.includes("window.teardownAuthenticatedBrowserState = teardownAuthenticatedBrowserState"), "teardown function exposed to window");
-assert.ok(appHtml.includes("window.loadAuthenticatedUserState = function"), "app.html declares loadAuthenticatedUserState");
-assert.ok(appHtml.includes("pooldocai.authenticatedCrossTabState."), "app.html scopes authenticated storage");
-assert.ok(demoHtml.includes("pooldocai.crossTabState.v1"), "demo.html scopes public demo storage");
+// Extract real functions directly from app.html and demo.html source
+const teardownCodeMatch = appHtml.match(/(function teardownAuthenticatedBrowserState\(\)[\s\S]*?window\.teardownAuthenticatedBrowserState\s*=\s*teardownAuthenticatedBrowserState;)/);
+assert.ok(teardownCodeMatch, "Extracted real teardownAuthenticatedBrowserState from website/app.html");
+const realTeardownCode = teardownCodeMatch[1];
+
+const appStorageKeyMatch = appHtml.match(/(function getStorageKey\(\)\s*\{[\s\S]*?\n  \})/);
+assert.ok(appStorageKeyMatch, "Extracted real getStorageKey from website/app.html");
+const realAppStorageKeyCode = appStorageKeyMatch[1];
+
+const demoStorageKeyMatch = demoHtml.match(/const\s+STORAGE_KEY\s*=\s*['"]([^'"]+)['"]/);
+assert.ok(demoStorageKeyMatch, "Extracted real STORAGE_KEY from website/demo.html");
+const realDemoStorageKey = demoStorageKeyMatch[1];
 
 // Build a simulated browser DOM environment for testing teardown and state isolation
 function createBrowserEnvironment() {
@@ -42,7 +48,12 @@ function createBrowserEnvironment() {
           toggle(c, force) { if (force !== undefined) { force ? this.add(c) : this.remove(c); } else { this.contains(c) ? this.remove(c) : this.add(c); } }
         },
         dataset: {},
-        reset() { this.value = ""; },
+        reset() {
+          this.value = "";
+          elements.forEach((el) => {
+            if (el.id.startsWith("integratedNotes") && el.tagName === "INPUT") el.value = "";
+          });
+        },
         setAttribute() {},
         getAttribute() { return null; }
       });
@@ -89,28 +100,35 @@ function createBrowserEnvironment() {
 async function runBrowserIsolationTests() {
   const env = createBrowserEnvironment();
 
-  // Test 1: Functionality of teardownAuthenticatedBrowserState
+  // Test 1: Real teardownAuthenticatedBrowserState execution from app.html
   {
-    // Simulate active session state
-    let APP_SESSION = { user: { id: "usr_alice_1", email: "alice@companyA.com" }, companyId: "comp_alpha" };
-    let conversationHistory = [
-      { userMsg: "My heater is leaking water", aiReply: "Check heat exchanger header gaskets." }
-    ];
-    let sessionContext = {
-      category: "Heater",
-      brand: "Raypak",
-      model: "266A",
-      symptom: "Water leak at manifold",
-      ruledOut: ["Power supply ok"]
+    // Build VM sandbox mirroring app.html scope
+    const sandbox = {
+      window: env.window,
+      document: env.document,
+      APP_SESSION: { user: { id: "usr_alice_1", email: "alice@companyA.com" }, companyId: "comp_alpha" },
+      conversationHistory: [
+        { userMsg: "My heater is leaking water", aiReply: "Check heat exchanger header gaskets." }
+      ],
+      sessionContext: {
+        category: "Heater",
+        brand: "Raypak",
+        model: "266A",
+        symptom: "Water leak at manifold",
+        ruledOut: ["Power supply ok"]
+      },
+      waterHelpState: { stage: "readings_entered" },
+      algaeTriageState: { stage: "remediation_active" },
+      waterBalanceMode: { active: true, poolGallons: 20000 },
+      lastTurnRequest: "heater prompt",
+      dispatchMilestone: "tech_recommended",
+      diagnosticSessionId: "pdai-session-12345",
+      createDiagnosticSessionId: () => "pdai-session-fresh-new",
+      resetWaterHelpState: function() { this.waterHelpState = { stage: "idle", initialSymptom: "" }; },
+      resetAlgaeTriageState: function() { this.algaeTriageState = { stage: "idle", initialSymptom: "", waterQualityResults: "", causeConfirmed: false }; }
     };
-    let waterHelpState = { stage: "readings_entered" };
-    let algaeTriageState = { stage: "remediation_active" };
-    let waterBalanceMode = { active: true, poolGallons: 20000 };
-    let lastTurnRequest = "heater prompt";
-    let dispatchMilestone = "tech_recommended";
-    let diagnosticSessionId = "pdai-session-12345";
 
-    // Set DOM elements
+    // Set DOM elements to active state
     env.document.getElementById("walkthroughBody").innerHTML = '<div class="chat-msg">User: heater leaking</div>';
     env.document.getElementById("liveDemoCustomInput").value = "Drafting next question";
     env.document.getElementById("securePassword").value = "secret123";
@@ -122,62 +140,25 @@ async function runBrowserIsolationTests() {
     env.document.body.classList.add("secure-app-ready");
     env.document.body.classList.remove("app-auth-required");
 
-    // Execute teardown logic as implemented in app.html
-    const teardown = () => {
-      conversationHistory = [];
-      lastTurnRequest = null;
-      dispatchMilestone = null;
-      diagnosticSessionId = "pdai-session-new";
-      sessionContext = {
-        category: null, subType: null, heatSource: null, brand: null, model: null,
-        makeConfirmed: false, modelConfirmed: false, modelFamilySelected: false,
-        genericMode: false, hasNoScreen: false, isSilent: false, isHumming: false,
-        symptom: null, currentStep: 0, ruledOut: [], skippedSteps: [],
-        lastRecommendedStep: null, initialTriageComplete: false,
-        operatingStateConfirmed: false, awaitingTriageResponse: false, awaitingTriageStage: null
-      };
-      waterHelpState = { stage: "idle", initialSymptom: "" };
-      algaeTriageState = { stage: "idle", initialSymptom: "", waterQualityResults: "", causeConfirmed: false };
-      waterBalanceMode = { active: false, stepIdx: 0, poolGallons: 0, values: {} };
+    // Execute the REAL teardown code from app.html inside the sandbox
+    const script = new vm.Script(`${realTeardownCode}\nwindow.teardownAuthenticatedBrowserState();`);
+    const context = vm.createContext(sandbox);
+    script.runInContext(context);
 
-      const notesForm = env.document.getElementById("integratedTechNotesForm");
-      if (notesForm) notesForm.reset();
-      env.document.getElementById("integratedNotesCategory").value = "";
-      env.document.getElementById("integratedNotesEquipment").value = "";
-      env.document.getElementById("integratedNotesComplaint").value = "";
-      env.document.getElementById("integratedNotesDiagnostic").value = "";
-      const notesStatus = env.document.getElementById("integratedNotesStatus");
-      if (notesStatus) notesStatus.textContent = "Notes are not saved until you select Save Field Notes.";
-      const notesPanel = env.document.getElementById("integratedTechNotesPanel");
-      if (notesPanel) notesPanel.style.display = "none";
+    // Verify window exposure
+    assert.equal(typeof env.window.teardownAuthenticatedBrowserState, "function", "Real teardown function must be exposed to window");
 
-      const bodyEl = env.document.getElementById("walkthroughBody");
-      if (bodyEl) { bodyEl.innerHTML = ""; bodyEl.dataset.renderedCount = "0"; }
-      const draftEl = env.document.getElementById("liveDemoCustomInput");
-      if (draftEl) draftEl.value = "";
-      const passEl = env.document.getElementById("securePassword");
-      if (passEl) passEl.value = "";
-      const identEl = env.document.getElementById("secureAppIdentity");
-      if (identEl) identEl.textContent = "Sign-in required";
-
-      APP_SESSION = null;
-      env.document.body.classList.remove("secure-app-ready");
-      env.document.body.classList.add("app-auth-required");
-      const gate = env.document.getElementById("secureLoginGate");
-      if (gate) gate.style.display = "flex";
-    };
-
-    teardown();
-
-    // Assert complete memory teardown
-    assert.equal(conversationHistory.length, 0, "conversationHistory must be empty");
-    assert.equal(sessionContext.category, null);
-    assert.equal(sessionContext.brand, null);
-    assert.equal(sessionContext.symptom, null);
-    assert.equal(sessionContext.ruledOut.length, 0);
-    assert.equal(waterBalanceMode.active, false);
-    assert.equal(lastTurnRequest, null);
-    assert.equal(APP_SESSION, null);
+    // Assert complete memory teardown in real execution context
+    assert.equal(context.conversationHistory.length, 0, "conversationHistory must be emptied");
+    assert.equal(context.sessionContext.category, null);
+    assert.equal(context.sessionContext.brand, null);
+    assert.equal(context.sessionContext.symptom, null);
+    assert.equal(context.sessionContext.ruledOut.length, 0);
+    assert.equal(context.waterBalanceMode.active, false);
+    assert.equal(context.lastTurnRequest, null);
+    assert.equal(context.dispatchMilestone, null);
+    assert.equal(context.diagnosticSessionId, "pdai-session-fresh-new");
+    assert.equal(context.APP_SESSION, null, "APP_SESSION must be reset to null");
 
     // Assert complete DOM and notes teardown
     assert.equal(env.document.getElementById("walkthroughBody").innerHTML, "");
@@ -189,26 +170,27 @@ async function runBrowserIsolationTests() {
     assert.equal(env.document.getElementById("integratedTechNotesPanel").style.display, "none");
     assert.equal(env.document.body.classList.contains("app-auth-required"), true);
     assert.equal(env.document.body.classList.contains("secure-app-ready"), false);
+    assert.equal(env.document.getElementById("secureLoginGate").style.display, "flex");
+    console.log("PASS: Test 1 - Real teardownAuthenticatedBrowserState from website/app.html executed and verified.");
   }
 
-  // Test 2: Account Switching Isolation
+  // Test 2: Real Account Switching Isolation using real getStorageKey() from app.html
   {
     const storage = env.localStorage;
-    const SECURE_APP_MODE = true;
 
-    function getStorageKeyFor(session) {
-      const userId = session?.user?.id;
-      const companyId = session?.companyId;
-      if (SECURE_APP_MODE) {
-        if (!userId || !companyId) return null;
-        return `pooldocai.authenticatedCrossTabState.${userId}.${companyId}.v1`;
-      }
-      return "pooldocai.crossTabState.v1";
+    function evaluateRealStorageKey(appSession, secureAppMode = true) {
+      const sandbox = {
+        APP_SESSION: appSession,
+        SECURE_APP_MODE: secureAppMode
+      };
+      const script = new vm.Script(`(${realAppStorageKeyCode})()`);
+      const context = vm.createContext(sandbox);
+      return script.runInContext(context);
     }
 
     // User Alice at Company Alpha
     const sessionAlice = { user: { id: "usr_alice", email: "alice@alpha.com" }, companyId: "comp_alpha" };
-    const keyAlice = getStorageKeyFor(sessionAlice);
+    const keyAlice = evaluateRealStorageKey(sessionAlice);
     assert.equal(keyAlice, "pooldocai.authenticatedCrossTabState.usr_alice.comp_alpha.v1");
 
     storage.setItem(keyAlice, JSON.stringify({
@@ -219,7 +201,7 @@ async function runBrowserIsolationTests() {
 
     // User Bob at Company Beta
     const sessionBob = { user: { id: "usr_bob", email: "bob@beta.com" }, companyId: "comp_beta" };
-    const keyBob = getStorageKeyFor(sessionBob);
+    const keyBob = evaluateRealStorageKey(sessionBob);
     assert.equal(keyBob, "pooldocai.authenticatedCrossTabState.usr_bob.comp_beta.v1");
 
     // Bob signs in. Bob's storage key does not contain Alice's state
@@ -227,24 +209,28 @@ async function runBrowserIsolationTests() {
     const rawAlice = storage.getItem(keyAlice);
     assert.ok(rawAlice.includes("Alice private question"));
     assert.ok(!rawAlice.includes("bob"));
+    console.log("PASS: Test 2 - Real app.html getStorageKey enforces cross-account browser storage isolation.");
   }
 
-  // Test 3: Company Switching Isolation for Multi-Company User
+  // Test 3: Real Company Switching Isolation for Multi-Company User from app.html
   {
     const storage = env.localStorage;
-    const SECURE_APP_MODE = true;
-    function getStorageKeyFor(session) {
-      const userId = session?.user?.id;
-      const companyId = session?.companyId;
-      if (SECURE_APP_MODE && (!userId || !companyId)) return null;
-      return `pooldocai.authenticatedCrossTabState.${userId}.${companyId}.v1`;
+
+    function evaluateRealStorageKey(appSession, secureAppMode = true) {
+      const sandbox = {
+        APP_SESSION: appSession,
+        SECURE_APP_MODE: secureAppMode
+      };
+      const script = new vm.Script(`(${realAppStorageKeyCode})()`);
+      const context = vm.createContext(sandbox);
+      return script.runInContext(context);
     }
 
     const sessionCo1 = { user: { id: "usr_consultant" }, companyId: "comp_1" };
     const sessionCo2 = { user: { id: "usr_consultant" }, companyId: "comp_2" };
 
-    const keyCo1 = getStorageKeyFor(sessionCo1);
-    const keyCo2 = getStorageKeyFor(sessionCo2);
+    const keyCo1 = evaluateRealStorageKey(sessionCo1);
+    const keyCo2 = evaluateRealStorageKey(sessionCo2);
 
     assert.equal(keyCo1, "pooldocai.authenticatedCrossTabState.usr_consultant.comp_1.v1");
     assert.equal(keyCo2, "pooldocai.authenticatedCrossTabState.usr_consultant.comp_2.v1");
@@ -252,13 +238,23 @@ async function runBrowserIsolationTests() {
 
     storage.setItem(keyCo1, JSON.stringify({ chat: { history: [{ userMsg: "Company 1 diagnostic" }] } }));
     assert.equal(storage.getItem(keyCo2), null, "Company 2 does not receive Company 1 diagnostic data");
+    console.log("PASS: Test 3 - Real app.html getStorageKey enforces multi-company tenant storage isolation.");
   }
 
-  // Test 4: Public Demo Separation
+  // Test 4: Real Public Demo Separation using real getStorageKey() from demo.html
   {
     const storage = env.localStorage;
-    const demoKey = "pooldocai.crossTabState.v1";
-    const authKey = "pooldocai.authenticatedCrossTabState.usr_x.comp_y.v1";
+
+    // Real demo storage key extracted from demo.html
+    const demoKey = realDemoStorageKey;
+    assert.equal(demoKey, "pooldocai.crossTabState.v1");
+
+    // Evaluate real authenticated storage key from app.html
+    const authSession = { user: { id: "usr_x" }, companyId: "comp_y" };
+    const authSandbox = { APP_SESSION: authSession, SECURE_APP_MODE: true };
+    const authScript = new vm.Script(`(${realAppStorageKeyCode})()`);
+    const authKey = authScript.runInContext(vm.createContext(authSandbox));
+    assert.equal(authKey, "pooldocai.authenticatedCrossTabState.usr_x.comp_y.v1");
 
     storage.setItem(demoKey, JSON.stringify({ chat: { history: [{ userMsg: "Public demo turn 1" }] } }));
     storage.setItem(authKey, JSON.stringify({ chat: { history: [{ userMsg: "Authenticated company work" }] } }));
@@ -269,9 +265,10 @@ async function runBrowserIsolationTests() {
     assert.equal(demoData.chat.history[0].userMsg, "Public demo turn 1");
     assert.equal(authData.chat.history[0].userMsg, "Authenticated company work");
     assert.notEqual(demoKey, authKey);
+    console.log("PASS: Test 4 - Real demo.html and app.html storage keys enforce public-demo / authenticated workspace isolation.");
   }
 
-  console.log("PASS: Authenticated browser state teardown, account switching, company switching, and demo separation tests passed.");
+  console.log("\nALL REAL BROWSER ISOLATION TESTS PASSED.");
 }
 
 runBrowserIsolationTests().catch((err) => {
