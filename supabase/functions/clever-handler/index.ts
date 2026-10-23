@@ -1644,7 +1644,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
 
   // Enforce a maximum of eight unique troubleshooting turns per public browser session and mode.
   // Authenticated company requests are governed by account usage limits instead.
-  if (body.authenticatedApp !== true && body.tenantWidget !== true && action !== "save_technician_job" && action !== "public_page_view") {
+  if (body.authenticatedApp !== true && body.tenantWidget !== true && action !== "save_technician_job" && action !== "public_page_view" && !["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"].includes(action)) {
     const publicSession = textValue(body.sessionId, 160);
     const turnId = textValue(body.demoTurnId, 160);
     if (!publicSession || !turnId) return jsonResponse({ error: "Public demo session is missing. Reload the demo and try again.", code: "DEMO_SESSION_REQUIRED" }, 400);
