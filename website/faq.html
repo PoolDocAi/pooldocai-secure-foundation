@@ -159,6 +159,10 @@
     @media (max-width:1023px){#dispatchNoteContent{display:none}#dispatchNoteContent.dispatch-summary-open{display:block}}
   </style>
   <script src="/js/config.js"></script>
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body data-site-page="faq" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
 
@@ -1633,7 +1637,7 @@
         choices: [
           { label: waterBalanceMode.waterQualityContext ? '🧪 Enter Water Chemistry Again' : '🔄 Run Another Water Balance Test', prompt: waterBalanceMode.waterQualityContext ? 'Enter water chemistry for my green pool.' : 'Balance my pool water' },
           { label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' },
-          { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
+          { label: '��� Request Technician / Call Licensed Pro', action: 'escalate' }
         ]
       });
       const surfMap = { g: 'Gunite/Pebble', f: 'Fiberglass', v: 'Vinyl' };
