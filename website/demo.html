@@ -1067,7 +1067,7 @@
           <span class="font-bold text-white">PoolDoc<span class="text-sky-400">AI</span></span> — 24/7 Homeowner Triage, Textable Customer Links &amp; Field Tech AI Copilot.
         </div>
         <p class="text-xs text-slate-500">Informational AI guidance only; does not replace a licensed pool, gas, or electrical professional. No manufacturer endorsement implied.</p>
-        <p class="pt-2 text-xs text-slate-400"><button type="button" data-open-privacy-modal class="underline underline-offset-2 hover:text-white">Privacy &amp; Data Handling Policy</button><span aria-hidden="true"> · </span><button type="button" data-open-privacy-modal class="underline underline-offset-2 hover:text-white">Terms of Use</button></p>
+        <p class="pt-2 text-xs text-slate-400"><a href="/privacy.html" class="underline underline-offset-2 hover:text-white">Privacy Policy (draft)</a><span aria-hidden="true"> · </span><a href="/terms.html" class="underline underline-offset-2 hover:text-white">Terms of Use (draft)</a></p>
       </div>
     </div>
   </footer>
@@ -3620,16 +3620,12 @@
           '<h2 id="pooldocaiPublicDemoConsentTitle" style="font-size:22px;font-weight:800;margin:0 0 10px;">Before you start</h2>' +
           '<p style="margin:0 0 10px;">PoolDocAI can save privacy-minimized troubleshooting messages and outcomes from this demo to help improve its general diagnostic knowledge. Personal contact details are redacted where detected. Do not enter private customer information or upload confidential company procedures.</p>' +
           '<p style="margin:0 0 14px;">Any learning candidate remains pending until a PoolDocAI platform administrator reviews it. This does not automatically train or fine-tune a model.</p>' +
-          '<button type="button" id="pooldocaiReviewPrivacyBtn" style="background:none;border:0;padding:0;color:#0369a1;text-decoration:underline;font-weight:700;cursor:pointer;margin-bottom:14px;">Review Privacy, Data Handling &amp; Terms of Use</button>' +
+          '<p style="margin:0 0 14px;"><a href="/terms.html" target="_blank" rel="noopener" style="color:#0369a1;text-decoration:underline;font-weight:700;">Terms of Use</a> · <a href="/privacy.html" target="_blank" rel="noopener" style="color:#0369a1;text-decoration:underline;font-weight:700;">Privacy Policy</a></p>' +
           '<label style="display:flex;align-items:flex-start;gap:9px;padding:10px 0;font-size:14px;"><input id="pooldocaiPublicDemoConsentCheckbox" type="checkbox" style="width:17px;height:17px;flex:0 0 17px;margin-top:3px;"> <span>I agree to the Terms of Use and Privacy/Data Handling notice, and I consent to the privacy-minimized troubleshooting information described above being considered for PoolDocAI general diagnostic learning.</span></label>' +
           '<p id="pooldocaiPublicDemoConsentStatus" role="status" aria-live="polite" style="min-height:22px;color:#b91c1c;margin:2px 0 10px;"></p>' +
           '<div style="display:flex;gap:10px;flex-wrap:wrap;"><button id="pooldocaiPublicDemoConsentContinue" type="button" style="background:#0369a1;color:white;padding:11px 16px;border:0;border-radius:10px;font-weight:800;cursor:pointer;">Agree and continue</button><button id="pooldocaiPublicDemoConsentCancel" type="button" style="background:#e2e8f0;color:#0f172a;padding:11px 16px;border:0;border-radius:10px;font-weight:700;cursor:pointer;">Not now</button></div>' +
           '</div>';
         document.body.appendChild(overlay);
-        overlay.querySelector('#pooldocaiReviewPrivacyBtn').addEventListener('click', () => {
-          if (typeof window.openPrivacyModal === 'function') window.openPrivacyModal();
-          else overlay.querySelector('#pooldocaiPublicDemoConsentStatus').textContent = 'The policy panel is not available on this page. Please use the site navigation to review the policy.';
-        });
         overlay.querySelector('#pooldocaiPublicDemoConsentCancel').addEventListener('click', () => finish(false));
         overlay.querySelector('#pooldocaiPublicDemoConsentContinue').addEventListener('click', async event => {
           const button = event.currentTarget;
