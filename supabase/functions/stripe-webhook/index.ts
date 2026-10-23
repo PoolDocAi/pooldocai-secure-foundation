@@ -109,12 +109,22 @@ Deno.serve(async (req: Request) => {
 
     const update: Record<string, unknown> = {};
     if (customerId) { update.stripe_customer_id = customerId; update.billing_customer_ref = customerId; }
-    if (subscriptionId) { update.stripe_subscription_id = subscriptionId; update.billing_subscription_ref = subscriptionId; }
     if (subscriptionObject) {
       // Guard against out-of-order event delivery: skip stale updates if a newer period is already recorded or from an old subscription.
       const eventPeriodStart = isoSeconds(subscriptionObject.current_period_start);
       const isStalePeriod = Boolean(eventPeriodStart && company.billing_period_start && new Date(eventPeriodStart).getTime() < new Date(company.billing_period_start).getTime());
-      const isOldSubscription = Boolean(company.stripe_subscription_id && subscriptionId && subscriptionId !== company.stripe_subscription_id && eventPeriodStart && company.billing_period_start && new Date(eventPeriodStart).getTime() <= new Date(company.billing_period_start).getTime());
+      const isOldSubscription = Boolean(
+        company.stripe_subscription_id &&
+        subscriptionId &&
+        subscriptionId !== company.stripe_subscription_id &&
+        (
+          eventType === "customer.subscription.deleted" ||
+          ["canceled", "incomplete_expired"].includes(String(subscriptionObject.status || "")) ||
+          !eventPeriodStart ||
+          !company.billing_period_start ||
+          new Date(eventPeriodStart).getTime() <= new Date(company.billing_period_start).getTime()
+        )
+      );
 
       if (isStalePeriod || isOldSubscription) {
         await db.from("pooldocai_stripe_webhook_events").update({
@@ -125,7 +135,8 @@ Deno.serve(async (req: Request) => {
         return json({ ok: true, ignored: true, reason: isOldSubscription ? "stale_old_subscription" : "stale_out_of_order_event" });
       }
 
-      const subsStatus = String(subscriptionObject.status || "");
+      if (subscriptionId) { update.stripe_subscription_id = subscriptionId; update.billing_subscription_ref = subscriptionId; }
+      const subsStatus = String(subscriptionObject.status || (eventType === "customer.subscription.deleted" ? "canceled" : ""));
       update.billing_status = mappedBillingStatus(subsStatus);
       const price = priceId || asString(asObject((asObject(subscriptionObject.items).data || [])[0]).price);
       if (price) update.stripe_price_id = price;
@@ -137,28 +148,28 @@ Deno.serve(async (req: Request) => {
       else if (validPlans.includes(metadataPlan)) update.plan_name = metadataPlan;
 
       // Preserve canonical plan default seats instead of resetting to 1 on package billing
-      const resolvedPlan = update.plan_name || company.plan_name;
-      const planDefaultSeats = (resolvedPlan && DEFAULT_SEAT_LIMITS[String(resolvedPlan)]) || 1;
-      const metaSeat = Number(subMetadata.seat_limit);
-      if (Number.isFinite(metaSeat) && metaSeat >= 1 && metaSeat <= 500) update.seat_limit = Math.floor(metaSeat);
-      else if (seatQuantity !== null && seatQuantity > 1) update.seat_limit = seatQuantity;
-      else if (!company.seat_limit || company.seat_limit < planDefaultSeats) update.seat_limit = planDefaultSeats;
+      if (eventType !== "customer.subscription.deleted") {
+        const resolvedPlan = update.plan_name || company.plan_name;
+        const planDefaultSeats = (resolvedPlan && DEFAULT_SEAT_LIMITS[String(resolvedPlan)]) || 1;
+        const metaSeat = Number(subMetadata.seat_limit);
+        if (Number.isFinite(metaSeat) && metaSeat >= 1 && metaSeat <= 500) update.seat_limit = Math.floor(metaSeat);
+        else if (seatQuantity !== null && seatQuantity > 1) update.seat_limit = seatQuantity;
+        else if (!company.seat_limit || company.seat_limit < planDefaultSeats) update.seat_limit = planDefaultSeats;
+      }
 
       update.billing_period_start = eventPeriodStart;
       update.current_period_end = isoSeconds(subscriptionObject.current_period_end);
       update.trial_ends_at = isoSeconds(subscriptionObject.trial_end);
       if (["canceled","incomplete_expired"].includes(subsStatus) && ["active","pilot","past_due"].includes(String(company.status))) update.status = "cancelled";
-      else if (["active","trialing"].includes(subsStatus) && ["pilot","past_due"].includes(String(company.status))) update.status = "active";
+      else if (["active","trialing"].includes(subsStatus) && ["pilot","past_due","cancelled"].includes(String(company.status))) update.status = "active";
     } else if (eventType === "checkout.session.completed") {
       // Only associate references here; subscription events are the source of entitlement state.
+      if (subscriptionId) { update.stripe_subscription_id = subscriptionId; update.billing_subscription_ref = subscriptionId; }
       const plan = String(metadata.plan_name || ""); if (["starter","professional","enterprise","pilot"].includes(plan)) update.plan_name = plan;
       const seats = Number(metadata.seat_limit); if (Number.isInteger(seats) && seats >= 1 && seats <= 500) update.seat_limit = seats;
     } else if (eventType === "invoice.payment_failed") update.billing_status = "past_due";
     else if (eventType === "invoice.payment_succeeded" || eventType === "invoice.paid") {
       if (["past_due","manual_review","not_configured"].includes(String(company.billing_status || ""))) update.billing_status = "active";
-    } else if (eventType === "customer.subscription.deleted") {
-      update.billing_status = "cancelled"; update.stripe_subscription_id = asString(obj.id) || company.stripe_subscription_id; update.billing_subscription_ref = asString(obj.id) || company.stripe_subscription_id;
-      if (["active","pilot","past_due"].includes(String(company.status))) update.status = "cancelled";
     }
 
     const handled = ["checkout.session.completed","customer.subscription.created","customer.subscription.updated","customer.subscription.deleted","invoice.payment_failed","invoice.payment_succeeded","invoice.paid"];
