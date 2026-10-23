@@ -16,6 +16,7 @@ assert.match(app, /photo_recognition[^\n]{0,250}diagnosticSessionId/, "photo dia
 assert.match(handler, /pooldocai_consume_company_monthly_session/, "server calls the pooled monthly session RPC");
 assert.match(handler, /MONTHLY_QUOTA_GUARD_UNAVAILABLE/, "usage-check errors fail closed");
 assert.match(handler, /MONTHLY_SESSION_LIMIT_REACHED/, "monthly entitlement exhaustion prevents further troubleshooting");
+assert.match(handler, /\.lte\("valid_from",new Date\(\)\.toISOString\(\)\)/, "model rate lookup ignores future-effective price cards");
 assert.match(handler, /pooldocai_reserve_grounding_budget/, "Google Search grounding reserves budget before provider requests");
 assert.match(handler, /pooldocai_finish_grounding_budget/, "grounding budget reservations are released after requests");
 assert.match(handler, /POOLDOCAI_GROUNDING_GLOBAL_DAILY_LIMIT/, "grounding calls have a global bounded budget");
