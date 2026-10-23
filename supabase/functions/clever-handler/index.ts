@@ -83,7 +83,7 @@ async function geminiEmbedding(text: string, taskType: "RETRIEVAL_QUERY" | "RETR
     return `[${vals.join(",")}]`;
   } catch { return null; }
 }
-async function utcMonthStartDate(): string { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
+function utcMonthStartDate(): string { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
 
 async function recordModelUsage(supabase: ReturnType<typeof createClient>, companyId: string | null, userId: string | null, model: string, usage: AnyRecord | null, eventType = "ai_request", eventKey?: string) {
   const inputTokens = Number(usage?.input_tokens ?? usage?.promptTokenCount ?? usage?.prompt_token_count ?? 0) || 0;
@@ -821,7 +821,7 @@ async function recordGroundingUsage(
       estimated_cost_usd: estimatedCostUsd,
       cost_source: estimatedCostUsd == null ? "not_priced" : "rate_card_estimate",
       source_event_key: `grounding:${reservationId}`,
-      period_start: await utcMonthStartDate(),
+      period_start: utcMonthStartDate(),
       metadata: { pricing_unit: pricingUnit, price_estimated_from_rate_card: estimatedCostUsd != null },
     });
     if (error && error.code !== "23505") console.warn("Google Search grounding usage metering failed", { code: error.code });
@@ -2408,7 +2408,7 @@ MANDATORY DIAGNOSTIC ORDER:
     const { error: publicUsageError } = await supabase.from("platform_usage_events").insert({
       company_id: null, user_id: null, event_type: publicAction, units: 1, metric_type: "public_api_request",
       quantity: 1, quantity_unit: "request", provider: "google_gemini", cost_source: "not_priced",
-      period_start: await utcMonthStartDate(), source_event_key: crypto.randomUUID(),
+      period_start: utcMonthStartDate(), source_event_key: crypto.randomUUID(),
       metadata: { authenticated: false, surface: "public_demo", query_length: query.length }
     });
     if (publicUsageError) console.warn("Public API usage metering unavailable", { code: publicUsageError.code });

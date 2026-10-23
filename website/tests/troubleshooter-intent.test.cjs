@@ -188,4 +188,29 @@ const refreshedModelFamiliesIndex = backend.indexOf(
 assert.ok(refreshedModelFamiliesIndex > industryCatalogLoadIndex, 'model-family candidates should be refreshed after catalog loading');
 const systemPromptIndex = backend.indexOf('const systemPrompt = `You are PoolDocAI');
 assert.ok(systemPromptIndex > refreshedModelFamiliesIndex, 'the system prompt should be composed after catalog-backed model suggestions are refreshed');
+const vm = require('node:vm');
+// Regression guard: Verify all inline scripts parse as executable JavaScript without SyntaxError.
+for (const relPath of htmlFiles) {
+  const content = fs.readFileSync(path.join(bundleRoot, relPath), 'utf8');
+  const scripts = content.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  scripts.forEach((tag, idx) => {
+    const code = tag.replace(/<script\b[^>]*>/i, '').replace(/<\/script>/i, '');
+    if (code.trim()) {
+      assert.doesNotThrow(() => {
+        new vm.Script(code, { filename: `${relPath}#script${idx}` });
+      }, `Inline script in ${relPath}#script${idx} contains invalid JavaScript syntax or template literals`);
+    }
+  });
+}
+
+// Regression guard: utcMonthStartDate must be synchronous and return YYYY-MM-01 format
+assert.ok(
+  backend.includes('function utcMonthStartDate(): string') && !backend.includes('async function utcMonthStartDate()'),
+  'utcMonthStartDate must be synchronous'
+);
+assert.ok(
+  !backend.includes('await utcMonthStartDate()'),
+  'utcMonthStartDate should not be called with await'
+);
+
 console.log(`PASS: ${tests.length} typo-tolerant initial-message cases plus follow-up normalization checks across seven frontend surfaces, accessible escalation, and backend routing passed.`);
