@@ -463,7 +463,55 @@ async function pollWebhookQueue() {
   }
 }
 const server = http.createServer(async (req,res) => {
-  if (req.method === 'GET' && req.url === '/health') return json(res,200,{ok:true,service:'pooldocai-document-worker'});
+  if (req.method === 'GET' && req.url === '/health') {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const integerMinutes = (key, fallback) => {
+      const value = Number.parseInt(process.env[key] || '', 10);
+      return Number.isFinite(value) ? Math.min(Math.max(value, 1), 1440) : fallback;
+    };
+    const queuedMinutes = integerMinutes('DOC_WORKER_QUEUED_ALERT_MINUTES', 15);
+    const stuckMinutes = integerMinutes('DOC_WORKER_STUCK_ALERT_MINUTES', 30);
+    const oldQueuedBefore = new Date(now.getTime() - queuedMinutes * 60_000).toISOString();
+    const stuckBefore = new Date(now.getTime() - stuckMinutes * 60_000).toISOString();
+    const failedSince = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
+    try {
+      const [queued, oldQueued, processing, stuckProcessing, recentFailed] = await Promise.all([
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true }).eq('status', 'queued'),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true })
+          .eq('status', 'queued').lt('created_at', oldQueuedBefore).lt('available_at', nowIso),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true }).eq('status', 'processing'),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true })
+          .eq('status', 'processing').lt('updated_at', stuckBefore),
+        db.from('document_processing_jobs').select('id', { count: 'exact', head: true })
+          .eq('status', 'failed').gte('updated_at', failedSince)
+      ]);
+      const failedQuery = [queued, oldQueued, processing, stuckProcessing, recentFailed].find(result => result.error);
+      if (failedQuery) {
+        console.error('Document worker health query failed', { code: failedQuery.error.code });
+        return json(res, 503, { ok: false, service: 'pooldocai-document-worker', database: 'unavailable', code: 'QUEUE_HEALTH_QUERY_FAILED' });
+      }
+      const queue = {
+        queued: Number(queued.count || 0),
+        oldQueued: Number(oldQueued.count || 0),
+        processing: Number(processing.count || 0),
+        stuckProcessing: Number(stuckProcessing.count || 0),
+        failedLast24Hours: Number(recentFailed.count || 0)
+      };
+      const healthy = queue.oldQueued === 0 && queue.stuckProcessing === 0;
+      return json(res, healthy ? 200 : 503, {
+        ok: healthy,
+        service: 'pooldocai-document-worker',
+        database: 'ok',
+        queue,
+        thresholdsMinutes: { oldQueued: queuedMinutes, stuckProcessing: stuckMinutes },
+        checkedAt: nowIso
+      });
+    } catch (error) {
+      console.error('Document worker health check failed', { reason: String(error?.message || 'unknown').slice(0, 100) });
+      return json(res, 503, { ok: false, service: 'pooldocai-document-worker', database: 'unavailable', code: 'QUEUE_HEALTH_CHECK_FAILED' });
+    }
+  }
   if (req.method !== 'POST' || req.url !== '/process') return json(res,404,{error:'Not found'});
   try {
     let body=''; for await (const part of req) { body += part; if (body.length > 100_000) throw new Error('Request too large.'); }
