@@ -128,12 +128,16 @@ function isPrivateAddress(ip) {
       || (p[0] === 203 && p[1] === 0 && p[2] === 113);
   }
   if (net.isIPv6(ip)) {
-    const s = ip.toLowerCase();
-    const mapped = s.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-    if (mapped) return isPrivateAddress(mapped[1]);
-    return s === '::1' || s === '::' || s.startsWith('fc') || s.startsWith('fd')
-      || s.startsWith('fe80:') || s.startsWith('ff')
-      || s.startsWith('2001:db8:') || s.startsWith('64:ff9b:');
+    // Allow only globally routable unicast space. This also blocks IPv4-mapped IPv6,
+    // NAT64, loopback, link-local, ULA, multicast, and other special-use ranges even
+    // when those ranges are written in compressed hexadecimal form.
+    const groups = ip.toLowerCase().split(':');
+    const firstGroup = Number.parseInt(groups[0] || '0', 16);
+    const secondGroup = Number.parseInt(groups[1] || '0', 16);
+    if (!Number.isFinite(firstGroup) || firstGroup < 0x2000 || firstGroup > 0x3fff) return true;
+    if (firstGroup === 0x2001 && (secondGroup <= 0x01ff || secondGroup === 0x0db8)) return true;
+    if (firstGroup === 0x2002 || firstGroup === 0x3fff) return true;
+    return false;
   }
   return true;
 }
