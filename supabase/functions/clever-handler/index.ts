@@ -92,7 +92,13 @@ async function recordModelUsage(supabase: ReturnType<typeof createClient>, compa
   let costSource = "not_priced";
   const modelName = model || "unknown";
   if (inputTokens || outputTokens) {
-    const {data: rates} = await supabase.from("pooldocai_model_rate_cards").select("input_usd_per_million_tokens,output_usd_per_million_tokens").eq("provider","google_gemini").eq("model",modelName).eq("active",true).is("valid_to",null).order("valid_from",{ascending:false}).limit(1);
+    const rateLookupTime = new Date().toISOString();
+    const {data: rates} = await supabase.from("pooldocai_model_rate_cards")
+      .select("input_usd_per_million_tokens,output_usd_per_million_tokens")
+      .eq("provider","google_gemini").eq("model",modelName).eq("active",true)
+      .lte("valid_from",rateLookupTime)
+      .or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)
+      .order("valid_from",{ascending:false}).limit(1);
     const rate = rates?.[0];
     if (rate && rate.input_usd_per_million_tokens != null && rate.output_usd_per_million_tokens != null) {
       estimatedCost = inputTokens * Number(rate.input_usd_per_million_tokens) / 1_000_000 + outputTokens * Number(rate.output_usd_per_million_tokens) / 1_000_000;
@@ -789,9 +795,12 @@ async function recordGroundingUsage(
   let estimatedCostUsd: number | null = null;
   let pricingUnit: string | null = null;
   try {
+    const rateLookupTime = new Date().toISOString();
     const { data: rates, error: rateError } = await supabase.from("pooldocai_model_rate_cards")
       .select("grounding_usd_per_1000_units,grounding_pricing_unit")
-      .eq("provider", "google_gemini").eq("model", model).eq("active", true).is("valid_to", null)
+      .eq("provider", "google_gemini").eq("model", model).eq("active", true)
+      .lte("valid_from", rateLookupTime)
+      .or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)
       .order("valid_from", { ascending: false }).limit(1);
     const rate = rates?.[0];
     if (!rateError && rate?.grounding_usd_per_1000_units != null) {
