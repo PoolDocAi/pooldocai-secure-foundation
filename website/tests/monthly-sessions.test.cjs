@@ -111,4 +111,15 @@ assert.ok(handler.includes('body = record as AnyRecord;'), 'clever-handler prese
 assert.ok(handler.includes('const shouldMeterAuthenticatedDiagnostic = Boolean(authenticatedUserId && authenticatedCompanyId)'), 'metering relies on verified server auth, not client-controlled flags');
 assert.ok(app.includes('pooldocai.authenticatedCrossTabState.'), 'app.html scopes cross-tab persistence to the authenticated user');
 
+const stripeWebhook = fs.readFileSync(path.join(root, "supabase", "functions", "stripe-webhook", "index.ts"), "utf8");
+assert.ok(stripeWebhook.includes('solo_tech') && stripeWebhook.includes('fleet_complete'), 'Stripe webhook maps all canonical tiers');
+assert.ok(stripeWebhook.includes('stale_out_of_order_event'), 'Stripe webhook skips out-of-order stale events');
+assert.ok(stripeWebhook.includes('DEFAULT_SEAT_LIMITS'), 'Stripe webhook preserves tier default seat limits');
+
+const techHtml = fs.readFileSync(path.join(root, "website", "technician.html"), "utf8");
+assert.ok(techHtml.includes('queueCompanyId:companyId'), 'technician.html binds queued jobs to originating company');
+assert.ok(techHtml.includes('authClient?.auth?.refreshSession'), 'technician.html refreshes auth session before syncing');
+assert.ok(techHtml.includes('item.queueCompanyId!==activeCompanyId'), 'technician.html prevents syncing jobs across company workspaces');
+assert.ok(handler.includes('body.companyId && textValue(body.companyId, 80) !== authenticatedCompanyId'), 'clever-handler rejects technician jobs for mismatched company IDs');
+
 console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");

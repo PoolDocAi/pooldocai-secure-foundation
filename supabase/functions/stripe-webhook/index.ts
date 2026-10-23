@@ -19,7 +19,30 @@ function safeEquals(a: string, b: string): boolean { if (a.length !== b.length) 
 function asObject(v: unknown): Record<string, any> { return v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, any> : {}; }
 function asString(v: unknown): string { if (typeof v === "string") return v; if (v && typeof v === "object" && typeof (v as any).id === "string") return (v as any).id; return ""; }
 function isoSeconds(v: unknown): string | null { const n = Number(v); return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString() : null; }
-function planFromPrice(priceId: string): string | null { for (const [plan, key] of Object.entries({ starter:"STRIPE_PRICE_STARTER", professional:"STRIPE_PRICE_PROFESSIONAL", enterprise:"STRIPE_PRICE_ENTERPRISE", pilot:"STRIPE_PRICE_PILOT" })) if (env(key) && env(key) === priceId) return plan; return null; }
+const CANONICAL_PLANS: Record<string, string> = {
+  solo_tech: "STRIPE_PRICE_SOLO_TECH",
+  solo_complete: "STRIPE_PRICE_SOLO_COMPLETE",
+  pro_tech: "STRIPE_PRICE_PRO_TECH",
+  pro_complete: "STRIPE_PRICE_PRO_COMPLETE",
+  fleet_tech: "STRIPE_PRICE_FLEET_TECH",
+  fleet_complete: "STRIPE_PRICE_FLEET_COMPLETE",
+  starter: "STRIPE_PRICE_STARTER",
+  professional: "STRIPE_PRICE_PROFESSIONAL",
+  enterprise: "STRIPE_PRICE_ENTERPRISE",
+  pilot: "STRIPE_PRICE_PILOT"
+};
+const DEFAULT_SEAT_LIMITS: Record<string, number> = {
+  solo_tech: 1, solo_complete: 1,
+  pro_tech: 5, pro_complete: 5,
+  fleet_tech: 15, fleet_complete: 15,
+  starter: 2, professional: 5, enterprise: 25, pilot: 2
+};
+function planFromPrice(priceId: string): string | null {
+  for (const [plan, key] of Object.entries(CANONICAL_PLANS)) {
+    if (env(key) && env(key) === priceId) return plan;
+  }
+  return null;
+}
 function mappedBillingStatus(status: string): string { if (status === "active") return "active"; if (status === "trialing") return "trialing"; if (["past_due", "unpaid", "paused"].includes(status)) return "past_due"; if (["canceled", "incomplete_expired"].includes(status)) return "cancelled"; return "manual_review"; }
 
 Deno.serve(async (req: Request) => {
@@ -88,23 +111,37 @@ Deno.serve(async (req: Request) => {
     if (customerId) { update.stripe_customer_id = customerId; update.billing_customer_ref = customerId; }
     if (subscriptionId) { update.stripe_subscription_id = subscriptionId; update.billing_subscription_ref = subscriptionId; }
     if (subscriptionObject) {
+      // Guard against out-of-order event delivery: skip stale updates if a newer period is already recorded.
+      const eventPeriodStart = isoSeconds(subscriptionObject.current_period_start);
+      if (eventPeriodStart && company.billing_period_start && new Date(eventPeriodStart).getTime() < new Date(company.billing_period_start).getTime()) {
+        await db.from("pooldocai_stripe_webhook_events").update({
+          processed: true,
+          processed_at: new Date().toISOString(),
+          processing_error: "Stale out-of-order event skipped (newer period already active)."
+        }).eq("stripe_event_id", eventId);
+        return json({ ok: true, ignored: true, reason: "stale_out_of_order_event" });
+      }
+
       const subsStatus = String(subscriptionObject.status || "");
       update.billing_status = mappedBillingStatus(subsStatus);
       const price = priceId || asString(asObject((asObject(subscriptionObject.items).data || [])[0]).price);
       if (price) update.stripe_price_id = price;
       const subMetadata = asObject(subscriptionObject.metadata);
       const metadataPlan = String(subMetadata.plan_name || "");
-      // Configured Price IDs are authoritative; metadata is only a fallback for
-      // legacy/test subscriptions created before plan-to-price mapping was set.
       const mappedPricePlan = price ? planFromPrice(price) : null;
+      const validPlans = Object.keys(CANONICAL_PLANS);
       if (mappedPricePlan) update.plan_name = mappedPricePlan;
-      else if (["starter","professional","enterprise","pilot"].includes(metadataPlan)) update.plan_name = metadataPlan;
-      // Current subscription quantity is authoritative after seat changes through
-      // Stripe Billing Portal. Metadata only seeds legacy subscriptions without items.
+      else if (validPlans.includes(metadataPlan)) update.plan_name = metadataPlan;
+
+      // Preserve canonical plan default seats instead of resetting to 1 on package billing
+      const resolvedPlan = update.plan_name || company.plan_name;
+      const planDefaultSeats = (resolvedPlan && DEFAULT_SEAT_LIMITS[String(resolvedPlan)]) || 1;
       const metaSeat = Number(subMetadata.seat_limit);
-      if (seatQuantity !== null) update.seat_limit = seatQuantity;
-      else if (Number.isFinite(metaSeat) && metaSeat >= 1 && metaSeat <= 500) update.seat_limit = Math.floor(metaSeat);
-      update.billing_period_start = isoSeconds(subscriptionObject.current_period_start);
+      if (Number.isFinite(metaSeat) && metaSeat >= 1 && metaSeat <= 500) update.seat_limit = Math.floor(metaSeat);
+      else if (seatQuantity !== null && seatQuantity > 1) update.seat_limit = seatQuantity;
+      else if (!company.seat_limit || company.seat_limit < planDefaultSeats) update.seat_limit = planDefaultSeats;
+
+      update.billing_period_start = eventPeriodStart;
       update.current_period_end = isoSeconds(subscriptionObject.current_period_end);
       update.trial_ends_at = isoSeconds(subscriptionObject.trial_end);
       if (["canceled","incomplete_expired"].includes(subsStatus) && ["active","pilot","past_due"].includes(String(company.status))) update.status = "cancelled";

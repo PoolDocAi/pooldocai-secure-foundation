@@ -1778,6 +1778,9 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   // Technician close-out: persistent case data always requires individual Supabase Auth.
   if (action === "save_technician_job") {
     if (!authenticatedCompanyId || !authenticatedUserId || !(authenticatedRole === "company_admin" || authenticatedPermissions?.canEditJobNotes === true)) return jsonResponse({ error: "Your company account does not have permission to edit job notes. Ask the company admin to enable that seat permission.", code: "JOB_NOTE_EDIT_PERMISSION_REQUIRED" }, 403);
+    if (body.companyId && textValue(body.companyId, 80) !== authenticatedCompanyId) {
+      return jsonResponse({ error: "The queued job belongs to a different company workspace.", code: "TENANT_MISMATCH" }, 403);
+    }
     const notes = textValue(body.diagnosticNotes, 4000);
     const resolution = textValue(body.resolution, 3000);
     const complaint = textValue(body.complaint, 1500);
