@@ -62,7 +62,7 @@ assert.doesNotMatch(pricing, /Includes separate monthly allowances for homeowner
 assert.doesNotMatch(pricing, /Buy extra session packs anytime/, "pricing does not claim inactive add-on billing is available");
 
 // Public demo consent and learning-capture actions must not be charged as troubleshooting turns.
-assert.match(handler, /action !== "public_page_view" && !\["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"\]\.includes\(action\)/, "consent and learning-capture requests bypass the public troubleshooting-turn guard");
+assert.ok(handler.includes('action !== "public_page_view" && !["record_public_demo_consent", "capture_public_demo_turn", "accept_public_demo_learning"].includes(action)'), "consent and learning-capture requests bypass the public troubleshooting-turn guard");
 assert.match(publicDemo, /PoolDocAI may save privacy-minimized demo messages and outcomes/, "public demo consent uses concise copy");
 assert.match(publicDemo, /max-width:460px;max-height:84vh/, "public demo consent modal is compact on desktop and mobile");
 assert.doesNotMatch(publicDemo, /PoolDocAI can save privacy-minimized troubleshooting messages and outcomes from this demo/, "oversized consent copy is removed");
