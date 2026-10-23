@@ -2027,6 +2027,8 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   let kbRows: AnyRecord[] = [];
   let fullRowFetchAttempted = false;
   let fullRowFetchRowCount = 0;
+  // Declared before the family matcher; the active industry catalog is hydrated later in this handler.
+  let industryCatalogRows: AnyRecord[] = [];
 
   // 1) Retrieve relevance-ranked records using the existing search RPC.
   try {
@@ -2096,7 +2098,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     }
   } catch (error) { console.warn("Approved shared-learning retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
 
-  const modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);
+  let modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);
   const procedures = kbRows.map((row, index) => {
     const procedureText = getProcedureText(row);
     const title = textValue(row.title ?? row.name ?? row.manual_title ?? row.document_title, 200) || `Matched KB entry ${index + 1}`;
@@ -2228,7 +2230,6 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   const isWaterQualityCase = requestIsWaterQualityCase;
   const waterQualityResults = textValue(context.waterQualityResults ?? context.water_quality_results, 1200);
   let industryContext = "Industry module: Swimming Pools. Use pool-specific catalog and safety guidance.";
-  let industryCatalogRows: AnyRecord[] = [];
   let industrySourceRankingRules: AnyRecord[] = [];
   try {
     const {data:industryModule}=await supabase.from("industry_modules").select("industry_key,display_name,configuration,status,module_version").eq("industry_key",authenticatedIndustryKey).eq("status","active").maybeSingle();
@@ -2281,6 +2282,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     console.warn("Industry module configuration could not be loaded", { errorType: industryError instanceof Error ? industryError.name : "unknown" });
     industryContext=`Industry module ${authenticatedIndustryKey} configuration could not be verified. Do not claim a catalog or module-specific source ranking was consulted. Use conservative non-invasive triage; for procedure-specific work, state uncertainty and offer a qualified professional.`;
   }
+  // Catalog data is loaded after initial KB retrieval. Refresh the model-family candidates now so both
+  // prompt guidance and model-triage responses can use the active industry's catalog without a TDZ error.
+  modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);
+
   const systemPrompt = `You are PoolDocAI, an expert troubleshooting assistant operating only within the server-selected, active industry module. Conduct a real, multi-turn diagnosis. For normal equipment cases, provide one individual diagnostic step at a time. For a confirmed green-pool/algae case with chemistry, use the water-quality exception below.
 
 REQUEST ACTION: ${action || "troubleshoot"}. Treat "next_kb_step" as "continue" and "skip_step" as a request for a different safe alternative (never mark it completed). If the action is "model_triage", do not troubleshoot yet. Return a short list of relevant, verified model families for the known make and equipment category; prefer matching Supabase catalog families, and use Google Search only if the catalog is insufficient. Candidates are not confirmation of the installed model. Ask the user to choose a family, enter the exact nameplate model, or continue with general troubleshooting.
