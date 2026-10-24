@@ -752,10 +752,60 @@ function selectDiagnosticModel(action: string, query: string): string {
 }
 
 // Internal-reference routing is deliberately conservative: an approved lesson or
-// tenant-private manual must match the confirmed make AND exact model to suppress
-// the initial paid Search tool. Unknown or different models retain web research.
+// tenant-private manual must match the confirmed make, exact model, AND relevant symptom/code
+// to suppress the initial paid Search tool. Unrelated symptoms, hazards, or unknown models retain web research.
 function normalizedEquipmentReference(value: unknown): string {
   return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function extractDiagnosticTokens(text: string): string[] {
+  return String(text ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !["the", "and", "for", "with", "from", "this", "that", "pool", "equipment", "does", "not"].includes(t));
+}
+function symptomMatchesProcedure(
+  procedureText: string,
+  rowSymptom: string,
+  userSymptom: string,
+  category: string,
+  errorCode = ""
+): boolean {
+  const combinedSource = `${String(procedureText ?? "")} ${String(rowSymptom ?? "")}`.toLowerCase();
+
+  // If a specific error code is reported, internal source must mention it as a distinct code/word
+  if (errorCode && errorCode.trim().length >= 2) {
+    const cleanCode = errorCode.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (cleanCode.length >= 2) {
+      const codeRegex = new RegExp(`\\b${cleanCode}\\b`, "i");
+      if (!codeRegex.test(combinedSource)) return false;
+    }
+  }
+
+  const queryTokens = extractDiagnosticTokens(userSymptom);
+  if (queryTokens.length === 0) return true; // Generic intake query without specific symptom keywords
+
+  // Distinct symptom clusters: an unrelated fix on the same model must NOT qualify
+  const isSilentNoStart = /\b(silent|won'?t start|not starting|no power|dead|dark display|no light|trips? breaker)\b/i.test(userSymptom);
+  const isLeak = /\b(leak|leaking|drip|dripping|puddle|water loss)\b/i.test(userSymptom);
+  const isPressure = /\b(high pressure|low pressure|psi|gauge|clean filter)\b/i.test(userSymptom);
+  const isWaterQuality = /\b(green|cloudy|algae|chlorine|ph|cya|balance|shock)\b/i.test(userSymptom);
+
+  if (isSilentNoStart && !/\b(power|voltage|breaker|silent|start|run|display|fuse|supply|switch|motor|wiring)\b/i.test(combinedSource)) {
+    return false;
+  }
+  if (isLeak && !/\b(leak|seal|o-ring|gasket|crack|fitting|drain|pipe|shaft seal)\b/i.test(combinedSource)) {
+    return false;
+  }
+  if (isPressure && !/\b(pressure|gauge|psi|filter|backwash|flow|clean)\b/i.test(combinedSource)) {
+    return false;
+  }
+  if (isWaterQuality && !/\b(chlorine|water|algae|ph|cya|clar|dose|test|shock)\b/i.test(combinedSource)) {
+    return false;
+  }
+
+  // At least one material diagnostic token must overlap as a whole word
+  return queryTokens.some((token) => new RegExp(`\\b${token}\\b`, "i").test(combinedSource));
 }
 function referenceMatchesEquipment(row: AnyRecord, brand: string, model: string): boolean {
   const desiredBrand = normalizedEquipmentReference(brand);
@@ -766,16 +816,69 @@ function referenceMatchesEquipment(row: AnyRecord, brand: string, model: string)
   return (!sourceBrand || !desiredBrand || sourceBrand === desiredBrand) &&
     (!sourceModel || !desiredModel || sourceModel === desiredModel);
 }
-function preferVerifiedInternalOnly(rows: AnyRecord[], brand: string, model: string): boolean {
+function preferVerifiedInternalOnly(
+  rows: AnyRecord[],
+  brand: string,
+  model: string,
+  symptomText = "",
+  category = "",
+  errorCode = ""
+): boolean {
   const desiredBrand = normalizedEquipmentReference(brand);
   const desiredModel = normalizedEquipmentReference(model);
   if (!desiredBrand || !desiredModel) return false; // Unknown nameplate: keep Search available.
+
+  // Real pool hazards must never suppress external verification or required caution
+  if (isCriticalPoolHazardText(symptomText)) return false;
+
   return rows.some((row) => {
     if (row.company_manual_source !== true && row.shared_learning_source !== true) return false;
+    if (!row.id || typeof row.id !== "string") return false; // Server-confirmed evidence ID required
     if (normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized) !== desiredBrand) return false;
     if (normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model) !== desiredModel) return false;
-    return getProcedureText(row).trim().length >= 80;
+    const rowCat = normalizedEquipmentReference(row.category ?? row.equipment_category);
+    const queryCat = normalizedEquipmentReference(category);
+    if (rowCat && queryCat && !rowCat.includes("sop") && !rowCat.includes("shared") && !rowCat.includes(queryCat) && !queryCat.includes(rowCat)) {
+      return false;
+    }
+    const procedure = getProcedureText(row).trim();
+    if (procedure.length < 80) return false; // Low-information text cannot suppress Search
+    return symptomMatchesProcedure(procedure, String(row.symptom ?? row.title ?? ""), symptomText, category, errorCode);
   });
+}
+function verifyInternalCitation(
+  structured: AnyRecord,
+  kbRows: AnyRecord[],
+  brand: string,
+  model: string,
+  symptom: string
+): { verified: boolean; sourceKind: "company_sop" | "approved_lesson" | "none"; matchedRow?: AnyRecord } {
+  const label = textValue(structured.source_label, 40);
+  if (label !== "internal_manual") {
+    return { verified: false, sourceKind: "none" };
+  }
+  const desiredBrand = normalizedEquipmentReference(brand);
+  const desiredModel = normalizedEquipmentReference(model);
+
+  const matched = kbRows.find((row) => {
+    if (row.company_manual_source !== true && row.shared_learning_source !== true) return false;
+    if (!row.id) return false;
+    const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
+    const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
+    if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
+    if (desiredModel && rowModel && rowModel !== desiredModel) return false;
+    const proc = getProcedureText(row).trim();
+    return proc.length >= 40 && symptomMatchesProcedure(proc, String(row.symptom ?? ""), symptom, "");
+  });
+
+  if (!matched) {
+    return { verified: false, sourceKind: "none" };
+  }
+  return {
+    verified: true,
+    sourceKind: matched.company_manual_source === true ? "company_sop" : "approved_lesson",
+    matchedRow: matched,
+  };
 }
 
 function boundedPositiveLimit(name: string, fallback: number): number {
@@ -2428,7 +2531,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       companyManualRows = getRows(data).map((r: AnyRecord) => ({
         id:r.id,title:r.title,document_title:r.title,source_url:r.source_url,file_name:r.title,
         page_number:r.page_number,page_start:r.page_start,page_end:r.page_end,rank:r.rank,retrieval_method:r.retrieval_method,
-        industry_key:r.industry_key,category:"Company manual / SOP",content_text:r.content_text,procedure_text:r.content_text,company_manual_source:true,
+        industry_key:r.industry_key,category:r.equipment_category || "Company manual / SOP",
+        brand: r.manufacturer_normalized || r.brand || r.manufacturer || "",
+        model_family: r.model_normalized || r.model_family || r.model || "",
+        content_text:r.content_text,procedure_text:r.content_text,company_manual_source:true,
       }));
       kbRows = [...companyManualRows, ...kbRows];
     } catch (error) { console.warn("Company document retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
@@ -2446,7 +2552,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
   // answer prompt, citations or later learning. Unspecified metadata is still
   // eligible for clarifying/general guidance, never automatic Search avoidance.
   kbRows = kbRows.filter((row) => referenceMatchesEquipment(row, brand, model));
-  const firstPassInternalOnly = preferVerifiedInternalOnly(kbRows, brand, model);
+  const firstPassInternalOnly = preferVerifiedInternalOnly(kbRows, brand, model, symptom || query || latestCustomerMessage, category, textValue(context.errorCode ?? context.error_code, 40));
   let modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);
   const procedures = kbRows.map((row, index) => {
     const procedureText = getProcedureText(row);
@@ -2837,9 +2943,13 @@ MANDATORY DIAGNOSTIC ORDER:
   // Dedicated model identification and explicit escalation actions remain separate flows.
   const needsSourceGroundedAnswer = Boolean(category) &&
     action !== "model_triage" && action !== "escalate";
+  const internalCitation = verifyInternalCitation(structured, kbRows, brand, model, symptom || query || latestCustomerMessage);
   const internalProcedureIsUsable = isWaterQualityCase
-    ? (relevantWaterQualityProcedurePresent && structuredSourceLabel === "internal_manual")
-    : (structuredSourceLabel === "internal_manual" && procedureTextPresent);
+    ? (relevantWaterQualityProcedurePresent && (internalCitation.verified || structuredSourceLabel === "internal_manual"))
+    : internalCitation.verified;
+  if (internalCitation.verified) {
+    sourceMode = internalCitation.sourceKind;
+  }
   const initialAlgaePlanComplete = !isConfirmedAlgaeCase ||
     (generatedResponseType === "water_quality_plan" && hasCompleteAlgaeTreatmentPlan(aiReply));
   let initialHasEvidence = internalProcedureIsUsable || (structuredSourceLabel === "manufacturer_web" && webSources.length > 0);
@@ -3076,8 +3186,12 @@ MANDATORY DIAGNOSTIC ORDER:
         exact_verified_internal_candidate: firstPassInternalOnly,
         initial_search_tool_available: !firstPassInternalOnly,
         fallback_search_attempted: forcedWebSearchAttempted,
+        search_queries_attempted: (!firstPassInternalOnly ? 1 : 0) + (forcedWebSearchAttempted ? 1 : 0),
         source_verified: sourceVerifiedAnswer,
+        kb_answer_verified: sourceVerifiedAnswer && (sourceMode === "company_sop" || sourceMode === "approved_lesson" || sourceMode === "manual"),
+        web_research_invoked: forcedWebSearchAttempted || (!firstPassInternalOnly && sourceMode === "web"),
         final_source: sourceMode,
+        tenant_isolated: Boolean(groundingCompanyId),
       }
     });
     if (routeEventError) console.warn("Diagnostic source-route metering unavailable", { code: routeEventError.code });

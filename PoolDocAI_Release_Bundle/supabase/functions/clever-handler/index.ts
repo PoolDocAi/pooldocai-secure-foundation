@@ -751,6 +751,136 @@ function selectDiagnosticModel(action: string, query: string): string {
   return "gemini-2.5-flash";
 }
 
+// Internal-reference routing is deliberately conservative: an approved lesson or
+// tenant-private manual must match the confirmed make, exact model, AND relevant symptom/code
+// to suppress the initial paid Search tool. Unrelated symptoms, hazards, or unknown models retain web research.
+function normalizedEquipmentReference(value: unknown): string {
+  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function extractDiagnosticTokens(text: string): string[] {
+  return String(text ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !["the", "and", "for", "with", "from", "this", "that", "pool", "equipment", "does", "not"].includes(t));
+}
+function symptomMatchesProcedure(
+  procedureText: string,
+  rowSymptom: string,
+  userSymptom: string,
+  category: string,
+  errorCode = ""
+): boolean {
+  const combinedSource = `${String(procedureText ?? "")} ${String(rowSymptom ?? "")}`.toLowerCase();
+
+  // If a specific error code is reported, internal source must mention it as a distinct code/word
+  if (errorCode && errorCode.trim().length >= 2) {
+    const cleanCode = errorCode.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (cleanCode.length >= 2) {
+      const codeRegex = new RegExp(`\\b${cleanCode}\\b`, "i");
+      if (!codeRegex.test(combinedSource)) return false;
+    }
+  }
+
+  const queryTokens = extractDiagnosticTokens(userSymptom);
+  if (queryTokens.length === 0) return true; // Generic intake query without specific symptom keywords
+
+  // Distinct symptom clusters: an unrelated fix on the same model must NOT qualify
+  const isSilentNoStart = /\b(silent|won'?t start|not starting|no power|dead|dark display|no light|trips? breaker)\b/i.test(userSymptom);
+  const isLeak = /\b(leak|leaking|drip|dripping|puddle|water loss)\b/i.test(userSymptom);
+  const isPressure = /\b(high pressure|low pressure|psi|gauge|clean filter)\b/i.test(userSymptom);
+  const isWaterQuality = /\b(green|cloudy|algae|chlorine|ph|cya|balance|shock)\b/i.test(userSymptom);
+
+  if (isSilentNoStart && !/\b(power|voltage|breaker|silent|start|run|display|fuse|supply|switch|motor|wiring)\b/i.test(combinedSource)) {
+    return false;
+  }
+  if (isLeak && !/\b(leak|seal|o-ring|gasket|crack|fitting|drain|pipe|shaft seal)\b/i.test(combinedSource)) {
+    return false;
+  }
+  if (isPressure && !/\b(pressure|gauge|psi|filter|backwash|flow|clean)\b/i.test(combinedSource)) {
+    return false;
+  }
+  if (isWaterQuality && !/\b(chlorine|water|algae|ph|cya|clar|dose|test|shock)\b/i.test(combinedSource)) {
+    return false;
+  }
+
+  // At least one material diagnostic token must overlap as a whole word
+  return queryTokens.some((token) => new RegExp(`\\b${token}\\b`, "i").test(combinedSource));
+}
+function referenceMatchesEquipment(row: AnyRecord, brand: string, model: string): boolean {
+  const desiredBrand = normalizedEquipmentReference(brand);
+  const desiredModel = normalizedEquipmentReference(model);
+  const sourceBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
+  const sourceModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
+  // A populated but conflicting make/model may NEVER be used to support this case.
+  return (!sourceBrand || !desiredBrand || sourceBrand === desiredBrand) &&
+    (!sourceModel || !desiredModel || sourceModel === desiredModel);
+}
+function preferVerifiedInternalOnly(
+  rows: AnyRecord[],
+  brand: string,
+  model: string,
+  symptomText = "",
+  category = "",
+  errorCode = ""
+): boolean {
+  const desiredBrand = normalizedEquipmentReference(brand);
+  const desiredModel = normalizedEquipmentReference(model);
+  if (!desiredBrand || !desiredModel) return false; // Unknown nameplate: keep Search available.
+
+  // Real pool hazards must never suppress external verification or required caution
+  if (isCriticalPoolHazardText(symptomText)) return false;
+
+  return rows.some((row) => {
+    if (row.company_manual_source !== true && row.shared_learning_source !== true) return false;
+    if (!row.id || typeof row.id !== "string") return false; // Server-confirmed evidence ID required
+    if (normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized) !== desiredBrand) return false;
+    if (normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model) !== desiredModel) return false;
+    const rowCat = normalizedEquipmentReference(row.category ?? row.equipment_category);
+    const queryCat = normalizedEquipmentReference(category);
+    if (rowCat && queryCat && !rowCat.includes("sop") && !rowCat.includes("shared") && !rowCat.includes(queryCat) && !queryCat.includes(rowCat)) {
+      return false;
+    }
+    const procedure = getProcedureText(row).trim();
+    if (procedure.length < 80) return false; // Low-information text cannot suppress Search
+    return symptomMatchesProcedure(procedure, String(row.symptom ?? row.title ?? ""), symptomText, category, errorCode);
+  });
+}
+function verifyInternalCitation(
+  structured: AnyRecord,
+  kbRows: AnyRecord[],
+  brand: string,
+  model: string,
+  symptom: string
+): { verified: boolean; sourceKind: "company_sop" | "approved_lesson" | "none"; matchedRow?: AnyRecord } {
+  const label = textValue(structured.source_label, 40);
+  if (label !== "internal_manual") {
+    return { verified: false, sourceKind: "none" };
+  }
+  const desiredBrand = normalizedEquipmentReference(brand);
+  const desiredModel = normalizedEquipmentReference(model);
+
+  const matched = kbRows.find((row) => {
+    if (row.company_manual_source !== true && row.shared_learning_source !== true) return false;
+    if (!row.id) return false;
+    const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
+    const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
+    if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
+    if (desiredModel && rowModel && rowModel !== desiredModel) return false;
+    const proc = getProcedureText(row).trim();
+    return proc.length >= 40 && symptomMatchesProcedure(proc, String(row.symptom ?? ""), symptom, "");
+  });
+
+  if (!matched) {
+    return { verified: false, sourceKind: "none" };
+  }
+  return {
+    verified: true,
+    sourceKind: matched.company_manual_source === true ? "company_sop" : "approved_lesson",
+    matchedRow: matched,
+  };
+}
+
 function boundedPositiveLimit(name: string, fallback: number): number {
   const configured = Number(Deno.env.get(name));
   return Number.isSafeInteger(configured) && configured > 0 ? Math.min(configured, 1_000_000) : fallback;
@@ -1621,7 +1751,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
           return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
         }
       }
-      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,case_learning_opt_in,learning_permission_granted,legal_terms_version").eq("id", item.case_id).maybeSingle();
+      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,resolution_summary_redacted,technician_verified,case_learning_opt_in,learning_permission_granted,legal_terms_version").eq("id", item.case_id).maybeSingle();
       const isPublicDemoCase = item.tenant_id === null;
       const hasCaseConsent = Boolean(
         caseRow?.case_learning_opt_in === true ||
@@ -1634,6 +1764,13 @@ function isCriticalPoolHazardText(rawText: string): boolean {
             : "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.",
           code: "CASE_LEARNING_OPT_IN_REQUIRED"
         }, 403);
+      }
+      // Saving field notes does not establish a successful repair. A technician
+      // learning candidate must have a resolved outcome AND an actual finding;
+      // a platform review cannot elevate an open/unresolved job to fact.
+      if (item.source_kind === "technician_job" &&
+          (caseRow?.technician_verified !== true || !textValue(caseRow?.resolution_summary_redacted, 1200))) {
+        return jsonResponse({ error: "Only a resolved technician case with a recorded outcome can become shared repair knowledge.", code: "VERIFIED_REPAIR_REQUIRED" }, 403);
       }
       const lesson = (editedLesson || scrubPII(String(item.proposed_lesson_redacted || ""))).slice(0,4000);
       const chemicalRisk = /\b(muriatic acid|cal[- ]?hypo|trichlor|sodium bicarbonate|chlorine dose|chemical dosing|acid dose|ppm dose|lsi|saturation index)\b/i.test(lesson);
@@ -1943,7 +2080,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       related_case_id: validatedRelatedCaseId,
       voice_transcribed: body.voiceTranscribed === true,
       source: textValue(body.source, 40) === "troubleshooter" ? "troubleshooter" : "technician_manual",
-      technician_verified: true,
+      // A saved note is not a confirmed successful repair. Only explicit
+      // resolved outcomes with a recorded finding may support future learning.
+      technician_verified: textValue(body.outcome, 40) === "resolved" &&
+        Boolean(resolution.trim() || repairSteps.some((step) => step.result.trim())),
       approved_for_learning: false,
       client_job_id: clientJobId || null,
     };
@@ -1974,7 +2114,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         tenant_id: authenticatedCompanyId, case_status: row.case_status, equipment_category: row.equipment_category,
         manufacturer_normalized: row.manufacturer_normalized, model_normalized: row.model_normalized,
         symptom_redacted: caseIssue, resolution_summary_redacted: caseResolution || null,
-        source_ids: [data.id], technician_verified: true, approved_for_learning: false
+        source_ids: [data.id], technician_verified: row.technician_verified, approved_for_learning: false
       }).select("id").single();
       let stepLinked = false;
       if (validatedRelatedCaseId) {
@@ -2015,12 +2155,19 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       if (!learningCaseError && learningCase) {
         const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
         await supabase.from("diagnostic_case_steps").insert({ case_id: learningCase.id, step_number: 1, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician job submitted", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
-        const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
-        const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
-        if (queueError) console.error("Technician job learning queue failed", { code: queueError.code, jobId: data.id });
-        else if (!row.related_case_id) await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
+        if (row.technician_verified) {
+          // Only successful, outcome-supported repairs enter the human review
+          // queue. The case itself stays company-private until explicit case
+          // and company sharing consent plus platform approval are verified.
+          const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
+          const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
+          if (queueError) console.error("Technician job learning queue failed", { code: queueError.code, jobId: data.id });
+        }
+        if (!row.related_case_id) await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
       } else { console.error("Technician job learning case failed", { code: learningCaseError?.code, jobId: data.id }); }
-      return jsonResponse({ ok: true, job: data, message: "Technician job notes saved and submitted for learning-loop review." }, 200);
+      return jsonResponse({ ok: true, job: data, message: row.technician_verified
+        ? "Technician job notes saved; a verified repair candidate is awaiting review and all required sharing approvals."
+        : "Technician job notes saved privately. This case is not a verified completed repair." }, 200);
     } catch {
       return jsonResponse({ error: "Could not save the job record. Please retry.", code: "JOB_SAVE_FAILED" }, 500);
     }
@@ -2384,7 +2531,10 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       companyManualRows = getRows(data).map((r: AnyRecord) => ({
         id:r.id,title:r.title,document_title:r.title,source_url:r.source_url,file_name:r.title,
         page_number:r.page_number,page_start:r.page_start,page_end:r.page_end,rank:r.rank,retrieval_method:r.retrieval_method,
-        industry_key:r.industry_key,category:"Company manual / SOP",content_text:r.content_text,procedure_text:r.content_text,company_manual_source:true,
+        industry_key:r.industry_key,category:r.equipment_category || "Company manual / SOP",
+        brand: r.manufacturer_normalized || r.brand || r.manufacturer || "",
+        model_family: r.model_normalized || r.model_family || r.model || "",
+        content_text:r.content_text,procedure_text:r.content_text,company_manual_source:true,
       }));
       kbRows = [...companyManualRows, ...kbRows];
     } catch (error) { console.warn("Company document retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
@@ -2398,6 +2548,11 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     }
   } catch (error) { console.warn("Approved shared-learning retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
 
+  // Prevent a high-ranking result for another make/model from contaminating the
+  // answer prompt, citations or later learning. Unspecified metadata is still
+  // eligible for clarifying/general guidance, never automatic Search avoidance.
+  kbRows = kbRows.filter((row) => referenceMatchesEquipment(row, brand, model));
+  const firstPassInternalOnly = preferVerifiedInternalOnly(kbRows, brand, model, symptom || query || latestCustomerMessage, category, textValue(context.errorCode ?? context.error_code, 40));
   let modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);
   const procedures = kbRows.map((row, index) => {
     const procedureText = getProcedureText(row);
@@ -2681,8 +2836,13 @@ MANDATORY DIAGNOSTIC ORDER:
     try {
       // Reserve a bounded grounding slot before making a Search-enabled provider request.
       const selectedModel = selectDiagnosticModel(action, query);
-      groundingReservationId = await reserveGroundingBudget(supabase, groundingCompanyId, selectedModel);
-      if (!groundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
+      // When the trusted internal match is exact, ask the model to apply ONLY that
+      // supplied evidence first. If insufficient, the existing forced Search
+      // fallback still reserves its own budget and uses authoritative sources.
+      if (!firstPassInternalOnly) {
+        groundingReservationId = await reserveGroundingBudget(supabase, groundingCompanyId, selectedModel);
+        if (!groundingReservationId) throw new Error("Live source search is temporarily unavailable because its safety budget is unavailable or exhausted.");
+      }
       const geminiRes = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
         method: "POST",
         headers: {
@@ -2693,7 +2853,7 @@ MANDATORY DIAGNOSTIC ORDER:
           model: selectedModel,
           input: interactionInput,
           system_instruction: systemPrompt,
-          tools: [{ type: "google_search" }],
+          tools: firstPassInternalOnly ? [] : [{ type: "google_search" }],
           response_format: DIAGNOSTIC_RESPONSE_FORMAT,
           generation_config: { max_output_tokens: 1400, thinking_level: "low" },
           store: false,
@@ -2783,9 +2943,13 @@ MANDATORY DIAGNOSTIC ORDER:
   // Dedicated model identification and explicit escalation actions remain separate flows.
   const needsSourceGroundedAnswer = Boolean(category) &&
     action !== "model_triage" && action !== "escalate";
+  const internalCitation = verifyInternalCitation(structured, kbRows, brand, model, symptom || query || latestCustomerMessage);
   const internalProcedureIsUsable = isWaterQualityCase
-    ? (relevantWaterQualityProcedurePresent && structuredSourceLabel === "internal_manual")
-    : (structuredSourceLabel === "internal_manual" && procedureTextPresent);
+    ? (relevantWaterQualityProcedurePresent && (internalCitation.verified || structuredSourceLabel === "internal_manual"))
+    : internalCitation.verified;
+  if (internalCitation.verified) {
+    sourceMode = internalCitation.sourceKind;
+  }
   const initialAlgaePlanComplete = !isConfirmedAlgaeCase ||
     (generatedResponseType === "water_quality_plan" && hasCompleteAlgaeTreatmentPlan(aiReply));
   let initialHasEvidence = internalProcedureIsUsable || (structuredSourceLabel === "manufacturer_web" && webSources.length > 0);
@@ -2997,6 +3161,7 @@ MANDATORY DIAGNOSTIC ORDER:
     fullRowFetchRowCount,
     procedureTextPresent,
     relevantWaterQualityProcedurePresent,
+    firstPassInternalOnly,
     forcedWebSearchAttempted,
     sourceVerifiedAnswer,
     initialTriageComplete,
@@ -3008,6 +3173,31 @@ MANDATORY DIAGNOSTIC ORDER:
     fullRowFetchFailed: Boolean(fullRowFetchError),
   };
   console.info("PoolDocAI knowledge diagnostics:", knowledgeDiagnostics);
+  // Non-content telemetry lets the owner measure Search avoidance and average
+  // cost per case cohort without storing customer messages or private SOP text.
+  try {
+    const { error: routeEventError } = await supabase.from("platform_usage_events").insert({
+      company_id: groundingCompanyId, user_id: groundingUserId,
+      event_type: "diagnostic_source_route", units: 1,
+      metric_type: "diagnostic_source_route", quantity: 1, quantity_unit: "diagnostic_turn",
+      cost_source: "not_priced", period_start: utcMonthStartDate(),
+      source_event_key: crypto.randomUUID(),
+      metadata: {
+        exact_verified_internal_candidate: firstPassInternalOnly,
+        initial_search_tool_available: !firstPassInternalOnly,
+        fallback_search_attempted: forcedWebSearchAttempted,
+        search_queries_attempted: (!firstPassInternalOnly ? 1 : 0) + (forcedWebSearchAttempted ? 1 : 0),
+        source_verified: sourceVerifiedAnswer,
+        kb_answer_verified: sourceVerifiedAnswer && (sourceMode === "company_sop" || sourceMode === "approved_lesson" || sourceMode === "manual"),
+        web_research_invoked: forcedWebSearchAttempted || (!firstPassInternalOnly && sourceMode === "web"),
+        final_source: sourceMode,
+        tenant_isolated: Boolean(groundingCompanyId),
+      }
+    });
+    if (routeEventError) console.warn("Diagnostic source-route metering unavailable", { code: routeEventError.code });
+  } catch (error) {
+    console.warn("Diagnostic source-route metering unavailable", { kind: error instanceof Error ? error.name : "unknown" });
+  }
 
   return jsonResponse({
     status: fallbackIsTriage ? "triage" : degraded ? "fallback" : "success",
