@@ -18,7 +18,7 @@ function stripTs(code) {
     .replace(/:\s*number\b/g, "")
     .replace(/:\s*Record<[^>]+>/g, "")
     .replace(/:\s*any\b/g, "")
-    .replace(/\bas\s+[^;,\n)]+/g, "");
+    .replace(/\bas\s+(?:string|number|boolean|any|unknown|AnyRecord|\{[^}]+\})/g, "");
 }
 
 const reviewMatch = handlerSource.match(/if\s*\(\["review_learning_case",\s*"list_learning_review_queue"\]\.includes\(action\)\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Technician job records/);
@@ -81,42 +81,77 @@ function createHarness() {
         if (!item) return { error: { message: `Review queue item ${params.p_queue_id} not found` } };
         if (item.status !== "pending") return { error: { message: `Review item is not pending (status: ${item.status})` } };
 
-        const caseRow = store.diagnostic_cases.get(item.case_id);
-        if (!caseRow) return { error: { message: `Diagnostic case ${item.case_id} not found` } };
-
-        if (caseRow.tenant_id) {
-          if (!caseRow.case_learning_opt_in) return { error: { message: "Case-level learning consent was not granted or was withdrawn" } };
-          if (!caseRow.learning_terms_version && !caseRow.legal_terms_version) {
-            return { error: { message: "Verified contributor terms acceptance is required for case learning approval" } };
-          }
-          const comp = store.companies.get(caseRow.tenant_id);
-          if (!comp || !comp.diagnostic_learning_opt_in) return { error: { message: "Governing company diagnostic learning opt-in is required" } };
-        } else {
-          // Public demo consent check
-          const hasCaseConsent = Boolean(caseRow.case_learning_opt_in || (caseRow.learning_permission_granted && (caseRow.legal_terms_version || caseRow.learning_terms_version)));
-          if (!hasCaseConsent) return { error: { message: "Public demo case-level learning consent was not granted or was withdrawn" } };
+        // P0-3: Public demo visitor-reported answers are unverified customer feedback signals
+        if (item.source_kind === "public_demo") {
+          return { error: { message: "Public demo visitor-reported answers cannot be published as verified shared repair knowledge" } };
         }
 
-        // Verified repair requirement: Chatbot turns or field notes without confirmed outcome cannot be approved
-        if (["technician_job", "authenticated_troubleshooter"].includes(item.source_kind)) {
-          if (!caseRow.technician_verified || !String(caseRow.resolution_summary_redacted || "").trim()) {
-            return { error: { message: "Only a resolved technician-verified case with a recorded outcome can become shared repair knowledge" } };
+        let equipmentCategory = null;
+        let manufacturerNormalized = null;
+        let modelNormalized = null;
+
+        // P0-4: Company manual provenance metadata & cross-tenant opt-in guard
+        if (item.source_kind === "company_manual") {
+          const manualId = (item.supporting_source_ids || []).find(x => !String(x).includes("#chunk-"));
+          const manual = store.company_manuals.get(manualId);
+          if (!manual || manual.company_id !== item.tenant_id) {
+            return { error: { message: `Source company manual ${manualId} not found or does not belong to tenant ${item.tenant_id}` } };
           }
+          if (!manual.shared_learning_opt_in) {
+            return { error: { message: "Source company manual opt-in consent is missing or revoked" } };
+          }
+          const comp = store.companies.get(item.tenant_id);
+          if (!comp || !comp.diagnostic_learning_opt_in) {
+            return { error: { message: "Governing company diagnostic learning opt-in is required" } };
+          }
+          equipmentCategory = manual.equipment_category || "manual";
+          manufacturerNormalized = manual.manufacturer_normalized || null;
+          modelNormalized = manual.model_normalized || null;
+        } else if (item.case_id) {
+          const caseRow = store.diagnostic_cases.get(item.case_id);
+          if (!caseRow) return { error: { message: `Diagnostic case ${item.case_id} not found` } };
+
+          if (caseRow.tenant_id) {
+            if (!caseRow.case_learning_opt_in) return { error: { message: "Case-level learning consent was not granted or was withdrawn" } };
+            if (!caseRow.learning_terms_version && !caseRow.legal_terms_version) {
+              return { error: { message: "Verified contributor terms acceptance is required for case learning approval" } };
+            }
+            const comp = store.companies.get(caseRow.tenant_id);
+            if (!comp || !comp.diagnostic_learning_opt_in) return { error: { message: "Governing company diagnostic learning opt-in is required" } };
+          }
+
+          // Verified repair requirement
+          if (["technician_job", "authenticated_troubleshooter"].includes(item.source_kind)) {
+            if (!caseRow.technician_verified || !String(caseRow.resolution_summary_redacted || "").trim()) {
+              return { error: { message: "Only a resolved technician-verified case with a recorded outcome can become shared repair knowledge" } };
+            }
+          }
+
+          equipmentCategory = caseRow.equipment_category || null;
+          manufacturerNormalized = caseRow.manufacturer_normalized || null;
+          modelNormalized = caseRow.model_normalized || null;
         }
 
-        // Publish to shared knowledge
+        // Publish to shared knowledge with exact metadata provenance
         store.shared_learning_knowledge.set(item.id, {
           source_case_id: item.case_id,
           source_queue_id: item.id,
           source_company_id: item.tenant_id,
           source_kind: item.source_kind,
+          equipment_category: equipmentCategory,
+          manufacturer_normalized: manufacturerNormalized,
+          model_normalized: modelNormalized,
           lesson_redacted: params.p_lesson,
           approved_by: params.p_reviewed_by
         });
 
-        // Update case and queue
-        caseRow.approved_for_learning = true;
-        caseRow.privacy_reviewed_at = new Date().toISOString();
+        if (item.case_id) {
+          const caseRow = store.diagnostic_cases.get(item.case_id);
+          if (caseRow) {
+            caseRow.approved_for_learning = true;
+            caseRow.privacy_reviewed_at = new Date().toISOString();
+          }
+        }
         item.status = "approved";
         item.reviewed_by = params.p_reviewed_by;
         item.reviewed_at = new Date().toISOString();
@@ -128,7 +163,16 @@ function createHarness() {
           action: "approved"
         });
 
-        return { data: { ok: true, status: "approved" }, error: null };
+        return {
+          data: {
+            ok: true,
+            status: "approved",
+            equipment_category: equipmentCategory,
+            manufacturer_normalized: manufacturerNormalized,
+            model_normalized: modelNormalized
+          },
+          error: null
+        };
       }
       throw new Error(`Unexpected RPC: ${funcName}`);
     },
@@ -558,11 +602,10 @@ async function runLearningConsentTests() {
       authenticatedUserId: "usr_platform_admin_1"
     });
 
-    assert.equal(resValid.status, 200);
-    assert.equal(resValid.data.status, "approved");
-    assert.equal(resValid.data.publishedToSharedRetrieval, true);
-    assert.equal(harness.store.shared_learning_knowledge.has(validPublicQueueId), true);
-    console.log("PASS: Test 2a - Legitimate public-demo case with prior consent and terms version approves successfully.");
+    assert.equal(resValid.status, 403, "Public demo approval must be rejected with 403");
+    assert.equal(resValid.data.code, "PUBLIC_DEMO_PUBLICATION_PROHIBITED");
+    assert.equal(harness.store.shared_learning_knowledge.has(validPublicQueueId), false);
+    console.log("PASS: Test 2a - Public demo case approval is strictly prohibited from shared knowledge publication (P0-3).");
 
     // 2b: Unconsented public-demo case (learning_permission_granted = false)
     const unconsentedCaseId = "case_pub_unconsented";
@@ -595,9 +638,9 @@ async function runLearningConsentTests() {
     });
 
     assert.equal(resUnconsented.status, 403);
-    assert.equal(resUnconsented.data.code, "CASE_LEARNING_OPT_IN_REQUIRED");
+    assert.equal(resUnconsented.data.code, "PUBLIC_DEMO_PUBLICATION_PROHIBITED");
     assert.equal(harness.store.shared_learning_knowledge.has(unconsentedQueueId), false);
-    console.log("PASS: Test 2b - Unconsented public-demo case fails closed with 403 CASE_LEARNING_OPT_IN_REQUIRED.");
+    console.log("PASS: Test 2b - Public-demo case is also rejected with PUBLIC_DEMO_PUBLICATION_PROHIBITED.");
   }
 
   // -------------------------------------------------------------------------
@@ -807,6 +850,186 @@ async function runLearningConsentTests() {
     assert.equal(resWithdraw.data.status, "consent_withdrawn");
     assert.equal(harness.store.diagnostic_cases.get(caseId).case_learning_opt_in, false);
     console.log("PASS: Test 5 - Explicit consent withdrawal successfully updates database records.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 6: P0-3 Public Demo Learning Approval Rejection
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const publicCaseId = "case_public_demo_test_1";
+    const publicQueueId = "queue_public_demo_test_1";
+
+    harness.store.diagnostic_cases.set(publicCaseId, {
+      id: publicCaseId,
+      tenant_id: null,
+      technician_verified: false,
+      outcome_status: "customer_reported_resolved",
+      resolution_summary_redacted: "Customer reported AI suggestion fixed their pump"
+    });
+
+    harness.store.learning_review_queue.set(publicQueueId, {
+      id: publicQueueId,
+      case_id: publicCaseId,
+      tenant_id: null,
+      source_kind: "public_demo",
+      status: "pending",
+      proposed_lesson_redacted: "Check display panel connections and reset circuit breaker."
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: {
+        authenticatedApp: true,
+        queueId: publicQueueId,
+        decision: "approve",
+        reviewNote: "Platform admin review"
+      },
+      authenticatedUserId: "usr_platform_admin_1",
+      authenticatedCompanyId: null,
+      authenticatedRole: "platform_admin"
+    });
+
+    assert.equal(res.status, 403, "Public demo approval must return 403");
+    assert.equal(res.data.code, "PUBLIC_DEMO_PUBLICATION_PROHIBITED", "Must return PUBLIC_DEMO_PUBLICATION_PROHIBITED code");
+    assert.equal(harness.store.shared_learning_knowledge.size, 0, "No public demo knowledge may be published");
+    console.log("PASS: Test 6 - P0-3 Public demo visitor-reported fix is strictly prohibited from shared knowledge publication.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 7: P0-4 Consented Company Manual Approval Populates Exact Metadata
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const manualId = "man_pentair_vsf_1";
+    const queueId = "queue_manual_pentair_1";
+
+    harness.store.company_manuals.set(manualId, {
+      id: manualId,
+      company_id: "comp_opted_in",
+      title: "Pentair IntelliFlo VSF Manual",
+      shared_learning_opt_in: true,
+      equipment_category: "pump",
+      manufacturer_normalized: "pentair",
+      model_normalized: "intelliflo_vsf"
+    });
+
+    harness.store.learning_review_queue.set(queueId, {
+      id: queueId,
+      case_id: null,
+      tenant_id: "comp_opted_in",
+      source_kind: "company_manual",
+      status: "pending",
+      proposed_lesson_redacted: "Pentair IntelliFlo VSF drive replacement and voltage verification procedure.",
+      supporting_source_ids: [manualId, `${manualId}#chunk-0`]
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: {
+        authenticatedApp: true,
+        queueId,
+        decision: "approve",
+        reviewNote: "Senior technician signoff"
+      },
+      authenticatedUserId: "usr_platform_admin_1",
+      authenticatedCompanyId: null,
+      authenticatedRole: "platform_admin"
+    });
+
+    assert.equal(res.status, 200, "Consented manual approval must return 200");
+    const published = harness.store.shared_learning_knowledge.get(queueId);
+    assert.ok(published, "Manual knowledge row must be published");
+    assert.equal(published.equipment_category, "pump", "Equipment category must be preserved from manual");
+    assert.equal(published.manufacturer_normalized, "pentair", "Manufacturer must be preserved from manual");
+    assert.equal(published.model_normalized, "intelliflo_vsf", "Model must be preserved from manual");
+    console.log("PASS: Test 7 - P0-4 Consented company manual approval populates exact non-null equipment metadata.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 8: P0-4 Manual Consent Withdrawal Blocks Publication
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const manualId = "man_revoked_1";
+    const queueId = "queue_manual_revoked_1";
+
+    harness.store.company_manuals.set(manualId, {
+      id: manualId,
+      company_id: "comp_opted_in",
+      title: "Private SOP",
+      shared_learning_opt_in: false, // Consent withdrawn!
+      equipment_category: "filter",
+      manufacturer_normalized: "hayward"
+    });
+
+    harness.store.learning_review_queue.set(queueId, {
+      id: queueId,
+      case_id: null,
+      tenant_id: "comp_opted_in",
+      source_kind: "company_manual",
+      status: "pending",
+      proposed_lesson_redacted: "Hayward filter multiport valve maintenance procedure text.",
+      supporting_source_ids: [manualId]
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: {
+        authenticatedApp: true,
+        queueId,
+        decision: "approve",
+        reviewNote: "Signoff attempt"
+      },
+      authenticatedUserId: "usr_platform_admin_1",
+      authenticatedCompanyId: null,
+      authenticatedRole: "platform_admin"
+    });
+
+    assert.equal(res.status, 403, "Withdrawn consent manual approval must return 403");
+    assert.equal(res.data.code, "SOURCE_CONSENT_REQUIRED", "Must return SOURCE_CONSENT_REQUIRED code");
+    console.log("PASS: Test 8 - P0-4 Withdrawn manual consent strictly blocks learning approval.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 9: P0-4 Cross-Tenant Manual Consent Denial Fails Closed
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const manualId = "man_tenant_b_1";
+    const queueId = "queue_cross_tenant_1";
+
+    // Manual belongs to comp_opted_out
+    harness.store.company_manuals.set(manualId, {
+      id: manualId,
+      company_id: "comp_opted_out",
+      title: "Tenant B Document",
+      shared_learning_opt_in: true,
+      equipment_category: "heater"
+    });
+
+    // Queue item belongs to comp_opted_in (Tenant A)
+    harness.store.learning_review_queue.set(queueId, {
+      id: queueId,
+      case_id: null,
+      tenant_id: "comp_opted_in", // Tenant A trying to publish Tenant B's manual!
+      source_kind: "company_manual",
+      status: "pending",
+      proposed_lesson_redacted: "Cross-tenant unauthorized manual text for review.",
+      supporting_source_ids: [manualId]
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: {
+        authenticatedApp: true,
+        queueId,
+        decision: "approve",
+        reviewNote: "Signoff"
+      },
+      authenticatedUserId: "usr_platform_admin_1",
+      authenticatedCompanyId: null,
+      authenticatedRole: "platform_admin"
+    });
+
+    assert.equal(res.status, 403, "Cross-tenant manual approval must return 403");
+    console.log("PASS: Test 9 - P0-4 Cross-tenant manual learning publication is strictly rejected.");
   }
 
   console.log("\nALL LEARNING CONSENT & FAIL-CLOSED APPROVAL TESTS PASSED.");

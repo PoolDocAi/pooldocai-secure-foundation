@@ -16,7 +16,9 @@ assert.ok(begin > 0 && end > begin, 'knowledge routing helpers must exist in the
 let helperSource = source.slice(begin, end);
 
 // Strip TS annotations for Node vm
-helperSource = helperSource.replace(/\):\s*(?:string\[\]|string|boolean|number|\{[^}]+\})\s*\{/g, ') {');
+helperSource = helperSource.replace(/\):\s*(?:Array<[^>]+>|string\[\]|string|boolean|number|\{[^}]+\})\s*\{/g, ') {');
+helperSource = helperSource.replace(/:\s*Array<[^>]+>/g, '');
+helperSource = helperSource.replace(/:\s*RegExpExecArray\s*\|\s*null/g, '');
 helperSource = helperSource.replace(/:\s*(?:AnyRecord\[\]|string\[\]|AnyRecord|string|boolean|number|unknown)(?:\s*\|\s*(?:null|undefined))*/g, '');
 helperSource = helperSource.replace(/\bas\s+[^;,\n)]+/g, '');
 
@@ -341,8 +343,99 @@ const incompleteWaterPlanResult = verifyCitation(
 );
 assert.equal(incompleteWaterPlanResult.verified, false, 'Incomplete algae plan must fail corroboration');
 
-// 12. P1 E: Executable Whole-Handler Diagnostic Simulation Test
-// Simulates the exact Edge handler routing logic showing:
+// Case I: P0-1 Negative Test: empty source_id and source_title with superficially overlapping text -> must fail verification
+const emptySourceIdResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: '',
+    source_title: '',
+    step_instructions: 'Inspect drive electronics and AC line voltage input to verify power supply.'
+  },
+  [validPentairLesson],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(emptySourceIdResult.verified, false, 'P0-1: Empty source_id and source_title must fail citation verification even with overlapping advice');
+assert.equal(emptySourceIdResult.sourceKind, 'none');
+
+// Case J: P0-1 Negative Test: missing source_id property entirely -> must fail verification
+const missingSourceIdResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_title: 'Pentair IntelliFlo VSF Troubleshooting',
+    step_instructions: 'Inspect drive electronics and AC line voltage input to verify power supply.'
+  },
+  [validPentairLesson],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(missingSourceIdResult.verified, false, 'P0-1: Missing source_id property must fail citation verification');
+
+// Case K: P0-2 Negative Test: 1 oz in source manual vs 100 gallons claimed by model -> must fail verification
+const chlorinationManualRow = {
+  id: 'kb-chlor-sop-001',
+  company_manual_source: true,
+  title: 'Liquid Chlorine Dosing SOP',
+  brand: 'Generic',
+  model_family: 'Water Care',
+  category: 'water_quality',
+  symptom: 'Low free chlorine in pool water',
+  procedure_text: 'For standard daily sanitation, add 1 oz of liquid chlorine per 1000 gallons of pool water to raise free chlorine 1 ppm. Test water before redosing.'.repeat(2)
+};
+
+const inventedLargeGallonsResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chlor-sop-001',
+    source_title: 'Liquid Chlorine Dosing SOP',
+    step_instructions: 'Add 100 gallons of liquid chlorine directly into the pool.'
+  },
+  [chlorinationManualRow],
+  'Generic',
+  'Water Care',
+  'Low free chlorine in pool water'
+);
+assert.equal(inventedLargeGallonsResult.verified, false, 'P0-2: Invented 100 gallons vs 1 oz manual dose must fail quantitative corroboration');
+
+// Case L: P0-2 Negative Test: 3 ppm target in procedure vs 30 ppm claimed by model -> must fail verification
+const inventedPpmResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chlor-sop-001',
+    source_title: 'Liquid Chlorine Dosing SOP',
+    step_instructions: 'Raise free chlorine to 30 ppm immediately.'
+  },
+  [chlorinationManualRow],
+  'Generic',
+  'Water Care',
+  'Low free chlorine in pool water'
+);
+assert.equal(inventedPpmResult.verified, false, 'P0-2: Invented 30 ppm vs 1 ppm / 3 ppm must fail quantitative corroboration');
+
+// Case M: P0-2 Negative Test: consistent algae treatment plan + invented large chemical dose (50 lbs shock) -> must fail verification
+const algaePlanWithInventedDose = verifyCitation(
+  {
+    response_type: 'water_quality_plan',
+    source_label: 'internal_manual',
+    source_id: 'kb-sop-algae-001',
+    message: 'Algae remediation plan: 1. Add 50 lbs of shock to the pool. 2. Thoroughly brush all pool surfaces and walls twice daily. 3. Run continuous filtration and circulation, backwashing when filter pressure rises. 4. Retest free chlorine daily and redose as needed. 5. Finish criteria: clear water with zero visible algae and overnight chlorine loss under 1 ppm.',
+    step_title: 'Algae Treatment Plan'
+  },
+  [validAlgaeSOP],
+  'Generic',
+  'Water Care',
+  'Pool water is green with heavy algae bloom'
+);
+assert.equal(algaePlanWithInventedDose.verified, false, 'P0-2: Consistent algae plan with invented large dose (50 lbs) must fail corroboration');
+
+// 12. Helper + synthetic routing simulation (diagnostic routing flow)
+// Exercises production routing helpers in a synthetic diagnostic routing sequence showing:
 // 1) Positive internal-only answer runs with Gemini Search tools: [] (Search tool is OFF)
 // 2) Forced fallback search is NOT invoked
 // 3) No ReferenceError occurs
@@ -469,4 +562,4 @@ assert.match(spec, /subscription prices are not automatically reduced as interna
 assert.match(criteria, /approved public subscription prices remain in force/i);
 assert.match(criteria, /raise (?:\*\*)?gross\/contribution margin(?:\*\*)?, not reduce prices/i);
 
-console.log('PASS: all Part-3 knowledge-first routing, schema-conforming corroboration, whole-handler simulation, and price invariants succeeded.');
+console.log('PASS: all Part-4 knowledge-first routing, mandatory cited source ID, dosage corroboration, synthetic routing simulation, and price invariants succeeded.');

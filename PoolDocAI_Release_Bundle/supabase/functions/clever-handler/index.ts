@@ -930,26 +930,61 @@ function preferVerifiedInternalOnly(
   });
 }
 
+function extractQuantitativeMeasures(text: string): Array<{ amount: number; unit: string }> {
+  const measures: Array<{ amount: number; unit: string }> = [];
+  const regex = /\b(\d+(?:\.\d+)?)\s*(fl\.?\s*oz|fluid\s*ounces?|ounces?|oz|pounds?|lbs?|gallons?|gal|quarts?|qts?|qt|cups?|pints?|pts?|pt|tablets?|tabs?|tab|ppm|mg\/l)\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const rawAmount = parseFloat(match[1]);
+    if (!Number.isFinite(rawAmount)) continue;
+    let unit = match[2].toLowerCase().replace(/\./g, "").trim();
+    if (["fl oz", "fluid ounce", "fluid ounces", "ounce", "ounces", "oz"].includes(unit)) unit = "oz";
+    else if (["pound", "pounds", "lb", "lbs"].includes(unit)) unit = "lbs";
+    else if (["gallon", "gallons", "gal"].includes(unit)) unit = "gal";
+    else if (["quart", "quarts", "qt", "qts"].includes(unit)) unit = "qt";
+    else if (["pint", "pints", "pt", "pts"].includes(unit)) unit = "pt";
+    else if (["cup", "cups"].includes(unit)) unit = "cup";
+    else if (["tablet", "tablets", "tab", "tabs"].includes(unit)) unit = "tab";
+    else if (["ppm", "mg/l"].includes(unit)) unit = "ppm";
+    measures.push({ amount: rawAmount, unit });
+  }
+  return measures;
+}
+
 function hasUngroundedChemicalDosing(instructionText: string, procText: string): boolean {
   const lowerInstruction = instructionText.toLowerCase();
   const lowerProc = procText.toLowerCase();
   const chemicalTerms = [
     "muriatic acid", "cal-hypo", "calcium hypochlorite", "liquid chlorine",
     "sodium bisulfate", "trichlor", "dichlor", "soda ash", "sodium bicarbonate",
-    "calcium chloride", "cyanuric acid", "algaecide"
+    "calcium chloride", "cyanuric acid", "algaecide", "chlorine", "acid", "shock"
   ];
   for (const chem of chemicalTerms) {
     if (lowerInstruction.includes(chem) && !lowerProc.includes(chem)) {
       return true;
     }
   }
-  const dosePattern = /\b(?:add|dose|pour)\s+\d+(?:\.\d+)?\s*(?:oz|ounces|lbs|pounds|gal|gallons|quarts|cups|ppm)\b/i;
-  if (dosePattern.test(lowerInstruction)) {
-    const hasDoseInProc = /\b(?:oz|ounces|lbs|pounds|gal|gallons|quarts|cups|ppm|dose|dosing)\b/i.test(lowerProc);
-    if (!hasDoseInProc) {
-      return true;
+
+  // P0-2: Quantitative Chemical Dose Corroboration
+  // If instruction contains chemical dosing, concentration targets, or pool treatment measurements,
+  // every numeric amount and unit must be corroborated by exact matching values in the source procedure.
+  const instructionMeasures = extractQuantitativeMeasures(lowerInstruction);
+  const procMeasures = extractQuantitativeMeasures(lowerProc);
+
+  const hasChemicalContext = chemicalTerms.some((c) => lowerInstruction.includes(c)) ||
+    /\b(?:add|dose|pour|broadcast|apply|target|maintain|ppm|shock|raise|lower)\b/i.test(lowerInstruction);
+
+  if (hasChemicalContext && instructionMeasures.length > 0) {
+    for (const im of instructionMeasures) {
+      const corroborated = procMeasures.some(
+        (pm) => pm.unit === im.unit && Math.abs(pm.amount - im.amount) < 0.001
+      );
+      if (!corroborated) {
+        return true; // Quantitative dose or concentration target is ungrounded
+      }
     }
   }
+
   return false;
 }
 
@@ -990,21 +1025,47 @@ function verifyInternalCitation(
     return { verified: false, sourceKind: "none" };
   }
 
+  // P0-1: Mandatory Server-Confirmed Cited Source ID
+  // A non-empty cited evidence ID is strictly required. Empty string or missing ID fails verification.
+  const citedSourceId = textValue(structured.source_id ?? structured.sourceId, 80);
+  if (!citedSourceId) {
+    return { verified: false, sourceKind: "none" };
+  }
+
+  const citedTitle = textValue(structured.source_title ?? structured.sourceTitle, 200).toLowerCase();
+  const citedPage = structured.page_number ?? structured.page ?? structured.pageNumber;
+
   const desiredBrand = normalizedEquipmentReference(brand);
   const desiredModel = normalizedEquipmentReference(model);
-
-  const citedSourceId = textValue(structured.source_id ?? structured.sourceId, 80);
-  const citedTitle = textValue(structured.source_title ?? structured.sourceTitle, 200).toLowerCase();
 
   const matched = kbRows.find((row) => {
     if (row.company_manual_source !== true && row.shared_learning_source !== true) return false;
     if (!row.id || typeof row.id !== "string") return false;
-    if (row.shared_learning_source === true && row.approved_for_learning === false) return false;
 
-    // Conjunction Check 1: Provenance match
-    // If the model cited a specific source ID, this row MUST match that ID.
-    if (citedSourceId && row.id !== citedSourceId) return false;
-    if (!citedSourceId && citedTitle && (!row.title || !String(row.title).toLowerCase().includes(citedTitle))) return false;
+    // Strict Source ID match (P0-1)
+    if (row.id !== citedSourceId) return false;
+
+    // Active applicable tenant/source status check
+    if (row.company_manual_source === true) {
+      if (row.active === false || row.status === "quarantined" || row.reference_enabled === false) return false;
+    }
+    if (row.shared_learning_source === true) {
+      if (row.approved_for_learning === false || row.publication_status === "revoked") return false;
+    }
+
+    // Title match if cited title is provided
+    if (citedTitle && row.title && !String(row.title).toLowerCase().includes(citedTitle) && !citedTitle.includes(String(row.title).toLowerCase())) {
+      return false;
+    }
+
+    // Page number match where available
+    if (citedPage != null && row.page_number != null) {
+      const numCited = Number(citedPage);
+      const numRow = Number(row.page_number);
+      if (Number.isFinite(numCited) && Number.isFinite(numRow) && numCited !== numRow) {
+        return false;
+      }
+    }
 
     // Conjunction Check 2: Equipment make & model match
     const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
@@ -1019,8 +1080,8 @@ function verifyInternalCitation(
       return false;
     }
 
-    // Conjunction Check 4: Safety & Chemical dosing corroboration
-    // Disallow chemical dosing instructions that are absent from the verified source procedure
+    // Conjunction Check 4: Safety & Quantitative Chemical dosing corroboration (P0-2)
+    // Disallow chemical dosing instructions or invented quantities absent from verified source procedure
     if (hasUngroundedChemicalDosing(instructionText, proc)) {
       return false;
     }
@@ -1867,6 +1928,14 @@ Deno.serve(async (req: Request) => {
     if (itemError || !item) return jsonResponse({ error: "Review item not found.", code: "REVIEW_ITEM_NOT_FOUND" }, 404);
     if (decision === "approve") {
       if (item.status !== "pending") return jsonResponse({ error: "Only pending items can be approved.", code: "REVIEW_ITEM_NOT_PENDING" }, 409);
+      // P0-3: Public demo visitor-reported answers are unverified customer feedback signals
+      // and cannot be published as verified shared repair knowledge.
+      if (item.source_kind === "public_demo") {
+        return jsonResponse({
+          error: "Public demo visitor-reported answers are unverified customer feedback signals and cannot be published as verified shared repair knowledge.",
+          code: "PUBLIC_DEMO_PUBLICATION_PROHIBITED"
+        }, 403);
+      }
       // Source document consent is checked again at approval time, not just at ingestion.
       if (item.source_kind === "company_manual") {
         const manualId = (item.supporting_source_ids || []).find((x: string) => !String(x).includes("#chunk-"));
@@ -1916,6 +1985,15 @@ Deno.serve(async (req: Request) => {
 
       if (rpcErr) {
         console.error("Atomic learning approval failed; publication blocked", { queueId, error: rpcErr.message });
+        if (rpcErr.message?.includes("Public demo visitor-reported answers cannot be published")) {
+          return jsonResponse({
+            error: "Public demo visitor-reported answers are unverified customer feedback signals and cannot be published as verified shared repair knowledge.",
+            code: "PUBLIC_DEMO_PUBLICATION_PROHIBITED"
+          }, 403);
+        }
+        if (rpcErr.message?.includes("Source company manual") && rpcErr.message?.includes("does not belong to tenant")) {
+          return jsonResponse({ error: "The source company manual does not belong to this tenant. Cross-tenant publication is prohibited.", code: "CROSS_TENANT_MANUAL_DENIED" }, 403);
+        }
         if (rpcErr.message?.includes("Governing company diagnostic learning opt-in is required")) {
           return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
         }

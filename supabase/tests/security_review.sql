@@ -563,3 +563,117 @@ BEGIN
   DELETE FROM public.companies WHERE id = v_test_company_id;
   DELETE FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id LIKE 'evt_ci_%';
 END $$;
+
+-- Security Review: Strict learning approval metadata, cross-tenant denial, and public_demo quarantine
+DO $$
+DECLARE
+  v_admin_id uuid := '00000000-0000-0000-0000-000000000001'::uuid;
+  v_co_a uuid := '11111111-1111-1111-1111-111111111111'::uuid;
+  v_co_b uuid := '22222222-2222-2222-2222-222222222222'::uuid;
+  v_manual_a uuid := gen_random_uuid();
+  v_manual_b uuid := gen_random_uuid();
+  v_queue_public uuid := gen_random_uuid();
+  v_queue_manual_a uuid := gen_random_uuid();
+  v_queue_cross uuid := gen_random_uuid();
+  v_queue_revoked uuid := gen_random_uuid();
+  v_case_unverified uuid := gen_random_uuid();
+  v_queue_unverified uuid := gen_random_uuid();
+  v_err_msg text;
+  v_pub_rec public.shared_learning_knowledge%ROWTYPE;
+BEGIN
+  -- 1. Setup companies
+  INSERT INTO public.companies (id, name, diagnostic_learning_opt_in)
+  VALUES
+    (v_co_a, 'Company A Test', true),
+    (v_co_b, 'Company B Test', true)
+  ON CONFLICT (id) DO UPDATE SET diagnostic_learning_opt_in = true;
+
+  -- 2. Setup manuals with equipment provenance metadata
+  INSERT INTO public.company_manuals (id, company_id, title, storage_path, shared_learning_opt_in, equipment_category, manufacturer_normalized, model_normalized)
+  VALUES
+    (v_manual_a, v_co_a, 'Pentair IntelliFlo Manual', 'test/path/a', true, 'pump', 'pentair', 'intelliflo_vsf'),
+    (v_manual_b, v_co_b, 'Hayward SuperPump Manual', 'test/path/b', true, 'pump', 'hayward', 'super_pump')
+  ON CONFLICT (id) DO NOTHING;
+
+  -- 3. TEST P0-3: public_demo approval MUST be rejected
+  INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
+  VALUES (v_queue_public, NULL, NULL, 'public_demo', 'Public demo visitor fix advice here for testing.', '{}', 'pending');
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(v_queue_public, 'Cleaned lesson', v_admin_id, 'Reviewer signoff');
+    RAISE EXCEPTION 'public_demo approval unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%Public demo visitor-reported answers cannot be published%' THEN
+      RAISE EXCEPTION 'Unexpected error message on public_demo approval: %', v_err_msg;
+    END IF;
+  END;
+
+  -- 4. TEST P0-4: Consented company_manual approval populates non-null provenance metadata
+  INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
+  VALUES (v_queue_manual_a, NULL, v_co_a, 'company_manual', 'Pentair IntelliFlo drive replacement procedure text.', ARRAY[v_manual_a::text, (v_manual_a::text || '#chunk-0')], 'pending');
+
+  PERFORM public.pooldocai_approve_learning_case(v_queue_manual_a, 'Pentair IntelliFlo drive replacement approved lesson', v_admin_id, 'Senior tech signoff');
+
+  SELECT * INTO v_pub_rec FROM public.shared_learning_knowledge WHERE source_queue_id = v_queue_manual_a;
+  IF v_pub_rec.equipment_category <> 'pump'
+     OR v_pub_rec.manufacturer_normalized <> 'pentair'
+     OR v_pub_rec.model_normalized <> 'intelliflo_vsf' THEN
+    RAISE EXCEPTION 'Consented manual publication lost equipment metadata: category=%, make=%, model=%',
+      v_pub_rec.equipment_category, v_pub_rec.manufacturer_normalized, v_pub_rec.model_normalized;
+  END IF;
+
+  -- 5. TEST P0-4: Cross-tenant manual approval MUST FAIL CLOSED
+  -- Tenant A queue item attempting to cite Tenant B manual
+  INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
+  VALUES (v_queue_cross, NULL, v_co_a, 'company_manual', 'Attempting cross-tenant manual publication.', ARRAY[v_manual_b::text, (v_manual_b::text || '#chunk-0')], 'pending');
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(v_queue_cross, 'Cross tenant lesson', v_admin_id, 'Signoff');
+    RAISE EXCEPTION 'Cross-tenant manual approval unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%not found or does not belong to tenant%' THEN
+      RAISE EXCEPTION 'Unexpected error on cross-tenant manual approval: %', v_err_msg;
+    END IF;
+  END;
+
+  -- 6. TEST P0-4: Manual consent withdrawal MUST reject approval
+  UPDATE public.company_manuals SET shared_learning_opt_in = false WHERE id = v_manual_a;
+  INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
+  VALUES (v_queue_revoked, NULL, v_co_a, 'company_manual', 'Revoked consent manual lesson.', ARRAY[v_manual_a::text], 'pending');
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(v_queue_revoked, 'Revoked lesson', v_admin_id, 'Signoff');
+    RAISE EXCEPTION 'Revoked manual approval unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%Source company manual opt-in consent is missing or revoked%' THEN
+      RAISE EXCEPTION 'Unexpected error on revoked manual approval: %', v_err_msg;
+    END IF;
+  END;
+
+  -- 7. TEST P0: Unverified technician case MUST be rejected
+  INSERT INTO public.diagnostic_cases (id, tenant_id, technician_verified, case_learning_opt_in, learning_terms_version, equipment_category, resolution_summary_redacted)
+  VALUES (v_case_unverified, v_co_a, false, true, '2026-10-v1', 'pump', '');
+
+  INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
+  VALUES (v_queue_unverified, v_case_unverified, v_co_a, 'technician_job', 'Unverified technician note.', '{}', 'pending');
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(v_queue_unverified, 'Unverified lesson', v_admin_id, 'Signoff');
+    RAISE EXCEPTION 'Unverified technician case approval unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%Only a resolved technician-verified case%' THEN
+      RAISE EXCEPTION 'Unexpected error on unverified case approval: %', v_err_msg;
+    END IF;
+  END;
+
+  -- Cleanup test rows
+  DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
+  DELETE FROM public.learning_review_queue WHERE id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
+  DELETE FROM public.diagnostic_cases WHERE id = v_case_unverified;
+  DELETE FROM public.company_manuals WHERE id IN (v_manual_a, v_manual_b);
+  DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
+END $$;
