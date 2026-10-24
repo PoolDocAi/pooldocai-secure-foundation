@@ -100,6 +100,20 @@ console.log('\n[Test 8] Verifying Tech-First Hero Hierarchy...');
 });
 console.log('  PASS: Homepage hero reflects Tech-First value and availability hierarchy.');
 
+
+ // 9. Validate the hero card opener structure across shared HTML routes.
+ console.log('\n[Test 9] Verifying Hero Card DOM Structure Across Routes...');
+ const heroCardOpen = '<div class="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5">';
+ for (const page of ['index.html','demo.html','how-it-works.html','pricing.html','faq.html','waitlist.html','app.html']) {
+   const html = fs.readFileSync(path.join(repoRoot, 'website', page), 'utf8');
+   const heroLines = html.split(/\r?\n/);
+   for (let i = 1; i < heroLines.length; i++) {
+     assert.ok(!(heroLines[i].trim() === heroCardOpen && heroLines[i-1].trim() === heroCardOpen),
+       page + ': duplicate consecutive hero-card opening elements create malformed nested layout');
+   }
+ }
+ console.log('  PASS: Shared hero markup has no consecutive duplicate card openings.');
+
 console.log('\n====================================================================');
 console.log('ALL TASK-003 OWNER COPY & FULL EXPERIENCE TESTS PASSED!');
 console.log('====================================================================');
