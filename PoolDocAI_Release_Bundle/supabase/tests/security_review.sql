@@ -581,6 +581,11 @@ DECLARE
   v_err_msg text;
   v_pub_rec public.shared_learning_knowledge%ROWTYPE;
 BEGIN
+  -- 0. Setup admin user for rights attestation and learning approval
+  INSERT INTO auth.users (id, email, aud, role)
+  VALUES (v_admin_id, 'ci-admin@example.com', 'authenticated', 'authenticated')
+  ON CONFLICT (id) DO NOTHING;
+
   -- 1. Setup companies
   INSERT INTO public.companies (id, name, diagnostic_learning_opt_in)
   VALUES
@@ -588,11 +593,16 @@ BEGIN
     (v_co_b, 'Company B Test', true)
   ON CONFLICT (id) DO UPDATE SET diagnostic_learning_opt_in = true;
 
-  -- 2. Setup manuals with equipment provenance metadata
-  INSERT INTO public.company_manuals (id, company_id, title, storage_path, shared_learning_opt_in, equipment_category, manufacturer_normalized, model_normalized)
+  -- 2. Setup manuals with equipment provenance metadata and required rights attestation
+  INSERT INTO public.company_manuals (
+    id, company_id, title, storage_path, shared_learning_opt_in,
+    equipment_category, manufacturer_normalized, model_normalized,
+    knowledge_scope, general_learning_rights_attested,
+    rights_attested_at, rights_attested_by
+  )
   VALUES
-    (v_manual_a, v_co_a, 'Pentair IntelliFlo Manual', 'test/path/a', true, 'pump', 'pentair', 'intelliflo_vsf'),
-    (v_manual_b, v_co_b, 'Hayward SuperPump Manual', 'test/path/b', true, 'pump', 'hayward', 'super_pump')
+    (v_manual_a, v_co_a, 'Pentair IntelliFlo Manual', 'test/path/a', true, 'pump', 'pentair', 'intelliflo_vsf', 'general_candidate', true, now(), v_admin_id),
+    (v_manual_b, v_co_b, 'Hayward SuperPump Manual', 'test/path/b', true, 'pump', 'hayward', 'super_pump', 'general_candidate', true, now(), v_admin_id)
   ON CONFLICT (id) DO NOTHING;
 
   -- 3. TEST P0-3: public_demo approval MUST be rejected
@@ -676,4 +686,5 @@ BEGIN
   DELETE FROM public.diagnostic_cases WHERE id = v_case_unverified;
   DELETE FROM public.company_manuals WHERE id IN (v_manual_a, v_manual_b);
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
+  DELETE FROM auth.users WHERE id = v_admin_id;
 END $$;
