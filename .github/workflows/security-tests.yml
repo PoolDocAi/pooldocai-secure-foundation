@@ -44,6 +44,9 @@ jobs:
         run: node website/tests/task003-design-tokens-and-logos.test.cjs
       - name: Test TASK-003 owner-approved copy updates and experience integration
         run: node website/tests/task003-copy-and-experience-updates.test.cjs
+      - name: Test verified knowledge-first Search avoidance, learning quality, and retained pricing
+        run: node website/tests/knowledge-first-routing.test.cjs
+
       - name: Test monthly session entitlements, technician sync, and trial RPC scope
         run: node website/tests/monthly-sessions.test.cjs
 
