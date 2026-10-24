@@ -1648,7 +1648,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
           return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
         }
       }
-      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,case_learning_opt_in,learning_permission_granted,legal_terms_version").eq("id", item.case_id).maybeSingle();
+      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,resolution_summary_redacted,technician_verified,case_learning_opt_in,learning_permission_granted,legal_terms_version").eq("id", item.case_id).maybeSingle();
       const isPublicDemoCase = item.tenant_id === null;
       const hasCaseConsent = Boolean(
         caseRow?.case_learning_opt_in === true ||
@@ -1661,6 +1661,13 @@ function isCriticalPoolHazardText(rawText: string): boolean {
             : "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.",
           code: "CASE_LEARNING_OPT_IN_REQUIRED"
         }, 403);
+      }
+      // Saving field notes does not establish a successful repair. A technician
+      // learning candidate must have a resolved outcome AND an actual finding;
+      // a platform review cannot elevate an open/unresolved job to fact.
+      if (item.source_kind === "technician_job" &&
+          (caseRow?.technician_verified !== true || !textValue(caseRow?.resolution_summary_redacted, 1200))) {
+        return jsonResponse({ error: "Only a resolved technician case with a recorded outcome can become shared repair knowledge.", code: "VERIFIED_REPAIR_REQUIRED" }, 403);
       }
       const lesson = (editedLesson || scrubPII(String(item.proposed_lesson_redacted || ""))).slice(0,4000);
       const chemicalRisk = /\b(muriatic acid|cal[- ]?hypo|trichlor|sodium bicarbonate|chlorine dose|chemical dosing|acid dose|ppm dose|lsi|saturation index)\b/i.test(lesson);
@@ -2045,12 +2052,19 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       if (!learningCaseError && learningCase) {
         const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
         await supabase.from("diagnostic_case_steps").insert({ case_id: learningCase.id, step_number: 1, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician job submitted", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
-        const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
-        const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
-        if (queueError) console.error("Technician job learning queue failed", { code: queueError.code, jobId: data.id });
-        else if (!row.related_case_id) await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
+        if (row.technician_verified) {
+          // Only successful, outcome-supported repairs enter the human review
+          // queue. The case itself stays company-private until explicit case
+          // and company sharing consent plus platform approval are verified.
+          const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
+          const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
+          if (queueError) console.error("Technician job learning queue failed", { code: queueError.code, jobId: data.id });
+        }
+        if (!row.related_case_id) await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
       } else { console.error("Technician job learning case failed", { code: learningCaseError?.code, jobId: data.id }); }
-      return jsonResponse({ ok: true, job: data, message: "Technician job notes saved and submitted for learning-loop review." }, 200);
+      return jsonResponse({ ok: true, job: data, message: row.technician_verified
+        ? "Technician job notes saved; a verified repair candidate is awaiting review and all required sharing approvals."
+        : "Technician job notes saved privately. This case is not a verified completed repair." }, 200);
     } catch {
       return jsonResponse({ error: "Could not save the job record. Please retry.", code: "JOB_SAVE_FAILED" }, 500);
     }
