@@ -1029,7 +1029,7 @@ function extractQuantitativeMeasures(text: string): Array<AnyRecord> {
 }
 
 function areCompoundsCompatible(c1: string, c2: string): boolean {
-  if (!c1 || !c2) return true;
+  if (!c1 || !c2) return false;
   if (c1 === c2) return true;
   const chlorineFamily = ["chlorine", "liquid_chlorine", "cal_hypo", "trichlor", "dichlor", "shock"];
   if (chlorineFamily.includes(c1) && chlorineFamily.includes(c2)) {
@@ -1070,7 +1070,7 @@ function hasUngroundedChemicalDosing(instructionText: string, procText: string):
       if (im.role === "dose_addition") {
         const corroborated = procMeasures.some((pm: AnyRecord) => {
           if (pm.negated || pm.role === "prohibited_dose") return false;
-          if (pm.role === "pool_volume") return false;
+          if (pm.role !== "dose_addition") return false;
           if (pm.unit !== im.unit) return false;
           if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
           if (!areCompoundsCompatible(String(im.compound || ""), String(pm.compound || ""))) return false;
@@ -1079,13 +1079,19 @@ function hasUngroundedChemicalDosing(instructionText: string, procText: string):
         if (!corroborated) return true;
       } else if (im.role === "target_concentration") {
         const corroborated = procMeasures.some((pm: AnyRecord) => {
+          if (pm.negated || pm.role === "prohibited_dose") return false;
+          if (pm.role === "pool_volume") return false;
+          if (pm.role !== "target_concentration") return false;
           if (pm.unit !== im.unit) return false;
           if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
+          if (im.compound && pm.compound && !areCompoundsCompatible(String(im.compound || ""), String(pm.compound || ""))) return false;
           return true;
         });
         if (!corroborated) return true;
       } else if (im.role === "pool_volume") {
         const corroborated = procMeasures.some((pm: AnyRecord) => {
+          if (pm.negated || pm.role === "prohibited_dose") return false;
+          if (pm.role !== "pool_volume") return false;
           if (pm.unit !== im.unit) return false;
           if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
           return true;
@@ -1093,6 +1099,7 @@ function hasUngroundedChemicalDosing(instructionText: string, procText: string):
         if (!corroborated) return true;
       } else {
         const corroborated = procMeasures.some((pm: AnyRecord) => {
+          if (pm.negated || pm.role === "prohibited_dose") return false;
           if (pm.unit !== im.unit) return false;
           if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
           if (im.compound && pm.compound && !areCompoundsCompatible(String(im.compound || ""), String(pm.compound || ""))) return false;
@@ -2948,7 +2955,7 @@ Deno.serve(async (req: Request) => {
           reference_enabled: r.reference_enabled !== false,
           status: String(r.status || "ready").toLowerCase(),
         }))
-        .filter((r: AnyRecord) => r.active && r.reference_enabled && r.status !== "quarantined" && r.status !== "revoked" && r.status !== "disabled");
+        .filter((r: AnyRecord) => r.active && r.reference_enabled && r.status !== "quarantined" && r.status !== "revoked" && r.status !== "disabled" && r.status !== "failed");
       kbRows = [...companyManualRows, ...kbRows];
     } catch (error) { console.warn("Company document retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
   }

@@ -414,8 +414,12 @@ async function processManual(manualId, processingJobId = null) {
     await db.from('company_manual_chunks').delete().eq('manual_id', manual.id).eq('company_id', manual.company_id);
     const rows = chunks.map((chunk, i) => ({ company_id: manual.company_id, manual_id: manual.id, industry_key: industryKey, chunk_index: i, title: String(extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: chunk.pageNumber, page_start: chunk.pageStart, page_end: chunk.pageEnd, content_text: chunk.content, content_redacted: scrub(chunk.content).slice(0, 1200), embedding: embeddings[i] ? `[${embeddings[i].join(',')}]` : null, embedding_model: embeddings[i] ? embeddingModel : null, embedded_at: embeddings[i] ? new Date().toISOString() : null }));
     for (let i=0; i<rows.length; i+=20) { const { error: chunkError } = await db.from('company_manual_chunks').insert(rows.slice(i,i+20)); if (chunkError) throw new Error(`Could not index document chunks (${chunkError.code}).`); }
+    const effectiveManufacturer = manual.manufacturer_normalized || equipmentTags.manufacturer || null;
+    const effectiveModel = manual.model_normalized || equipmentTags.model || null;
+    const effectiveCategory = manual.equipment_category || equipmentTags.category || 'manual';
+    const effectiveTitle = manual.title || extracted.title || 'Company document';
     const { error: updateError } = await db.from('company_manuals').update({
-      title: manual.title || extracted.title || 'Company document',
+      title: effectiveTitle,
       industry_key: industryKey,
       manufacturer_normalized: manual.manufacturer_normalized || equipmentTags.manufacturer,
       model_normalized: manual.model_normalized || equipmentTags.model,
@@ -427,7 +431,15 @@ async function processManual(manualId, processingJobId = null) {
       processed_at: new Date().toISOString()
     }).eq('id', manual.id);
     if (updateError) throw new Error('Document was extracted but its status could not be saved.');
-    const queued = await queueManualForLearning({ ...manual, shared_learning_opt_in: Boolean(manual.shared_learning_opt_in) }, rows.map(r=>r.content_text));
+    const queued = await queueManualForLearning({
+      ...manual,
+      title: effectiveTitle,
+      industry_key: industryKey,
+      manufacturer_normalized: effectiveManufacturer,
+      model_normalized: effectiveModel,
+      equipment_category: effectiveCategory,
+      shared_learning_opt_in: Boolean(manual.shared_learning_opt_in)
+    }, rows.map(r=>r.content_text));
     const metricKey = processingJobId ? `document-job:${processingJobId}` : `document:${manual.id}:${crypto.randomUUID()}`;
     const ocrInputTokens = Number(extracted.usage?.promptTokenCount || extracted.usage?.prompt_token_count || 0);
     const ocrOutputTokens = Number(extracted.usage?.candidatesTokenCount || extracted.usage?.candidates_token_count || 0);

@@ -702,6 +702,82 @@ const sharedRevokedResult = verifyCitation(
 );
 assert.equal(sharedRevokedResult.verified, false, 'Case U-4: Shared lesson with publication_status=revoked must fail citation verification');
 
+// --- PART-6 FAIL-CLOSED CONTEXTUAL CHEMICAL GROUNDING TESTS ---
+// Case V-1: Source observation (unknown role) "Record shows 2 oz liquid chlorine" cannot verify model "Add 2 oz liquid chlorine" -> MUST FAIL
+const observationCannotCorroborateDose = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chem-obs-001',
+    source_title: 'Chemical Observation Record',
+    step_instructions: 'Add 2 oz of liquid chlorine directly into the pool.'
+  },
+  [{
+    id: 'kb-chem-obs-001',
+    company_manual_source: true,
+    title: 'Chemical Observation Record',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Routine water inspection record',
+    procedure_text: 'Routine field observation log: Record shows 2 oz liquid chlorine was noted in historical inventory. Do not add chemicals without current water test results. '.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Routine water inspection record'
+);
+assert.equal(observationCannotCorroborateDose.verified, false, 'Case V-1: Source observation with unknown role cannot verify addition dose');
+
+// Case V-2: Negated source concentration matching model target concentration -> MUST FAIL
+const negatedSourceConcentration = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chem-conc-001',
+    source_title: 'Water Balance Guidelines',
+    step_instructions: 'Maintain free chlorine target level at 3 ppm in pool water.'
+  },
+  [{
+    id: 'kb-chem-conc-001',
+    company_manual_source: true,
+    title: 'Water Balance Guidelines',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Algae bloom in pool water',
+    procedure_text: 'For active black algae blooms, do not maintain 3 ppm chlorine as standard maintenance is insufficient. Shocking requires higher concentration. '.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Algae bloom in pool water'
+);
+assert.equal(negatedSourceConcentration.verified, false, 'Case V-2: Negated source concentration cannot corroborate target concentration');
+
+// Case V-3: Unknown compound (missing compound match) -> MUST FAIL
+const unknownCompoundAddition = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chem-unk-001',
+    source_title: 'Generic Powder Treatment SOP',
+    step_instructions: 'Add 2 lbs of mystery clarifying compound to skimmer.'
+  },
+  [{
+    id: 'kb-chem-unk-001',
+    company_manual_source: true,
+    title: 'Generic Powder Treatment SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Cloudy pool water',
+    procedure_text: 'For water clarity treatment, add 2 lbs of mystery clarifying compound slowly into the skimmer with pump running. '.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Cloudy pool water'
+);
+assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compound without recognized safe chemical family must fail verification');
+
 // 12. Helper + synthetic routing simulation (diagnostic routing flow)
 // Exercises production routing helpers in a synthetic diagnostic routing sequence showing:
 // 1) Positive internal-only answer runs with Gemini Search tools: [] (Search tool is OFF)

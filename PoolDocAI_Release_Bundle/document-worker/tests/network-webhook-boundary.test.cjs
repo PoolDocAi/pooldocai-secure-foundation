@@ -104,5 +104,11 @@ const nameplateClass = classifyEquipment('Commercial Filter Manual', 'Model: HP-
 assert.equal(nameplateClass.category, 'filter');
 assert.equal(nameplateClass.model, 'hp-2000-x');
 
+// Test E: Ingestion-to-learning queue model propagation without pre-seeded model
+const simulatedManualWithoutModel = { id: 'man_test_1', company_id: 'comp_1', title: 'Pentair IntelliFlo VSF Installation Guide' };
+const simulatedTags = classifyEquipment(simulatedManualWithoutModel.title, 'Variable speed pump operation manual.');
+const effectiveModel = simulatedManualWithoutModel.model_normalized || simulatedTags.model || null;
+assert.equal(effectiveModel, 'intelliflo_vsf', 'Extracted model must be populated even when input manual model_normalized is missing');
+
 console.log('Worker model extraction and nameplate normalization checks passed.');
 console.log('Worker outbound-network and signed-webhook boundary checks passed.');
