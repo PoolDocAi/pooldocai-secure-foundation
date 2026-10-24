@@ -72,6 +72,12 @@ assert.match(source, /caseRow\?\.case_learning_opt_in === true/,
   'case-level consent must remain mandatory for authenticated shared learning');
 assert.match(source, /pooldocai_approve_learning_case/,
   'shared lesson approval remains platform controlled and transactional');
+assert.match(source, /if \(row\.technician_verified\) \{/,
+  'unresolved and unverified field jobs stay outside the shared review queue');
+assert.match(source, /code: "VERIFIED_REPAIR_REQUIRED"/,
+  'unresolved technician lessons cannot pass shared-knowledge approval');
+assert.match(source, /caseRow\?\.technician_verified !== true/,
+  'the review endpoint rechecks a confirmed technician repair before approval');
 
 assert.match(spec, /\$39 \| 1 \| 50/);
 assert.match(spec, /\$75 \| 2 \| 150/);
