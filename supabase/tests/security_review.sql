@@ -959,3 +959,169 @@ BEGIN
   DELETE FROM public.companies WHERE id IN (v_co_active, v_co_suspended);
   DELETE FROM auth.users WHERE id = v_user_id;
 END $$;
+
+-- 10. TEST TASK-007 PART-1: Company Notifications & Delivery Foundation
+DO $$
+DECLARE
+  v_co_a uuid := gen_random_uuid();
+  v_co_b uuid := gen_random_uuid();
+  v_user_a_admin uuid := gen_random_uuid();
+  v_user_a_tech uuid := gen_random_uuid();
+  v_user_a_susp uuid := gen_random_uuid();
+  v_user_b_admin uuid := gen_random_uuid();
+  v_notif_1 uuid;
+  v_notif_2 uuid;
+  v_notif_dup uuid;
+  v_user_notif_id uuid;
+  v_cnt integer := 0;
+  v_read_at timestamptz;
+  v_ok boolean;
+BEGIN
+  -- Setup test users
+  INSERT INTO auth.users (id, email, aud, role)
+  VALUES
+    (v_user_a_admin, 'ci-notif-a-admin@example.com', 'authenticated', 'authenticated'),
+    (v_user_a_tech, 'ci-notif-a-tech@example.com', 'authenticated', 'authenticated'),
+    (v_user_a_susp, 'ci-notif-a-susp@example.com', 'authenticated', 'authenticated'),
+    (v_user_b_admin, 'ci-notif-b-admin@example.com', 'authenticated', 'authenticated')
+  ON CONFLICT (id) DO NOTHING;
+
+  -- Create companies A and B
+  INSERT INTO public.companies (id, name, industry_key, status)
+  VALUES
+    (v_co_a, 'Company A Notifications Test', 'pool', 'active'),
+    (v_co_b, 'Company B Notifications Test', 'pool', 'active');
+
+  -- Add company members
+  INSERT INTO public.company_members (company_id, user_id, role, status, display_name)
+  VALUES
+    (v_co_a, v_user_a_admin, 'company_admin', 'active', 'Admin A'),
+    (v_co_a, v_user_a_tech, 'technician', 'active', 'Tech A'),
+    (v_co_a, v_user_a_susp, 'technician', 'suspended', 'Suspended Tech A'),
+    (v_co_b, v_user_b_admin, 'company_admin', 'active', 'Admin B');
+
+  -- 1. Publish notification for Company A targeting 'all'
+  v_notif_1 := public.pooldocai_publish_company_notification(
+    v_co_a,
+    'service_request_created',
+    'New Customer Request',
+    'Customer requested pump triage',
+    '{"request_id": "req-1"}'::jsonb,
+    'dedupe-sr-1',
+    'all',
+    NULL
+  );
+
+  IF v_notif_1 IS NULL THEN
+    RAISE EXCEPTION 'Failed to publish notification 1';
+  END IF;
+
+  -- Verify user notifications created for active members of Company A (Admin A and Tech A), NOT suspended member (Suspended A) or Company B
+  SELECT count(*) INTO v_cnt FROM public.user_notifications WHERE notification_id = v_notif_1;
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION 'Expected 2 recipient notifications for notif_1, got %', v_cnt;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.user_notifications WHERE notification_id = v_notif_1 AND user_id = v_user_a_admin) THEN
+    RAISE EXCEPTION 'Admin A missing user_notification';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.user_notifications WHERE notification_id = v_notif_1 AND user_id = v_user_a_tech) THEN
+    RAISE EXCEPTION 'Tech A missing user_notification';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.user_notifications WHERE notification_id = v_notif_1 AND user_id = v_user_a_susp) THEN
+    RAISE EXCEPTION 'Suspended Tech A illegally received user_notification';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.user_notifications WHERE notification_id = v_notif_1 AND user_id = v_user_b_admin) THEN
+    RAISE EXCEPTION 'Cross-tenant leak: Company B admin received Company A user_notification';
+  END IF;
+
+  -- 2. Verify Idempotent publication with same dedupe key does not duplicate recipients
+  v_notif_dup := public.pooldocai_publish_company_notification(
+    v_co_a,
+    'service_request_created',
+    'New Customer Request (Updated)',
+    'Customer updated pump triage notes',
+    '{"request_id": "req-1", "updated": true}'::jsonb,
+    'dedupe-sr-1',
+    'all',
+    NULL
+  );
+  IF v_notif_dup <> v_notif_1 THEN
+    RAISE EXCEPTION 'Expected same notification_id on duplicate publish, got % vs %', v_notif_dup, v_notif_1;
+  END IF;
+
+  SELECT count(*) INTO v_cnt FROM public.user_notifications WHERE notification_id = v_notif_1;
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION 'Duplicate publish created duplicate user_notifications: count is %', v_cnt;
+  END IF;
+
+  -- 3. Verify targeted technician-only notification
+  v_notif_2 := public.pooldocai_publish_company_notification(
+    v_co_a,
+    'service_request_assigned',
+    'Service Request Assigned',
+    'You have been assigned to job #42',
+    '{"job_id": "job-42"}'::jsonb,
+    'dedupe-job-42',
+    'assigned_technician',
+    v_user_a_tech
+  );
+  SELECT count(*) INTO v_cnt FROM public.user_notifications WHERE notification_id = v_notif_2;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Expected exactly 1 targeted recipient for notif_2, got %', v_cnt;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.user_notifications WHERE notification_id = v_notif_2 AND user_id = v_user_a_tech) THEN
+    RAISE EXCEPTION 'Targeted Tech A missing notification 2';
+  END IF;
+
+  -- 4. Verify Delivery Queue Entries
+  SELECT count(*) INTO v_cnt FROM public.notification_delivery_queue WHERE notification_id = v_notif_1 AND channel = 'in_app' AND delivery_status = 'delivered';
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION 'Expected 2 delivered in_app queue records, got %', v_cnt;
+  END IF;
+
+  SELECT count(*) INTO v_cnt FROM public.notification_delivery_queue WHERE notification_id = v_notif_1 AND channel = 'email' AND delivery_status = 'deferred';
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION 'Expected 2 deferred email queue records, got %', v_cnt;
+  END IF;
+
+  SELECT count(*) INTO v_cnt FROM public.notification_delivery_queue WHERE notification_id = v_notif_1 AND channel = 'web_push' AND delivery_status = 'deferred';
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION 'Expected 2 deferred web_push queue records, got %', v_cnt;
+  END IF;
+
+  -- 5. Test RPC Read State & Marking Read
+  SELECT id INTO v_user_notif_id FROM public.user_notifications WHERE notification_id = v_notif_2 AND user_id = v_user_a_tech;
+
+  PERFORM set_config('request.jwt.claim.sub', v_user_a_tech::text, true);
+  v_ok := public.pooldocai_mark_notification_read(v_user_notif_id);
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'Expected mark_notification_read to return true';
+  END IF;
+
+  SELECT read_at INTO v_read_at FROM public.user_notifications WHERE id = v_user_notif_id;
+  IF v_read_at IS NULL THEN
+    RAISE EXCEPTION 'read_at was not updated by mark_notification_read';
+  END IF;
+
+  v_ok := public.pooldocai_mark_notification_read(v_user_notif_id);
+  IF v_ok THEN
+    RAISE EXCEPTION 'Expected second mark_notification_read to return false';
+  END IF;
+
+  -- 6. Test Recipient Spoof Protection: User B cannot mark read User A notification
+  SELECT id INTO v_user_notif_id FROM public.user_notifications WHERE notification_id = v_notif_1 AND user_id = v_user_a_admin;
+  PERFORM set_config('request.jwt.claim.sub', v_user_b_admin::text, true);
+  v_ok := public.pooldocai_mark_notification_read(v_user_notif_id);
+  IF v_ok THEN
+    RAISE EXCEPTION 'User B illegally marked read User A notification';
+  END IF;
+
+  -- Teardown Section 10 test fixtures
+  DELETE FROM public.notification_delivery_queue WHERE company_id IN (v_co_a, v_co_b);
+  DELETE FROM public.user_notifications WHERE company_id IN (v_co_a, v_co_b);
+  DELETE FROM public.company_notifications WHERE company_id IN (v_co_a, v_co_b);
+  DELETE FROM public.company_members WHERE company_id IN (v_co_a, v_co_b);
+  DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
+  DELETE FROM auth.users WHERE id IN (v_user_a_admin, v_user_a_tech, v_user_a_susp, v_user_b_admin);
+END $$;

@@ -64,6 +64,8 @@ jobs:
         run: node website/tests/staging-config.test.cjs
       - name: Test environment-specific indexing and SEO directives
         run: node website/tests/seo-indexing.test.cjs
+      - name: Test company notification inbox and delivery foundation
+        run: node website/tests/notifications-foundation.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |

@@ -6,7 +6,7 @@
 :root{color-scheme:light;--navy:#0f2b46;--blue:#0878b9;--line:#d8e2ec;--muted:#5b6b7a;--bg:#f3f7fb}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#142536}header{background:var(--navy);color:white;padding:18px max(16px,calc((100vw - 900px)/2));}header strong{font-size:1.2rem}header p{margin:4px 0 0;color:#c9d9e7;font-size:.9rem}.wrap{max-width:900px;margin:auto;padding:16px}.card{background:white;border:1px solid var(--line);border-radius:16px;padding:18px;margin:0 0 14px;box-shadow:0 3px 14px #0f2b4608}h2{font-size:1.08rem;margin:0 0 12px}label{display:block;font-size:.88rem;font-weight:700;margin:12px 0 5px}input,textarea,select{width:100%;padding:12px;border:1px solid #b9c9d8;border-radius:10px;font:inherit;background:#fff;color:#142536}textarea{min-height:100px;resize:vertical}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}button,.btn{border:0;border-radius:10px;padding:11px 14px;font:700 .92rem system-ui;cursor:pointer;background:var(--blue);color:white}button.secondary{background:#e6eff6;color:var(--navy)}button.danger{background:#fff0ee;color:#9d2c22;border:1px solid #ffd0c9}.step{border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}.stephead{display:flex;justify-content:space-between;align-items:center}.small{font-size:.82rem;color:var(--muted)}#status{padding:10px 12px;border-radius:10px;background:#eaf3fb;color:#183b57;margin:10px 0}#status.error{background:#fff0ee;color:#8e261e}#status.ok{background:#e9f8ef;color:#155b36}.hidden{display:none!important}.footer{font-size:.8rem;color:var(--muted);padding:10px 4px 28px}.mic{background:#b42318}.status-pill{display:inline-block;background:#e7f5ec;color:#17633a;border-radius:20px;padding:4px 9px;font-size:.78rem;font-weight:700}@media(max-width:600px){.grid{grid-template-columns:1fr}.card{padding:14px}header{padding:16px}}
 </style>  <link rel="stylesheet" href="css/design-tokens.css" />
 </head>
-<body><header><strong>PoolDocAI · Technician Field Notes</strong><p>Record the job your way—even when no AI troubleshooting was used.</p><p><a href="/admin.html" style="color:#c9e9ff">Account Portal</a> · <a href="/app.html" style="color:#c9e9ff">Secure Troubleshooter</a></p></header>
+<body><header><strong>PoolDocAI · Technician Field Notes</strong><p>Record the job your way—even when no AI troubleshooting was used.</p><p><a href="/admin.html" style="color:#c9e9ff">Account Portal</a> · <a href="/app.html" style="color:#c9e9ff">Secure Troubleshooter</a></p><div id="notificationBellWrap" class="hidden" style="position:relative;display:inline-block;margin-left:12px;"><button id="notificationBellBtn" type="button" aria-label="Notifications" aria-expanded="false" aria-haspopup="true" style="background:transparent;border:none;cursor:pointer;color:white;font-size:18px;position:relative;padding:4px 8px;">🔔<span id="unreadNotificationBadge" class="hidden" style="position:absolute;top:0;right:2px;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:bold;padding:1px 5px;line-height:1;">0</span></button><div id="notificationInboxPanel" class="hidden" role="region" aria-label="Notifications Inbox" style="position:absolute;right:0;top:100%;width:320px;max-width:90vw;background:#ffffff;color:#1e293b;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.25);border:1px solid #cbd5e1;z-index:1000;padding:12px;margin-top:6px;text-align:left;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;"><strong style="font-size:14px;color:#0f2b46;">Notifications</strong><div style="display:flex;gap:6px;"><button id="markAllReadBtn" type="button" class="secondary" style="font-size:11px;padding:3px 8px;">Mark all read</button><button id="closeNotificationInboxBtn" type="button" class="secondary" style="font-size:11px;padding:3px 6px;">✕</button></div></div><div id="notificationListWrap" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"><div id="notificationEmptyState" class="small" style="text-align:center;padding:16px 8px;color:#64748b;">No notifications.</div></div></div></div></header>
 <main class="wrap">
 <div id="syncIndicator" role="status" aria-live="polite" style="position:sticky;top:58px;z-index:900;padding:12px;border:2px solid #9a6700;border-radius:10px;background:#fff7d6;color:#4b3500;font-weight:800;margin:10px 0">Sync status: checking local draft…</div><div id="status" role="status" aria-live="polite">Drafts stay on this device until you sign in and save the job to your company database.</div>
 <section class="card" id="accessCard"><h2>Technician sign in</h2><label for="techEmail">Work email</label><input id="techEmail" type="email" autocomplete="username" placeholder="you@company.com"><label for="techPassword">Password</label><input id="techPassword" type="password" autocomplete="current-password" placeholder="Your individual password"><div class="actions"><button id="unlockBtn" type="button">Sign in and enable saving</button><button id="installBtn" class="secondary hidden" type="button">Install app</button></div><p class="small">Use your individual PoolDocAI login. Saving is restricted to the company assigned to your account.</p></section>
@@ -25,6 +25,63 @@ let authSession=null,activeCompanyId=null;
 const ENDPOINT=`${SUPABASE_URL}/functions/v1/clever-handler`;
 const $=id=>document.getElementById(id);let unlocked=false,voiceUsed=false,recognition=null,installPrompt=null,syncRunning=false,pendingQueueCount=0;
 const OUTBOX_DB='pooldocai-tech-outbox-v1',OUTBOX_STORE='jobs',OUTBOX_FALLBACK='pooldocai_tech_outbox_fallback',LAST_SYNC_KEY='pooldocai_tech_last_sync';
+
+async function loadTechNotifications(){
+  if(!authClient||!authSession)return;
+  try{
+    const {data,error}=await authClient.rpc('pooldocai_get_user_notifications',{p_limit:30});
+    if(error){console.warn('Technician notification fetch error:',error);return;}
+    const notifs=data?.notifications||[];
+    const unread=Number(data?.unread_count||0);
+    const wrap=$('notificationBellWrap');
+    if(wrap)wrap.classList.remove('hidden');
+    const badge=$('unreadNotificationBadge');
+    if(badge){
+      badge.textContent=String(unread);
+      badge.classList.toggle('hidden',unread===0);
+    }
+    const listWrap=$('notificationListWrap');
+    if(!listWrap)return;
+    if(!notifs.length){
+      listWrap.innerHTML='<div class="small" style="text-align:center;padding:16px 8px;color:#64748b;">No notifications.</div>';
+      return;
+    }
+    listWrap.innerHTML=notifs.map(n=>`<div style="padding:8px;border-radius:8px;background:${n.read_at?'#f8fafc':'#f0fdf4'};border:1px solid ${n.read_at?'#e2e8f0':'#86efac'};font-size:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+        <strong style="color:#0f2b46;">${n.title||''}</strong>
+        <span style="font-size:10px;color:#64748b;">${new Date(n.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+      </div>
+      <div style="color:#334155;margin-bottom:4px;">${n.body||''}</div>
+      ${!n.read_at?`<div style="text-align:right;"><button type="button" class="secondary" data-tech-notif-read="${n.user_notification_id}" style="font-size:10px;padding:2px 6px;">Mark read</button></div>`:''}
+    </div>`).join('');
+    document.querySelectorAll('[data-tech-notif-read]').forEach(btn=>{
+      btn.onclick=async()=>{
+        btn.disabled=true;
+        await authClient.rpc('pooldocai_mark_notification_read',{p_user_notification_id:btn.dataset.techNotifRead});
+        await loadTechNotifications();
+      };
+    });
+  }catch(e){console.warn('loadTechNotifications error:',e);}
+}
+
+if($('notificationBellBtn'))$('notificationBellBtn').onclick=()=>{
+  const panel=$('notificationInboxPanel');
+  if(!panel)return;
+  const isOpen=!panel.classList.contains('hidden');
+  panel.classList.toggle('hidden',isOpen);
+  $('notificationBellBtn').setAttribute('aria-expanded',String(!isOpen));
+};
+if($('closeNotificationInboxBtn'))$('closeNotificationInboxBtn').onclick=()=>{
+  $('notificationInboxPanel')?.classList.add('hidden');
+  $('notificationBellBtn')?.setAttribute('aria-expanded','false');
+};
+if($('markAllReadBtn'))$('markAllReadBtn').onclick=async()=>{
+  $('markAllReadBtn').disabled=true;
+  if(authClient)await authClient.rpc('pooldocai_mark_all_notifications_read');
+  $('markAllReadBtn').disabled=false;
+  await loadTechNotifications();
+};
+
 function status(message,type=''){const el=$('status');el.textContent=message;el.className=type;}
 function openOutbox(){return new Promise((resolve,reject)=>{if(!('indexedDB'in window))return reject(new Error('IndexedDB unavailable'));const request=indexedDB.open(OUTBOX_DB,1);request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains(OUTBOX_STORE))db.createObjectStore(OUTBOX_STORE,{keyPath:'clientJobId'});};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error||new Error('Could not open local sync queue.'));});}
 async function outboxAll(){try{const db=await openOutbox();return await new Promise((resolve,reject)=>{const tx=db.transaction(OUTBOX_STORE,'readonly'),req=tx.objectStore(OUTBOX_STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);tx.oncomplete=()=>db.close();});}catch{try{return JSON.parse(localStorage.getItem(OUTBOX_FALLBACK)||'[]')}catch{return []}}}

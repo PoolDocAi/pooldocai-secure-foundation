@@ -1343,7 +1343,7 @@ Deno.serve(async (req: Request) => {
   const action = textValue(body.action ?? body.action_type, 80).toLowerCase();
   const noQueryActions = new Set([
     "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "accept_company_legal", "accept_public_demo_learning", "get_customer_widget_config", "submit_widget_service_request", "get_company_widget_settings", "save_company_widget_settings", "rotate_company_widget_key", "public_page_view", "photo_recognition",
-    "process_company_manual", "import_company_webpage", "set_manual_learning_consent",
+    "process_company_manual", "import_company_webpage", "set_manual_learning_consent", "get_notifications", "mark_notification_read", "mark_all_notifications_read", "update_notification_preferences",
     "review_learning_case", "list_learning_review_queue", "withdraw_case_learning_consent", "review_company_document",
     "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
   ]);
@@ -1437,13 +1437,13 @@ Deno.serve(async (req: Request) => {
       };
       // Prevent pool-specific diagnostic/safety rules from running for an industry module that is merely planned.
       const {data:activeIndustry}=await supabase.from("industry_modules").select("industry_key,status").eq("industry_key",authenticatedIndustryKey).eq("status","active").maybeSingle();
-      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","accept_company_legal","accept_public_demo_learning","get_customer_widget_config","submit_widget_service_request","get_company_widget_settings","save_company_widget_settings","rotate_company_widget_key","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document"].includes(action)) {
+      if(!activeIndustry && !["get_company_usage","export_company_usage","platform_usage_export","create_billing_checkout","create_billing_portal","invite_company_member","accept_company_invitation","resend_company_invitation","revoke_company_invitation","accept_company_legal","accept_public_demo_learning","get_customer_widget_config","submit_widget_service_request","get_company_widget_settings","save_company_widget_settings","rotate_company_widget_key","save_technician_job","process_company_manual","import_company_webpage","set_manual_learning_consent","review_company_document","get_notifications","mark_notification_read","mark_all_notifications_read","update_notification_preferences"].includes(action)) {
         return jsonResponse({error:"This company's industry module is not active yet. PoolDocAI will not apply pool-specific troubleshooting or safety rules to an unreviewed industry.",code:"INDUSTRY_MODULE_NOT_ACTIVE",industryKey:authenticatedIndustryKey},409);
       }
       const documentAction = ["process_company_manual","import_company_webpage"].includes(action);
       const seatAction = ["invite_company_member","resend_company_invitation","revoke_company_invitation"].includes(action);
       const billingAction = ["create_billing_checkout","create_billing_portal"].includes(action);
-      const adminAction = ["get_company_usage","export_company_usage","review_company_document","set_manual_learning_consent","accept_company_legal"].includes(action);
+      const adminAction = ["get_company_usage","export_company_usage","review_company_document","set_manual_learning_consent","accept_company_legal","get_notifications","mark_notification_read","mark_all_notifications_read","update_notification_preferences"].includes(action);
       const metricType = documentAction ? "document_request" : seatAction ? "seat_event" : billingAction ? "billing_event" : adminAction ? "admin_event" : action === "save_technician_job" ? "technician_job" : "ai_request";
       const usageInsert = await supabase.from("platform_usage_events").insert({
         company_id: authenticatedCompanyId, user_id: authenticatedUserId, event_type: action || "troubleshoot", units: 1,
@@ -1624,6 +1624,20 @@ Deno.serve(async (req: Request) => {
       conversation_redacted:conversation,widget_config_id:widget.config.id,public_idempotency_key:idempotencyKey
     }).select("id,status,created_at").single();
     if(createError||!created){console.error("Customer widget service request insert failed",{code:createError?.code});return jsonResponse({error:"We could not save the service request. Please try again or contact the company directly.",code:"SERVICE_REQUEST_CREATE_FAILED"},500);}
+    try {
+      await supabase.rpc("pooldocai_publish_company_notification", {
+        p_company_id: widget.company.id,
+        p_event_type: "service_request_created",
+        p_title: "New Customer Service Request",
+        p_body: (name + " requested service: " + summary).slice(0, 160),
+        p_data: { serviceRequestId: created.id, sourceType: "customer_widget" },
+        p_dedupe_key: "sr-created-" + created.id,
+        p_target_role: "admin",
+        p_target_user_id: null
+      });
+    } catch (notifErr) {
+      console.warn("Notification publish non-fatal error:", notifErr);
+    }
     return jsonResponse({ok:true,serviceRequestId:created.id,status:created.status,createdAt:created.created_at,message:"Your request was sent to the company service queue. This does not book an appointment; the company will need to contact you."},201);
   }
 
@@ -2024,6 +2038,73 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ok:true,rateCard:created,message:"Rate card saved. New metered usage will use this version; historical events are not retroactively repriced."},200);
   }
 
+  // Company Notification Inbox actions: authenticated company member access only
+  if (["get_notifications", "mark_notification_read", "mark_all_notifications_read", "update_notification_preferences"].includes(action)) {
+    if (!authenticatedUserId || !authenticatedCompanyId) {
+      return jsonResponse({ error: "Sign in with an active company account to access notifications.", code: "AUTH_REQUIRED" }, 401);
+    }
+
+    if (action === "get_notifications") {
+      const limit = Number(body.limit) || 20;
+      const offset = Number(body.offset) || 0;
+      const unreadOnly = body.unreadOnly === true || body.unread_only === true;
+      const { data, error } = await supabase.rpc("pooldocai_get_user_notifications", {
+        p_limit: limit,
+        p_offset: offset,
+        p_unread_only: unreadOnly
+      });
+      if (error) {
+        console.error("Failed to get notifications:", error);
+        return jsonResponse({ error: "Could not retrieve notifications.", code: "NOTIFICATIONS_FETCH_FAILED" }, 500);
+      }
+      return jsonResponse({ ok: true, ...(data as AnyRecord) }, 200);
+    }
+
+    if (action === "mark_notification_read") {
+      const userNotificationId = textValue(body.userNotificationId || body.notificationId, 80);
+      if (!userNotificationId) {
+        return jsonResponse({ error: "Notification ID is required.", code: "NOTIFICATION_ID_REQUIRED" }, 400);
+      }
+      const { data, error } = await supabase.rpc("pooldocai_mark_notification_read", {
+        p_user_notification_id: userNotificationId
+      });
+      if (error) {
+        console.error("Failed to mark notification read:", error);
+        return jsonResponse({ error: "Could not mark notification as read.", code: "MARK_READ_FAILED" }, 500);
+      }
+      return jsonResponse({ ok: true, marked: Boolean(data) }, 200);
+    }
+
+    if (action === "mark_all_notifications_read") {
+      const { data, error } = await supabase.rpc("pooldocai_mark_all_notifications_read");
+      if (error) {
+        console.error("Failed to mark all notifications read:", error);
+        return jsonResponse({ error: "Could not mark all notifications as read.", code: "MARK_ALL_READ_FAILED" }, 500);
+      }
+      return jsonResponse({ ok: true, updatedCount: Number(data || 0) }, 200);
+    }
+
+    if (action === "update_notification_preferences") {
+      const channel = textValue(body.channel, 40).toLowerCase();
+      if (!["in_app", "email", "web_push"].includes(channel)) {
+        return jsonResponse({ error: "Invalid notification channel. Must be in_app, email, or web_push.", code: "INVALID_CHANNEL" }, 400);
+      }
+      const enabled = body.enabled !== false;
+      const { error } = await supabase.from("user_notification_preferences").upsert({
+        user_id: authenticatedUserId,
+        company_id: authenticatedCompanyId,
+        channel,
+        enabled,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "user_id,company_id,channel" });
+      if (error) {
+        console.error("Failed to update notification preferences:", error);
+        return jsonResponse({ error: "Could not save notification preferences.", code: "PREFERENCES_UPDATE_FAILED" }, 500);
+      }
+      return jsonResponse({ ok: true, channel, enabled }, 200);
+    }
+  }
+
   // Inspect an extracted private document. Only the same company, an authorized reviewer, or platform owner may request it.
   if (action === "review_company_document") {
     if (!authenticatedUserId || body.authenticatedApp !== true) return jsonResponse({ error: "Sign in before reviewing company documents.", code: "AUTH_REQUIRED" }, 401);
@@ -2232,7 +2313,20 @@ Deno.serve(async (req: Request) => {
           extraction_status: "queued"
         }).select("id,company_id").single();
         if (registerError || !registered) return jsonResponse({ error: "Could not register the webpage source.", code: "WEBPAGE_REGISTER_FAILED" }, 500);
-        return jsonResponse(await queueManual(registered.id), 202);
+        const queuedResult = await queueManual(registered.id);
+        try {
+          await supabase.rpc("pooldocai_publish_company_notification", {
+            p_company_id: targetCompanyId,
+            p_event_type: "manual_processing_queued",
+            p_title: "Webpage Ingestion Queued",
+            p_body: ("Webpage import queued: " + url).slice(0, 160),
+            p_data: { manualId: registered.id, url },
+            p_dedupe_key: "manual-queued-" + registered.id,
+            p_target_role: "admin",
+            p_target_user_id: null
+          });
+        } catch (_) {}
+        return jsonResponse(queuedResult, 202);
       } catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : "Webpage import failed.", code: "DOCUMENT_IMPORT_FAILED" }, 502); }
     }
     const manualId = textValue(body.manualId, 80);
@@ -2485,6 +2579,20 @@ Deno.serve(async (req: Request) => {
       }
       if (clientJobId && replayedExisting) {
         return jsonResponse({ok:true,job:data,idempotentReplay:true,message:"This queued job was already synced with matching content; no duplicate was created."},200);
+      }
+      if (data?.id) {
+        try {
+          await supabase.rpc("pooldocai_publish_company_notification", {
+            p_company_id: authenticatedCompanyId,
+            p_event_type: "technician_job_saved",
+            p_title: "Technician Job Logged",
+            p_body: ("Job #" + String(data.id).slice(0, 8) + " saved: " + (complaint || notes || "Field notes added")).slice(0, 160),
+            p_data: { jobId: data.id, outcome: textValue(body.outcome, 40) || "in_progress" },
+            p_dedupe_key: "job-saved-" + data.id,
+            p_target_role: "admin",
+            p_target_user_id: null
+          });
+        } catch (_) {}
       }
       // Every directly entered PWA job is automatically included in the learning loop
       // as a privacy-minimized pending review item, regardless of its source.
