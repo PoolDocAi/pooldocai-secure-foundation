@@ -50,13 +50,15 @@ async function finalizeIgnoredEvent(
   eventId: string,
   claimToken: string,
   reason: string,
-  note: string
+  note: string,
+  eventProvenance: any = null
 ): Promise<Response> {
   const { data, error } = await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
     p_event_id: eventId,
     p_claim_token: claimToken,
     p_ignored: true,
-    p_processing_note: note
+    p_processing_note: note,
+    p_event_provenance: eventProvenance
   });
 
   if (error || !data?.success) {
@@ -150,6 +152,21 @@ Deno.serve(async (req: Request) => {
       const { data: customerCompany } = await db.from("companies").select("id").or(`stripe_customer_id.eq.${customerId},billing_customer_ref.eq.${customerId}`).maybeSingle();
       companyId = String(customerCompany?.id || "");
     }
+
+    const eventPeriodStart = subscriptionObject
+      ? isoSeconds(subscriptionObject.current_period_start)
+      : isoSeconds(obj.period_start || asObject((asObject(obj.lines).data || [])[0]?.period).start);
+    const eventPeriodEnd = subscriptionObject
+      ? isoSeconds(subscriptionObject.current_period_end)
+      : isoSeconds(obj.period_end || asObject((asObject(obj.lines).data || [])[0]?.period).end);
+
+    const eventProvenance: Record<string, any> = {
+      event_type: eventType,
+      subscription_id: subscriptionId || null,
+      period_start: eventPeriodStart || null,
+      period_end: eventPeriodEnd || null
+    };
+
     if (!companyId) {
       // Store and acknowledge unrelated Stripe events without modifying any tenant.
       return await finalizeIgnoredEvent(
@@ -157,7 +174,8 @@ Deno.serve(async (req: Request) => {
         eventId,
         claimToken,
         "no_company_match",
-        "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation."
+        "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation.",
+        eventProvenance
       );
     }
     const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id,billing_period_start").eq("id", companyId).maybeSingle();
@@ -188,7 +206,8 @@ Deno.serve(async (req: Request) => {
           eventId,
           claimToken,
           isOldSubscription ? "stale_old_subscription" : "stale_out_of_order_event",
-          isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active)."
+          isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active).",
+          eventProvenance
         );
       }
 
@@ -235,7 +254,8 @@ Deno.serve(async (req: Request) => {
           eventId,
           claimToken,
           isOldSubscriptionInvoice ? "stale_old_subscription_invoice" : "stale_out_of_order_invoice",
-          isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active)."
+          isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active).",
+          eventProvenance
         );
       }
 
@@ -264,7 +284,8 @@ Deno.serve(async (req: Request) => {
       p_company_updates: (handled.includes(eventType) && Object.keys(update).length) ? update : null,
       p_usage_event: usagePayload,
       p_processing_note: null,
-      p_ignored: false
+      p_ignored: false,
+      p_event_provenance: eventProvenance
     });
 
     if (finalizeError || !finalizeData?.success) {

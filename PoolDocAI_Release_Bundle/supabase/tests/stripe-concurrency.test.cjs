@@ -2,12 +2,32 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const { spawn, execSync } = require("node:child_process");
 
-const PG_URL = process.env.PG_URL || process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+function getValidatedPgConfig() {
+  const raw = process.env.PG_URL || process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  if (raw.includes("owfeebydlyacssqpnmkq")) {
+    throw new Error("Safety violation: refusing to run concurrency test against production database owfeebydlyacssqpnmkq.");
+  }
 
-// Fail-closed guard against running concurrency tests against production
-if (PG_URL.includes("owfeebydlyacssqpnmkq")) {
-  throw new Error("Safety violation: refusing to run concurrency test against production database owfeebydlyacssqpnmkq.");
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (err) {
+    throw new Error("Safety violation: Invalid PostgreSQL connection URL format.");
+  }
+
+  const hostname = (parsed.hostname || "").toLowerCase();
+  const isLoopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+  const allowStaging = process.env.ALLOW_STAGING_TEST_DB === "true";
+
+  if (!isLoopback && !allowStaging) {
+    throw new Error(`Safety violation: Integration test fixture mutations are strictly restricted to local disposable test database (loopback 127.0.0.1/localhost). Found host: ${hostname}`);
+  }
+
+  const sanitized = raw.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
+  return { raw, sanitized };
 }
+
+const { raw: PG_URL, sanitized: SANITIZED_PG_URL } = getValidatedPgConfig();
 
 // Helper to execute a single SQL command via psql
 function query(sql, pgUrl = PG_URL) {
@@ -19,7 +39,9 @@ function query(sql, pgUrl = PG_URL) {
     });
     return stdout.trim();
   } catch (err) {
-    throw new Error(`psql query error: ${err.stderr || err.message}`);
+    // Sanitize any credential in error message
+    const cleanErr = String(err.stderr || err.message || "").replace(/:\/\/[^:]+:[^@]+@/g, "://***:***@");
+    throw new Error(`psql query error: ${cleanErr}`);
   }
 }
 
@@ -46,13 +68,14 @@ function createPsqlSession(pgUrl = PG_URL) {
       stderrBuffer = "";
       proc.stdin.write(command + "\n");
     },
+    hasOutput: () => stdoutBuffer.trim().length > 0,
     waitForOutput: (timeoutMs = 5000) => {
       return new Promise((resolve, reject) => {
         const start = Date.now();
         const interval = setInterval(() => {
           if (stderrBuffer.trim().includes("ERROR:")) {
             clearInterval(interval);
-            const err = stderrBuffer.trim();
+            const err = stderrBuffer.trim().replace(/:\/\/[^:]+:[^@]+@/g, "://***:***@");
             stderrBuffer = "";
             reject(new Error(`psql error: ${err}`));
           } else if (stdoutBuffer.trim().length > 0) {
@@ -78,6 +101,7 @@ function createPsqlSession(pgUrl = PG_URL) {
 
 async function runConcurrencyTest() {
   console.log("Starting Real Two-Connection PostgreSQL Stripe Webhook Concurrency Test...\n");
+  console.log(`[stripe-concurrency] Safe DB Target: ${SANITIZED_PG_URL}`);
 
   // Check if psql is available and database is reachable
   try {
@@ -91,11 +115,11 @@ async function runConcurrencyTest() {
     }
   } catch (err) {
     if (process.env.CI || process.env.GITHUB_ACTIONS) {
-      console.error(`[stripe-concurrency] FATAL: PostgreSQL is unreachable at ${PG_URL} in CI environment.`);
-      console.error(err);
+      console.error(`[stripe-concurrency] FATAL: PostgreSQL is unreachable in CI environment.`);
+      console.error(String(err.message || "").replace(/:\/\/[^:]+:[^@]+@/g, "://***:***@"));
       process.exit(1);
     }
-    console.log(`[stripe-concurrency] PostgreSQL is not reachable at ${PG_URL} (${err.message.trim()}).`);
+    console.log(`[stripe-concurrency] PostgreSQL is not reachable at ${SANITIZED_PG_URL}.`);
     console.log("[stripe-concurrency] Skipping live database concurrency test in environments without running Supabase container.");
     console.log("[stripe-concurrency] (This test executes fully in CI with live Supabase).\n");
     return;
@@ -106,16 +130,29 @@ async function runConcurrencyTest() {
   const testEventId = `evt_concurrency_${crypto.randomUUID().replace(/-/g, "")}`;
   const testEventMarch = `evt_concurrency_march_${crypto.randomUUID().replace(/-/g, "")}`;
   const testEventFeb = `evt_concurrency_feb_${crypto.randomUUID().replace(/-/g, "")}`;
-  const createdEventIds = [testEventId, testEventMarch, testEventFeb];
+  const testSubIdA = `sub_a_${crypto.randomUUID().replace(/-/g, "").slice(0, 14)}`;
+  const testSubIdB = `sub_b_${crypto.randomUUID().replace(/-/g, "").slice(0, 14)}`;
+  const testEventSubB = `evt_concurrency_sub_b_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventInvA = `evt_concurrency_inv_a_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventInvPaid = `evt_concurrency_inv_paid_${crypto.randomUUID().replace(/-/g, "")}`;
+
+  const createdEventIds = [
+    testEventId,
+    testEventMarch,
+    testEventFeb,
+    testEventSubB,
+    testEventInvA,
+    testEventInvPaid
+  ];
 
   console.log(`[stripe-concurrency] Test Company ID: ${testCompanyId}`);
-  console.log(`[stripe-concurrency] Test Event IDs: ${createdEventIds.join(", ")}`);
+  console.log(`[stripe-concurrency] Test Event IDs: ${createdEventIds.length} generated`);
 
-  // Create temporary test company
+  // Create temporary test company initialized to pilot
   query(`
-    INSERT INTO public.companies (id, name, status, plan_name, seat_limit, billing_status)
-    VALUES ('${testCompanyId}', 'Concurrency Test Pool Co', 'active', 'pilot', 2, 'active')
-    ON CONFLICT (id) DO UPDATE SET plan_name = 'pilot', billing_status = 'active';
+    INSERT INTO public.companies (id, name, status, plan_name, seat_limit, billing_status, stripe_subscription_id, billing_period_start)
+    VALUES ('${testCompanyId}', 'Concurrency Test Pool Co', 'active', 'pilot', 2, 'active', '${testSubIdA}', '2026-01-01T00:00:00Z')
+    ON CONFLICT (id) DO UPDATE SET plan_name = 'pilot', billing_status = 'active', stripe_subscription_id = '${testSubIdA}', billing_period_start = '2026-01-01T00:00:00Z';
   `);
 
   let session1 = null;
@@ -193,7 +230,8 @@ async function runConcurrencyTest() {
         '{"plan_name": "starter"}'::jsonb,
         NULL,
         NULL,
-        false
+        false,
+        NULL
       );
     `);
     const staleApplyRaw = await session1.waitForOutput();
@@ -243,7 +281,8 @@ async function runConcurrencyTest() {
         '{"plan_name": "fleet_complete", "billing_status": "active"}'::jsonb,
         '{"event_type": "stripe_customer.subscription.updated", "units": 1}'::jsonb,
         NULL,
-        false
+        false,
+        '{"subscription_id": "${testSubIdA}", "event_type": "customer.subscription.updated"}'::jsonb
       );
     `);
     const validApplyRaw = await session2.waitForOutput();
@@ -271,28 +310,28 @@ async function runConcurrencyTest() {
     console.log("PASS: Step 6 - Replay of processed event idempotently acknowledges duplicate.");
 
     // ---------------------------------------------------------------------------
-    // Step 7: Cross-Event Ordering Concurrency for Same Company (Migration 035)
-    // Two distinct event IDs (March and February) target the same company.
-    // When March is applied first, February must be safely ignored under the company row lock
-    // and must not overwrite the newer plan or billing period.
+    // Step 7a: True In-Transaction Company Row-Lock Contention (March vs February)
+    // Connection 1 begins transaction and calls pooldocai_apply_and_finalize_stripe_webhook,
+    // which acquires and holds the companies FOR UPDATE row lock.
+    // Connection 2 simultaneously calls finalize for February on the SAME company and BLOCKS.
+    // Connection 1 commits -> Connection 2 unblocks and is safely ignored due to stale period.
     // ---------------------------------------------------------------------------
-    console.log("Step 7: Testing cross-event ordering concurrency on the same company...");
+    console.log("Step 7a: Testing true in-transaction row-lock blocking on the company (March vs February)...");
 
     // Claim Event March on Connection 1
     session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventMarch}', 'customer.subscription.updated', 60, 5);`);
-    const claimMarchRaw = await session1.waitForOutput();
-    const claimMarch = JSON.parse(claimMarchRaw);
+    const claimMarch = JSON.parse(await session1.waitForOutput());
     assert.equal(claimMarch.status, "claimed");
     const tokenMarch = claimMarch.claim_token;
 
     // Claim Event February on Connection 2
     session2.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventFeb}', 'customer.subscription.updated', 60, 5);`);
-    const claimFebRaw = await session2.waitForOutput();
-    const claimFeb = JSON.parse(claimFebRaw);
+    const claimFeb = JSON.parse(await session2.waitForOutput());
     assert.equal(claimFeb.status, "claimed");
     const tokenFeb = claimFeb.claim_token;
 
-    // Connection 1 applies March update: plan pro_complete, billing_period_start: 2026-03-01T00:00:00Z
+    // Connection 1 begins open transaction and acquires the company row lock
+    session1.execute(`BEGIN;`);
     session1.execute(`
       SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
         '${testEventMarch}',
@@ -301,21 +340,15 @@ async function runConcurrencyTest() {
         '{"plan_name": "pro_complete", "billing_status": "active", "billing_period_start": "2026-03-01T00:00:00Z"}'::jsonb,
         '{"event_type": "stripe_customer.subscription.updated", "units": 1}'::jsonb,
         NULL,
-        false
+        false,
+        '{"subscription_id": "${testSubIdA}", "period_start": "2026-03-01T00:00:00Z", "event_type": "customer.subscription.updated"}'::jsonb
       );
     `);
-    const applyMarchRaw = await session1.waitForOutput();
-    const applyMarch = JSON.parse(applyMarchRaw);
+    const applyMarch = JSON.parse(await session1.waitForOutput());
     assert.equal(applyMarch.success, true);
-    assert.equal(applyMarch.status, "applied");
+    // Connection 1 is still in open transaction, holding the exclusive company row lock!
 
-    // Verify company is now pro_complete with March period start
-    const marchPlan = query(`SELECT plan_name FROM public.companies WHERE id = '${testCompanyId}';`);
-    assert.equal(marchPlan, "pro_complete");
-
-    // Connection 2 now attempts to apply February update: plan solo_tech, billing_period_start: 2026-02-01T00:00:00Z
-    // Under company row lock, pooldocai_apply_and_finalize_stripe_webhook compares 2026-02-01 against current 2026-03-01.
-    // It must detect stale period, finalize the event as ignored without mutating the company, and return status 'ignored'.
+    // Connection 2 now issues competing finalize RPC for February and BLOCKS on the company row lock
     session2.execute(`
       SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
         '${testEventFeb}',
@@ -324,33 +357,173 @@ async function runConcurrencyTest() {
         '{"plan_name": "solo_tech", "billing_status": "active", "billing_period_start": "2026-02-01T00:00:00Z"}'::jsonb,
         '{"event_type": "stripe_customer.subscription.updated", "units": 1}'::jsonb,
         NULL,
-        false
+        false,
+        '{"subscription_id": "${testSubIdA}", "period_start": "2026-02-01T00:00:00Z", "event_type": "customer.subscription.updated"}'::jsonb
       );
     `);
+
+    // Prove Connection 2 is blocked waiting on Connection 1
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(session2.hasOutput(), false, "Connection 2 MUST block on the locked company row");
+
+    // Connection 1 commits, releasing the company row lock
+    session1.execute(`COMMIT;`);
+
+    // Connection 2 unblocks immediately upon Connection 1's commit
     const applyFebRaw = await session2.waitForOutput();
     const applyFeb = JSON.parse(applyFebRaw);
 
-    assert.equal(applyFeb.success, true, "February finalization must succeed so Stripe does not loop");
-    assert.equal(applyFeb.status, "ignored", "February must be ignored due to stale period start");
-    assert.equal(applyFeb.reason, "stale_out_of_order_event", "Reason must be stale_out_of_order_event");
+    assert.equal(applyFeb.success, true);
+    assert.equal(applyFeb.status, "ignored", "February must be safely marked ignored");
+    assert.equal(applyFeb.reason, "stale_out_of_order_event");
 
-    // Verify company row remains untouched by February event
-    const companyAfterFeb = query(`SELECT plan_name, billing_period_start FROM public.companies WHERE id = '${testCompanyId}';`);
-    assert.ok(companyAfterFeb.includes("pro_complete"), "Company plan must remain pro_complete");
-    assert.ok(companyAfterFeb.includes("2026-03-01"), "Company billing period must remain March");
+    const planAfter7a = query(`SELECT plan_name, billing_period_start FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(planAfter7a.includes("pro_complete"), "Company plan must remain pro_complete");
+    assert.ok(planAfter7a.includes("2026-03-01"), "Billing period must remain March");
+    console.log("PASS: Step 7a - Deterministic in-transaction row lock verified; February blocked and was safely ignored.");
 
-    // Verify February event is marked processed in webhook ledger
-    const febProcessed = query(`SELECT processed FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id = '${testEventFeb}';`);
-    assert.equal(febProcessed, "t", "February event must be marked processed in ledger");
+    // ---------------------------------------------------------------------------
+    // Step 7b: Contention: Old Subscription Invoice vs Replacement Subscription (P1 Bug)
+    // Connection 1 applies replacement Subscription B with period 2026-03-15 and holds company lock.
+    // Connection 2 simultaneously attempts to apply old Invoice A (payment_failed) for Subscription A.
+    // Connection 2 blocks waiting on company lock. Connection 1 commits.
+    // Connection 2 unblocks: Migration 036 detects sub_A != sub_B and safely ignores Invoice A.
+    // ---------------------------------------------------------------------------
+    console.log("Step 7b: Testing contention between replacement subscription B and stale invoice on subscription A...");
 
-    console.log("PASS: Step 7 - Cross-event ordering guard correctly ignored stale February event and preserved March billing state.");
+    // Claim replacement Subscription B on Connection 1
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventSubB}', 'customer.subscription.updated', 60, 5);`);
+    const claimSubB = JSON.parse(await session1.waitForOutput());
+    assert.equal(claimSubB.status, "claimed");
+    const tokenSubB = claimSubB.claim_token;
+
+    // Claim old Invoice A on Connection 2
+    session2.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventInvA}', 'invoice.payment_failed', 60, 5);`);
+    const claimInvA = JSON.parse(await session2.waitForOutput());
+    assert.equal(claimInvA.status, "claimed");
+    const tokenInvA = claimInvA.claim_token;
+
+    // Connection 1 begins transaction and applies Subscription B (enterprise, active, period 2026-03-15)
+    session1.execute(`BEGIN;`);
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventSubB}',
+        '${tokenSubB}',
+        '${testCompanyId}'::uuid,
+        '{"stripe_subscription_id": "${testSubIdB}", "plan_name": "enterprise", "billing_status": "active", "billing_period_start": "2026-03-15T00:00:00Z"}'::jsonb,
+        '{"event_type": "stripe_customer.subscription.updated", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdB}", "period_start": "2026-03-15T00:00:00Z", "event_type": "customer.subscription.updated"}'::jsonb
+      );
+    `);
+    const applySubB = JSON.parse(await session1.waitForOutput());
+    assert.equal(applySubB.success, true);
+
+    // Connection 2 attempts to apply Invoice A (payment_failed) which only has billing_status: past_due in company updates,
+    // but carries subscription_id: sub_A in its event provenance.
+    session2.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventInvA}',
+        '${tokenInvA}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        '{"event_type": "stripe_invoice.payment_failed", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdA}", "period_start": "2026-02-15T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+      );
+    `);
+
+    // Verify Connection 2 blocks on the locked company row
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(session2.hasOutput(), false, "Connection 2 must block on company row lock during invoice application");
+
+    // Connection 1 commits Subscription B
+    session1.execute(`COMMIT;`);
+
+    // Connection 2 unblocks
+    const applyInvARaw = await session2.waitForOutput();
+    const applyInvA = JSON.parse(applyInvARaw);
+
+    assert.equal(applyInvA.success, true);
+    assert.equal(applyInvA.status, "ignored", "Old subscription invoice must be safely ignored");
+    assert.equal(applyInvA.reason, "stale_old_subscription_invoice");
+
+    // Verify company remains Enterprise, Active, and on Subscription B!
+    const coState7b = query(`SELECT stripe_subscription_id, plan_name, billing_status FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(coState7b.includes(testSubIdB), "Company must remain on subscription B");
+    assert.ok(coState7b.includes("enterprise"), "Company must remain enterprise");
+    assert.ok(coState7b.includes("active"), "Company MUST NOT be flipped to past_due by old subscription invoice");
+    console.log("PASS: Step 7b - Old subscription invoice safely blocked and ignored; new subscription remained active.");
+
+    // ---------------------------------------------------------------------------
+    // Step 7c: Reverse Ordering & Legitimate Resubscription
+    // Test that legitimate replacement subscription overrides a prior past_due status.
+    // ---------------------------------------------------------------------------
+    console.log("Step 7c: Testing reverse ordering and legitimate replacement recovery...");
+    // Manually mark company past_due as if an invoice failed while sub A was active
+    query(`UPDATE public.companies SET billing_status = 'past_due', stripe_subscription_id = '${testSubIdA}' WHERE id = '${testCompanyId}';`);
+
+    const testEventSubRecover = `evt_recover_${crypto.randomUUID().replace(/-/g, "")}`;
+    createdEventIds.push(testEventSubRecover);
+
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventSubRecover}', 'customer.subscription.updated', 60, 5);`);
+    const claimRecover = JSON.parse(await session1.waitForOutput());
+    assert.equal(claimRecover.status, "claimed");
+
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventSubRecover}',
+        '${claimRecover.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"stripe_subscription_id": "${testSubIdB}", "plan_name": "enterprise", "billing_status": "active", "billing_period_start": "2026-04-01T00:00:00Z"}'::jsonb,
+        NULL,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdB}", "period_start": "2026-04-01T00:00:00Z", "event_type": "customer.subscription.updated"}'::jsonb
+      );
+    `);
+    const applyRecover = JSON.parse(await session1.waitForOutput());
+    assert.equal(applyRecover.success, true);
+    assert.equal(applyRecover.status, "applied");
+
+    const coStateRecover = query(`SELECT stripe_subscription_id, billing_status FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(coStateRecover.includes(testSubIdB));
+    assert.ok(coStateRecover.includes("active"), "Legitimate replacement subscription restored active status");
+    console.log("PASS: Step 7c - Replacement subscription cleanly recovered past_due tenant to active.");
+
+    // ---------------------------------------------------------------------------
+    // Step 7d: Successful Paid Invoice on Current Active Subscription
+    // ---------------------------------------------------------------------------
+    console.log("Step 7d: Verifying successful paid invoice on current subscription applies cleanly...");
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventInvPaid}', 'invoice.payment_succeeded', 60, 5);`);
+    const claimPaid = JSON.parse(await session1.waitForOutput());
+    assert.equal(claimPaid.status, "claimed");
+
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventInvPaid}',
+        '${claimPaid.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "active"}'::jsonb,
+        '{"event_type": "stripe_invoice.payment_succeeded", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdB}", "period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_succeeded"}'::jsonb
+      );
+    `);
+    const applyPaid = JSON.parse(await session1.waitForOutput());
+    assert.equal(applyPaid.success, true);
+    assert.equal(applyPaid.status, "applied");
+    console.log("PASS: Step 7d - Paid invoice on current active subscription applied cleanly.");
 
     console.log("\nALL REAL TWO-CONNECTION POSTGRESQL CONCURRENCY TESTS PASSED SUCCESSFULLY.");
   } finally {
     if (session1) session1.close();
     if (session2) session2.close();
 
-    // Tear down test fixtures explicitly without wildcards
+    // Explicit fixture teardown
     try {
       const eventList = createdEventIds.map(id => `'${id}'`).join(",");
       query(`DELETE FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id IN (${eventList});`);

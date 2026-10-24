@@ -218,13 +218,19 @@ DECLARE
   v_test_event_stale text := 'evt_ci_stale_' || md5(clock_timestamp()::text || random()::text);
   v_claim_stale jsonb;
   v_res_stale jsonb;
+  v_test_event_inv_a text := 'evt_ci_inv_a_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_inv_bad text := 'evt_ci_inv_bad_' || md5(clock_timestamp()::text || random()::text);
+  v_claim_inv_a jsonb;
+  v_claim_inv_bad jsonb;
+  v_res_inv_a jsonb;
+  v_res_inv_bad jsonb;
   v_company_rec record;
 BEGIN
   -- 1. Routine existence checks
   IF to_regprocedure('public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)') IS NULL THEN
     RAISE EXCEPTION 'atomic pooldocai_claim_stripe_webhook_event function is missing';
   END IF;
-  IF to_regprocedure('public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean)') IS NULL THEN
+  IF to_regprocedure('public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'atomic pooldocai_apply_and_finalize_stripe_webhook function is missing';
   END IF;
   IF to_regprocedure('public.pooldocai_release_stripe_webhook_event(text,text,text)') IS NULL THEN
@@ -236,8 +242,8 @@ BEGIN
      OR has_function_privilege('authenticated','public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)','execute') THEN
     RAISE EXCEPTION 'atomic webhook claim function must not be callable by public/anon/authenticated roles';
   END IF;
-  IF has_function_privilege('anon','public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean)','execute')
-     OR has_function_privilege('authenticated','public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean)','execute') THEN
+  IF has_function_privilege('anon','public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean,jsonb)','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean,jsonb)','execute') THEN
     RAISE EXCEPTION 'webhook apply and finalize function must not be callable by public/anon/authenticated roles';
   END IF;
   IF has_function_privilege('anon','public.pooldocai_release_stripe_webhook_event(text,text,text)','execute')
@@ -366,6 +372,60 @@ BEGIN
   SELECT plan_name, billing_period_start INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
   IF v_company_rec.plan_name <> 'pro_complete' OR v_company_rec.billing_period_start <> '2026-03-01 00:00:00+00'::timestamptz THEN
     RAISE EXCEPTION 'Company state was corrupted by stale out-of-order event: %', v_company_rec;
+  END IF;
+
+  -- 16. Migration 036: Event provenance validation and old invoice protection against replacement subscription
+  UPDATE public.companies
+  SET stripe_subscription_id = 'sub_replacement_b',
+      plan_name = 'enterprise',
+      billing_status = 'active',
+      billing_period_start = '2026-03-15T00:00:00Z'
+  WHERE id = v_test_company_id;
+
+  v_claim_inv_a := public.pooldocai_claim_stripe_webhook_event(v_test_event_inv_a, 'invoice.payment_failed', 60, 5);
+  IF (v_claim_inv_a->>'status') <> 'claimed' THEN
+    RAISE EXCEPTION 'Claim for invoice test event failed: %', v_claim_inv_a;
+  END IF;
+
+  -- Attempt to apply old failed invoice belonging to superseded sub_initial_a
+  v_res_inv_a := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_inv_a,
+    v_claim_inv_a->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_initial_a", "period_start": "2026-02-15T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+  );
+
+  IF (v_res_inv_a->>'success')::boolean <> true
+     OR (v_res_inv_a->>'status') <> 'ignored'
+     OR (v_res_inv_a->>'reason') <> 'stale_old_subscription_invoice' THEN
+    RAISE EXCEPTION 'Old subscription invoice was not safely ignored: %', v_res_inv_a;
+  END IF;
+
+  SELECT billing_status, stripe_subscription_id INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' OR v_company_rec.stripe_subscription_id <> 'sub_replacement_b' THEN
+    RAISE EXCEPTION 'Old subscription invoice corrupted active replacement subscription: %', v_company_rec;
+  END IF;
+
+  -- Verify missing invoice provenance on tenant with active subscription fails closed
+  v_claim_inv_bad := public.pooldocai_claim_stripe_webhook_event(v_test_event_inv_bad, 'invoice.payment_failed', 60, 5);
+  v_res_inv_bad := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_inv_bad,
+    v_claim_inv_bad->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"event_type": "invoice.payment_failed"}'::jsonb -- missing subscription_id and period_start
+  );
+
+  IF (v_res_inv_bad->>'success')::boolean <> false
+     OR (v_res_inv_bad->>'status') <> 'missing_invoice_provenance' THEN
+    RAISE EXCEPTION 'Invoice with missing provenance did not fail closed: %', v_res_inv_bad;
   END IF;
 
   -- Clean up test company and test events

@@ -21,7 +21,7 @@ function stripTypeScript(ts) {
     .replace(/:\s*number\b/g, "")
     .replace(/:\s*boolean\b/g, "")
     .replace(/:\s*unknown\b/g, "")
-    .replace(/:\s*Record<[^>]+>/g, "")
+    .replace(/:\s*Record<[^>]+>\s*\|\s*null/g, "").replace(/:\s*Record<[^>]+>/g, "")
     .replace(/:\s*Promise<[^>]+>/g, "")
     .replace(/as\s+Record<string,\s*any>/g, "")
     .replace(/as\s+any/g, "")
@@ -240,22 +240,37 @@ function createHarness(options = {}) {
               return Promise.resolve({ data: { success: false, status: "company_not_found", error: "Company not found" }, error: null });
             }
 
-            // Migration 035 database-side conditional ordering guard under company lock
-            const incomingPeriod = companyUpdates.billing_period_start;
+            // Migration 036 event provenance and authoritative company row-lock validation
+            const prov = params.p_event_provenance || {};
+            const provSubId = prov.subscription_id || companyUpdates.stripe_subscription_id;
+            const provPeriod = prov.period_start || companyUpdates.billing_period_start;
+            const provEventType = prov.event_type || row.event_type;
             const currentPeriod = company.billing_period_start;
-            const isStalePeriod = Boolean(incomingPeriod && currentPeriod && new Date(incomingPeriod).getTime() < new Date(currentPeriod).getTime());
-
-            const incomingSubId = companyUpdates.stripe_subscription_id;
             const currentSubId = company.stripe_subscription_id;
+
+            // Fail-closed provenance check: invoice mutations on tenants with active subscriptions MUST include provenance
+            if (provEventType.startsWith("invoice.") && companyUpdates.billing_status && currentSubId && !provSubId && !provPeriod) {
+              return Promise.resolve({
+                data: {
+                  success: false,
+                  status: "missing_invoice_provenance",
+                  error: "Invoice event lacks subscription and period provenance required for tenant billing mutation"
+                },
+                error: null
+              });
+            }
+
+            const isStalePeriod = Boolean(provPeriod && currentPeriod && new Date(provPeriod).getTime() < new Date(currentPeriod).getTime());
+
             const isOldSub = Boolean(
-              currentSubId && incomingSubId && incomingSubId !== currentSubId &&
+              currentSubId && provSubId && provSubId !== currentSubId &&
               (
-                row.event_type === "customer.subscription.deleted" ||
-                row.event_type.startsWith("invoice.") ||
+                provEventType.startsWith("invoice.") ||
+                provEventType === "customer.subscription.deleted" ||
                 companyUpdates.status === "cancelled" ||
                 companyUpdates.billing_status === "cancelled" ||
-                !incomingPeriod || !currentPeriod ||
-                new Date(incomingPeriod).getTime() <= new Date(currentPeriod).getTime()
+                !provPeriod || !currentPeriod ||
+                new Date(provPeriod).getTime() <= new Date(currentPeriod).getTime()
               )
             );
 
@@ -600,7 +615,7 @@ async function runExecutableWebhookTests() {
   // Test 7: Payment Failure and Recovery
   {
     // Payment failure -> past_due
-    const failPayload = JSON.stringify({ id: "evt_pay_failed", type: "invoice.payment_failed", data: { object: { customer: "cus_sim_123" } } });
+    const failPayload = JSON.stringify({ id: "evt_pay_failed", type: "invoice.payment_failed", data: { object: { customer: "cus_sim_123", subscription: "sub_resub_fleet" } } });
     const sigFail = signPayload(failPayload, WEBHOOK_SECRET);
     await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
       method: "POST", headers: { "stripe-signature": sigFail.header }, body: failPayload
@@ -608,7 +623,7 @@ async function runExecutableWebhookTests() {
     assert.equal(harness.tables.companies.get(companyId).billing_status, "past_due");
 
     // Payment recovery -> active
-    const recPayload = JSON.stringify({ id: "evt_pay_recovered", type: "invoice.payment_succeeded", data: { object: { customer: "cus_sim_123" } } });
+    const recPayload = JSON.stringify({ id: "evt_pay_recovered", type: "invoice.payment_succeeded", data: { object: { customer: "cus_sim_123", subscription: "sub_resub_fleet" } } });
     const sigRec = signPayload(recPayload, WEBHOOK_SECRET);
     await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
       method: "POST", headers: { "stripe-signature": sigRec.header }, body: recPayload
@@ -1237,6 +1252,146 @@ async function runExecutableWebhookTests() {
     const coAfterApr = harness21.tables.companies.get(testCoId);
     assert.equal(coAfterApr.plan_name, "enterprise");
     assert.equal(new Date(coAfterApr.billing_period_start).getTime(), new Date("2026-04-01T00:00:00Z").getTime());
+  }
+
+  // Test 22: Old Subscription Invoice vs Replacement Subscription (Migration 036 Provenance Guard)
+  {
+    const harness22 = createHarness();
+    const testCoId = "comp_provenance_test_22";
+    harness22.tables.companies.set(testCoId, {
+      id: testCoId,
+      name: "Provenance Test Pool Co",
+      status: "active",
+      billing_status: "active",
+      plan_name: "pro_complete",
+      seat_limit: 5,
+      stripe_customer_id: "cus_prov_22",
+      billing_customer_ref: "cus_prov_22",
+      stripe_subscription_id: "sub_initial_a",
+      billing_period_start: "2026-03-01T00:00:00.000Z"
+    });
+
+    // 22a: Replacement Subscription B arrives and applies
+    const subBEpoch = Math.floor(new Date("2026-03-15T00:00:00Z").getTime() / 1000);
+    const subBPayload = JSON.stringify({
+      id: "evt_sub_b_replacement",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_replacement_b",
+          customer: "cus_prov_22",
+          status: "active",
+          current_period_start: subBEpoch,
+          current_period_end: subBEpoch + 2592000,
+          items: {
+            data: [{ price: "price_enterprise_123", quantity: 1 }]
+          },
+          metadata: { pooldocai_company_id: testCoId }
+        }
+      }
+    });
+    const sigSubB = signPayload(subBPayload);
+    const reqSubB = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigSubB.header },
+      body: subBPayload
+    });
+    const resSubB = await harness22.executeWebhook(reqSubB);
+    assert.equal(resSubB.status, 200);
+    assert.equal(resSubB.body.processed, true);
+
+    const coAfterSubB = harness22.tables.companies.get(testCoId);
+    assert.equal(coAfterSubB.stripe_subscription_id, "sub_replacement_b");
+    assert.equal(coAfterSubB.plan_name, "enterprise");
+    assert.equal(coAfterSubB.billing_status, "active");
+
+    // 22b: Stale invoice.payment_failed for old subscription sub_initial_a arrives
+    // It has customer cus_prov_22, subscription sub_initial_a, period 2026-02-15
+    const invAEpoch = Math.floor(new Date("2026-02-15T00:00:00Z").getTime() / 1000);
+    const invAPayload = JSON.stringify({
+      id: "evt_inv_a_failed",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_old_sub_a_fail",
+          customer: "cus_prov_22",
+          subscription: "sub_initial_a",
+          period_start: invAEpoch,
+          period_end: invAEpoch + 2592000,
+          lines: {
+            data: [{ period: { start: invAEpoch, end: invAEpoch + 2592000 } }]
+          }
+        }
+      }
+    });
+    const sigInvA = signPayload(invAPayload);
+    const reqInvA = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigInvA.header },
+      body: invAPayload
+    });
+    const resInvA = await harness22.executeWebhook(reqInvA);
+    assert.equal(resInvA.status, 200, "Old invoice must return 200 so Stripe does not retry indefinitely");
+    assert.equal(resInvA.body.ok, true);
+    assert.equal(resInvA.body.ignored, true);
+    assert.equal(resInvA.body.reason, "stale_old_subscription_invoice");
+
+    // CRITICAL: Prove company was NOT flipped to past_due and subscription B was NOT overwritten!
+    const coAfterInvA = harness22.tables.companies.get(testCoId);
+    assert.equal(coAfterInvA.stripe_subscription_id, "sub_replacement_b", "Must NOT overwrite active subscription ID");
+    assert.equal(coAfterInvA.plan_name, "enterprise", "Must remain enterprise");
+    assert.equal(coAfterInvA.billing_status, "active", "Must NOT be downgraded to past_due by old subscription invoice");
+
+    // 22c: Legitimate invoice.payment_succeeded on active subscription B applies cleanly
+    const invBEpoch = Math.floor(new Date("2026-03-15T00:00:00Z").getTime() / 1000);
+    const invBPayload = JSON.stringify({
+      id: "evt_inv_b_succeeded",
+      type: "invoice.payment_succeeded",
+      data: {
+        object: {
+          id: "in_sub_b_paid",
+          customer: "cus_prov_22",
+          subscription: "sub_replacement_b",
+          period_start: invBEpoch,
+          period_end: invBEpoch + 2592000
+        }
+      }
+    });
+    const sigInvB = signPayload(invBPayload);
+    const reqInvB = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigInvB.header },
+      body: invBPayload
+    });
+    const resInvB = await harness22.executeWebhook(reqInvB);
+    assert.equal(resInvB.status, 200);
+    assert.equal(resInvB.body.processed, true);
+    assert.equal(harness22.tables.companies.get(testCoId).billing_status, "active");
+
+    // 22d: Missing provenance on invoice for tenant with active subscription fails closed
+    const badInv = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_missing_prov",
+      p_claim_token: "claim_test_123",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "past_due" },
+      p_event_provenance: { event_type: "invoice.payment_failed" } // lacks subscription_id and period_start
+    });
+    // Claim row first so fencing passes
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_missing_prov", {
+      stripe_event_id: "evt_missing_prov",
+      event_type: "invoice.payment_failed",
+      processed: false,
+      claim_token: "claim_test_123"
+    });
+    const badInvRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_missing_prov",
+      p_claim_token: "claim_test_123",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "past_due" },
+      p_event_provenance: { event_type: "invoice.payment_failed" } // lacks subscription_id and period_start
+    });
+    assert.equal(badInvRes.data.success, false);
+    assert.equal(badInvRes.data.status, "missing_invoice_provenance");
   }
 
   console.log("PASS: Executable Stripe webhook event ordering, idempotency, signature, and replay test suite passed.");
