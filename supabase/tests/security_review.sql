@@ -716,9 +716,15 @@ DECLARE
   v_chk_disabled uuid := gen_random_uuid();
   v_chk_pending uuid := gen_random_uuid();
   v_chk_b uuid := gen_random_uuid();
+  v_user_id uuid := gen_random_uuid();
   v_rec record;
   v_cnt integer := 0;
 BEGIN
+  -- Ensure test user exists for rights attestation foreign key
+  INSERT INTO auth.users (id, email, aud, role)
+  VALUES (v_user_id, 'ci-part7@example.com', 'authenticated', 'authenticated')
+  ON CONFLICT (id) DO NOTHING;
+
   -- Ensure 'pool' industry module is active
   INSERT INTO public.industry_modules (industry_key, display_name, status)
   VALUES ('pool', 'Pool Industry', 'active')
@@ -739,7 +745,7 @@ BEGIN
   VALUES (
     v_man_a1, v_co_a, 'Pentair IntelliFlo VSF Manual', 'path/a1', 'manual', true, 'ready',
     'pentair', 'intelliflo_vsf', 'pump', 'pool',
-    now(), gen_random_uuid(), 'company_private'
+    now(), v_user_id, 'company_private'
   );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
@@ -754,7 +760,7 @@ BEGIN
   VALUES (
     v_man_a2, v_co_a, 'Hayward Universal H-Series Heater Manual', 'path/a2', 'manual', true, 'ready',
     'hayward', 'h_series', 'heater', 'pool',
-    now(), gen_random_uuid(), 'company_private'
+    now(), v_user_id, 'company_private'
   );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
@@ -769,7 +775,7 @@ BEGIN
   VALUES (
     v_man_disabled, v_co_a, 'Disabled IntelliFlo Reference', 'path/dis', 'manual', false, 'ready',
     'pentair', 'intelliflo_vsf', 'pump', 'pool',
-    now(), gen_random_uuid(), 'company_private'
+    now(), v_user_id, 'company_private'
   );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
@@ -784,7 +790,7 @@ BEGIN
   VALUES (
     v_man_pending, v_co_a, 'Pending IntelliFlo Reference', 'path/pend', 'manual', true, 'queued',
     'pentair', 'intelliflo_vsf', 'pump', 'pool',
-    now(), gen_random_uuid(), 'company_private'
+    now(), v_user_id, 'company_private'
   );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
@@ -799,7 +805,7 @@ BEGIN
   VALUES (
     v_man_b, v_co_b, 'Tenant B Pentair IntelliFlo Manual', 'path/b', 'manual', true, 'ready',
     'pentair', 'intelliflo_vsf', 'pump', 'pool',
-    now(), gen_random_uuid(), 'company_private'
+    now(), v_user_id, 'company_private'
   );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
@@ -863,4 +869,5 @@ BEGIN
   DELETE FROM public.company_manual_chunks WHERE id IN (v_chk_a1, v_chk_a2, v_chk_disabled, v_chk_pending, v_chk_b);
   DELETE FROM public.company_manuals WHERE id IN (v_man_a1, v_man_a2, v_man_disabled, v_man_pending, v_man_b);
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
+  DELETE FROM auth.users WHERE id = v_user_id;
 END $$;
