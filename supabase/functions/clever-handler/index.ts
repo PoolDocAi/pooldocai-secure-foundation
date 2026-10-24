@@ -1195,8 +1195,12 @@ function verifyInternalCitation(
     // Conjunction Check 2: Equipment make & model match
     const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
     const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
+    const rowCategory = String(row.category ?? row.equipment_category ?? "").toLowerCase();
+    const isWaterQualitySOP = rowCategory.includes("water") || rowCategory.includes("care") || rowCategory.includes("sop");
     if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
     if (desiredModel && rowModel && rowModel !== desiredModel) return false;
+    if (desiredModel && !rowModel && !isWaterQualitySOP) return false;
+    if (desiredBrand && !rowBrand && !isWaterQualitySOP) return false;
 
     // Conjunction Check 3: Procedure text present & symptom match
     const proc = getProcedureText(row).trim();
@@ -2953,9 +2957,15 @@ Deno.serve(async (req: Request) => {
           company_manual_source: true,
           active: r.active !== false && r.is_active !== false,
           reference_enabled: r.reference_enabled !== false,
-          status: String(r.status || "ready").toLowerCase(),
+          status: String(r.extraction_status || r.status || "ready").toLowerCase(),
         }))
-        .filter((r: AnyRecord) => r.active && r.reference_enabled && r.status !== "quarantined" && r.status !== "revoked" && r.status !== "disabled" && r.status !== "failed");
+        .filter((r: AnyRecord) => {
+          if (r.active === false || r.is_active === false) return false;
+          if (r.reference_enabled === false) return false;
+          const st = String(r.status || "").toLowerCase();
+          if (st === "quarantined" || st === "revoked" || st === "disabled" || st === "failed" || st === "queued" || st === "processing") return false;
+          return true;
+        });
       kbRows = [...companyManualRows, ...kbRows];
     } catch (error) { console.warn("Company document retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
   }

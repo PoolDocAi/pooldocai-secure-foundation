@@ -700,3 +700,127 @@ BEGIN
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
   DELETE FROM auth.users WHERE id = v_admin_id;
 END $$;
+
+-- 8. TEST TASK-005 PART-7: Company Manual Search RPCs Metadata & Isolation Contract
+DO $$
+DECLARE
+  v_co_a uuid := gen_random_uuid();
+  v_co_b uuid := gen_random_uuid();
+  v_man_a1 uuid := gen_random_uuid();
+  v_man_a2 uuid := gen_random_uuid();
+  v_man_disabled uuid := gen_random_uuid();
+  v_man_pending uuid := gen_random_uuid();
+  v_man_b uuid := gen_random_uuid();
+  v_chk_a1 uuid := gen_random_uuid();
+  v_chk_a2 uuid := gen_random_uuid();
+  v_chk_disabled uuid := gen_random_uuid();
+  v_chk_pending uuid := gen_random_uuid();
+  v_chk_b uuid := gen_random_uuid();
+  v_rec record;
+  v_cnt integer := 0;
+BEGIN
+  -- Insert companies
+  INSERT INTO public.companies (id, name, industry_key, status)
+  VALUES
+    (v_co_a, 'Tenant Alpha Part7', 'pool', 'active'),
+    (v_co_b, 'Tenant Beta Part7', 'pool', 'active');
+
+  -- Ensure 'pool' industry module is active
+  INSERT INTO public.industry_modules (industry_key, name, status)
+  VALUES ('pool', 'Pool Industry', 'active')
+  ON CONFLICT (industry_key) DO UPDATE SET status = 'active';
+
+  -- 1. Tenant A: Pentair IntelliFlo (enabled, ready)
+  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
+  VALUES (v_man_a1, v_co_a, 'Pentair IntelliFlo VSF Manual', 'path/a1', 'manual', true, 'ready', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+
+  INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
+  VALUES (v_chk_a1, v_co_a, v_man_a1, 0, 'IntelliFlo Troubleshooting', 'Pentair IntelliFlo VSF variable speed pump drive electronics and motor keypad display blank troubleshooting.', 'pool');
+
+  -- 2. Tenant A: Hayward H-Series (enabled, ready, different equipment family)
+  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
+  VALUES (v_man_a2, v_co_a, 'Hayward Universal H-Series Heater Manual', 'path/a2', 'manual', true, 'ready', 'hayward', 'h_series', 'heater', 'pool');
+
+  INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
+  VALUES (v_chk_a2, v_co_a, v_man_a2, 0, 'H-Series Heater Lockout', 'Hayward Universal H-Series gas heater ignition lockout IF code displayed and blower vacuum switch.', 'pool');
+
+  -- 3. Tenant A: Disabled reference manual (reference_enabled = false)
+  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
+  VALUES (v_man_disabled, v_co_a, 'Disabled IntelliFlo Reference', 'path/dis', 'manual', false, 'ready', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+
+  INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
+  VALUES (v_chk_disabled, v_co_a, v_man_disabled, 0, 'Disabled Chunk', 'Pentair IntelliFlo VSF disabled reference chunk should never appear in search results.', 'pool');
+
+  -- 4. Tenant A: Pending extraction status (extraction_status = 'queued')
+  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
+  VALUES (v_man_pending, v_co_a, 'Pending IntelliFlo Reference', 'path/pend', 'manual', true, 'queued', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+
+  INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
+  VALUES (v_chk_pending, v_co_a, v_man_pending, 0, 'Pending Chunk', 'Pentair IntelliFlo VSF pending extraction chunk should never appear in search results.', 'pool');
+
+  -- 5. Tenant B: Private Pentair Manual (Tenant B only)
+  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
+  VALUES (v_man_b, v_co_b, 'Tenant B Pentair IntelliFlo Manual', 'path/b', 'manual', true, 'ready', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+
+  INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
+  VALUES (v_chk_b, v_co_b, v_man_b, 0, 'Tenant B Chunk', 'Pentair IntelliFlo VSF private manual belonging strictly to Tenant B.', 'pool');
+
+  -- TEST A: search_company_manual_chunks (Keyword fallback RPC)
+  v_cnt := 0;
+  FOR v_rec IN SELECT * FROM public.search_company_manual_chunks(v_co_a, 'IntelliFlo', 10) LOOP
+    v_cnt := v_cnt + 1;
+    -- Must only return Tenant A IntelliFlo enabled ready chunk
+    IF v_rec.id <> v_chk_a1 THEN
+      RAISE EXCEPTION 'search_company_manual_chunks returned unexpected chunk ID: % (manual_id: %)', v_rec.id, v_rec.manual_id;
+    END IF;
+    -- Verify metadata columns are populated accurately
+    IF v_rec.manufacturer_normalized <> 'pentair'
+       OR v_rec.model_normalized <> 'intelliflo_vsf'
+       OR v_rec.equipment_category <> 'pump'
+       OR v_rec.reference_enabled <> true
+       OR v_rec.extraction_status <> 'ready'
+       OR v_rec.retrieval_method <> 'keyword' THEN
+      RAISE EXCEPTION 'search_company_manual_chunks returned corrupt metadata contract: %', row_to_json(v_rec);
+    END IF;
+  END LOOP;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'search_company_manual_chunks expected exactly 1 match for Tenant A IntelliFlo, got %', v_cnt;
+  END IF;
+
+  -- TEST B: search_company_manual_chunks_hybrid
+  v_cnt := 0;
+  FOR v_rec IN SELECT * FROM public.search_company_manual_chunks_hybrid(v_co_a, 'IntelliFlo', NULL, 10) LOOP
+    v_cnt := v_cnt + 1;
+    IF v_rec.id <> v_chk_a1 THEN
+      RAISE EXCEPTION 'search_company_manual_chunks_hybrid returned unexpected chunk ID: %', v_rec.id;
+    END IF;
+    IF v_rec.manufacturer_normalized <> 'pentair'
+       OR v_rec.model_normalized <> 'intelliflo_vsf'
+       OR v_rec.equipment_category <> 'pump'
+       OR v_rec.reference_enabled <> true
+       OR v_rec.extraction_status <> 'ready' THEN
+      RAISE EXCEPTION 'search_company_manual_chunks_hybrid returned corrupt metadata contract: %', row_to_json(v_rec);
+    END IF;
+  END LOOP;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'search_company_manual_chunks_hybrid expected exactly 1 match for Tenant A IntelliFlo, got %', v_cnt;
+  END IF;
+
+  -- TEST C: Multi-tenant isolation - Tenant B queries IntelliFlo
+  v_cnt := 0;
+  FOR v_rec IN SELECT * FROM public.search_company_manual_chunks_hybrid(v_co_b, 'IntelliFlo', NULL, 10) LOOP
+    v_cnt := v_cnt + 1;
+    -- Must only see Tenant B chunk
+    IF v_rec.id <> v_chk_b THEN
+      RAISE EXCEPTION 'Cross-tenant leak: Tenant B search returned chunk from another tenant: %', v_rec.id;
+    END IF;
+  END LOOP;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Tenant B search expected exactly 1 match, got %', v_cnt;
+  END IF;
+
+  -- Cleanup Part-7 test data
+  DELETE FROM public.company_manual_chunks WHERE id IN (v_chk_a1, v_chk_a2, v_chk_disabled, v_chk_pending, v_chk_b);
+  DELETE FROM public.company_manuals WHERE id IN (v_man_a1, v_man_a2, v_man_disabled, v_man_pending, v_man_b);
+  DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
+END $$;

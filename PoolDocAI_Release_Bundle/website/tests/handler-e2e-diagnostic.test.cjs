@@ -138,6 +138,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
           return {
             data: [{
               id: "chunk_pentair_a_1",
+              manual_id: "man_pentair_a",
               title: "Pentair IntelliFlo VSF Troubleshooting",
               source_url: null,
               page_number: 14,
@@ -149,9 +150,8 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
               equipment_category: "pump",
               manufacturer_normalized: "pentair",
               model_normalized: "intelliflo_vsf",
-              active: true,
               reference_enabled: true,
-              status: "ready",
+              extraction_status: "ready",
               content_text: "Pentair IntelliFlo VSF Pump Display Inactive: If the pump will not start and the keypad display is blank or dead, inspect drive electronics and AC line voltage input to verify 240VAC power supply. Check the main circuit breaker. Ensure all wiring terminals are secure."
             }],
             error: null
@@ -560,6 +560,67 @@ async function runIntegrationTests() {
     assert.equal(json.knowledgeDiagnostics.sourceVerifiedAnswer, false, "Revoked manual must fail verification");
 
     console.log("PASS: Test 6 - Revoked/disabled manual is properly projected, rejected, and cannot verify citations.");
+  }
+
+  // TEST 7: Same-tenant mismatched equipment model cannot verify citation & triggers fallback search
+  {
+    geminiCalls.length = 0;
+    mockGeminiResponses = [
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "internal_manual",
+          source_id: "chunk_pentair_a_1",
+          source_title: "Pentair IntelliFlo VSF Troubleshooting",
+          page_number: 14,
+          step_instructions: "Inspect drive electronics and AC line voltage input to verify 240VAC power supply.",
+          safety_warning: "Turn off main breaker."
+        })
+      }),
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "manufacturer_web",
+          step_instructions: "Inspect capacitor and check wiring diagram on motor cover.",
+          safety_warning: "Electrical hazard."
+        }),
+        steps: [
+          {
+            type: "google_search_result",
+            result: [{ title: "Pentair SuperFlo Manual", url: "https://www.pentair.com/superflo" }]
+          }
+        ]
+      })
+    ];
+
+    const req = new Request("http://localhost:54321/functions/v1/clever-handler", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer tech_token_a"
+      },
+      body: JSON.stringify({
+        authenticatedApp: true,
+        diagnosticSessionId: "session_test_diag_7",
+        action: "diagnostic_query",
+        query: "SuperFlo pump motor humming but won't start",
+        category: "pump",
+        brand: "Pentair",
+        model: "superflo_vs",
+        symptom: "SuperFlo pump motor humming but won't start"
+      })
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+
+    const json = await res.json();
+    assert.notEqual(json.sourceMode, "manual", "Mismatched model manual must not route as verified manual");
+    assert.notEqual(json.sourceId, "chunk_pentair_a_1", "Mismatched model manual chunk must not be cited as verified source");
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Mismatched model must trigger fallback web search");
+    assert.equal(geminiCalls.length, 2, "Mismatched model must trigger fallback web search");
+
+    console.log("PASS: Test 7 - Same-tenant mismatched equipment model strictly fails verification and triggers fallback search.");
   }
 
   console.log("\\nALL TRUE HANDLER INTEGRATION TESTS PASSED SUCCESSFULLY.");
