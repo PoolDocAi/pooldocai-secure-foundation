@@ -1135,21 +1135,27 @@ BEGIN
 
   -- Admin A has user_notification and CAN see the event
   PERFORM set_config('request.jwt.claim.sub', v_user_a_admin::text, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
   SELECT count(*) INTO v_cnt FROM public.company_notifications WHERE id = v_notif_admin;
+  EXECUTE 'RESET ROLE';
   IF v_cnt <> 1 THEN
     RAISE EXCEPTION 'Admin A should be able to view admin notification, got %', v_cnt;
   END IF;
 
   -- Tech A has NO user_notification and CANNOT see the event
   PERFORM set_config('request.jwt.claim.sub', v_user_a_tech::text, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
   SELECT count(*) INTO v_cnt FROM public.company_notifications WHERE id = v_notif_admin;
+  EXECUTE 'RESET ROLE';
   IF v_cnt <> 0 THEN
     RAISE EXCEPTION 'Tech A illegally viewed admin-only company event via company_notifications';
   END IF;
 
   -- User B (Company B) CANNOT see the event
   PERFORM set_config('request.jwt.claim.sub', v_user_b_admin::text, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
   SELECT count(*) INTO v_cnt FROM public.company_notifications WHERE id = v_notif_admin;
+  EXECUTE 'RESET ROLE';
   IF v_cnt <> 0 THEN
     RAISE EXCEPTION 'Company B admin illegally viewed Company A event via company_notifications';
   END IF;
