@@ -538,6 +538,51 @@ function hasActionableDiagnosticSymptom(category: string, rawText: string, subTy
   return true;
 }
 
+function isCriticalPoolHazardText(rawText: string): boolean {
+  const text = normalizeDiagnosticLanguage(rawText).replace(/\s+/g, " ")
+    // Safe instructions embedded in prompts are not incident reports.
+    .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]?/gi, " ")
+    .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, " ")
+    // Strip non-hazard statements: negative answers and conditional instructions
+    .replace(/\b(?:if|in case|whenever|supposing|should you|unless)\b[^.!?\n]{0,100}\b(?:smell|odor|odour|gas|propane|smoke|fire|sparks?|sparking|shock|burning)\b[^.!?\n]{0,60}/gi, " ")
+    .replace(/\b(?:no|not|never|without|none|nor|don't|dont|doesn't|doesnt|didn't|didnt|isn't|isnt|wasn't|wasnt|haven't|havent|hasn't|hasnt|cant|can't|cannot)\b(?:\s+(?:any|a|the|signs? of|evidence of|reports? of|indication of|see|seeing|saw|smell|smells|smelled|smelling|notice|noticed|hear|hearing|feel|feeling|felt))*\s+[^.!?\n,]{0,45}\b(?:gas|propane|smoke|soot|flames?|sparks?|sparking|arcing|arc|shock|shocks|shocking|tingling|burning|burnt|melting|melted|fumes|leaks?|leaking)\b/gi, " ")
+    .replace(/\b(?:gas|propane|smoke|fire|sparks?|sparking|shock|burning|burnt|flames?)\b\s*[:=-]\s*(?:no|none|negative|false|n\/a|zero|not present|clear)\b/gi, " ")
+    // Heaters that "won't fire" or "failed to fire up" are ignition triage, not active fires
+    .replace(/\b(?:won't|wont|doesn't|doesnt|didn't|didnt|not|fails? to|unable to|can't|cant)\s+fire(?:\s+up)?\b/gi, " ")
+    .replace(/\bmisfir(?:e|ing|ed)\b/gi, " ")
+    .replace(/\bfire\s+ants?\b/gi, " ")
+    // Spark igniter / ignition spark is diagnostic, not an electrical hazard
+    .replace(/\b(?:spark\s+ignit(?:er|or)|ignit(?:er|or)\s+sparks?|spark\s+electrode|ignition\s+spark)\b/gi, " ")
+    // Pool chlorine shocking is water chemistry, not electrical shock
+    .replace(/\b(?:shock|shocked|shocking)\s+(?:the\s+)?(?:pool|water)\b/gi, " ")
+    .replace(/\b(?:pool|chlorine|cal-hypo)\s+shock\b/gi, " ");
+
+  const patterns: RegExp[] = [
+    /\b(?:i\s+|we\s+|someone\s+|it\s+)?(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)?(?:natural\s+)?gas\b/i,
+    /\b(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)(?:natural\s+)?propane\b/i,
+    /\b(?:gas|propane|natural gas)\s+(?:odor|odour|smell|leak|leaking|escaping|leaked)\b|\b(?:gas|propane|natural gas)\s+(?:is\s+)?(?:leaking|escaping|leaked)\b/i,
+    /\b(?:odor|odour|smell|smells)\s+(?:of|like)\s+(?:natural\s+)?(?:gas|propane)\b/i,
+    /\brotten[- ]egg(?:s)?(?: smell| odor| odour)?\b/i,
+    /\b(?:carbon monoxide|co alarm|co detector alarm|suspected co exposure)\b/i,
+    /\b(?:smoke|smoking|soot)\b/i,
+    /\b(?:caught fire|on fire|visible fire|there is a fire|equipment (?:is )?on fire|pad is on fire)\b|\bfire\s+(?:in|at|on|inside|around|behind)\s+(?:the\s+)?(?:equipment|heater|pump|motor|panel|breaker|pad|shed)\b/i,
+    /\b(?:burning|burnt)\s+(?:smell|odor|odour|plastic|wire|wiring|rubber|insulation|electrical)\b|\bsmell(?:s|ed|ing)?\s+(?:of\s+|like\s+)?(?:something\s+)?burn(?:ing|t)\b/i,
+    /\b(?:melting|melted|melts)\s+(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b|\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b.{0,40}\b(?:melting|melted|melts)\b|\b(?:melting|melted|melts)\b.{0,40}\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b/i,
+    /\b(?:flame roll[- ]?out|rollout switch.*(?:tripped|activated)|(?:tripped|activated).*rollout switch)\b/i,
+    /\bflame\s+(?:out of|outside|escaping|coming|shooting|rolling|rollout|roll[- ]out)\b|\bflames?\s+(?:coming|shooting|escaping|rolling|outside|out of)\b|\b(?:see|saw|seeing|visible|there is|there's|there are)\b.{0,35}\bflames?\b/i,
+    /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b|\bsparks?\b.{0,20}\b(?:flying|coming|shooting|spraying|out of|from)\b|\b(?:see|saw|visible)\b.{0,15}\bsparks?\b/i,
+    /\b(?:electrical|electric)\s+(?:shock|shocks|shocking)\b|\b(?:got shocked|shocked me|electric shock|tingling from equipment|tingling when touching)\b/i,
+    /\b(?:live wire|exposed energized wire|energized conductor)\b/i,
+    /\b(?:chemical fumes|chlorine gas|acid fumes|toxic fumes)\b/i,
+    /\b(?:mix|mixing|mixed|combine|combining|combined)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:with|and)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b|\b(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:mix|mixing|mixed|combine|combining|combined)\b.{0,45}\b(?:chlorine|bleach|acid|muriatic acid)\b/i,
+    /\b(?:person|someone|child|swimmer|human|body|hair|arm|leg|hand)\b.{0,45}\b(?:stuck|trapped|held|pinned)\b.{0,45}\b(?:drain|main drain|suction outlet|suction grate)\b|\b(?:stuck to (?:the )?(?:pool )?(?:main )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
+    /\b(?:unconscious|passed out|someone fainted|person fainted|i feel faint|feeling faint)\b/i,
+    /\b(?:gas|propane)\b.{0,30}\b(?:hissing|hiss)\b|\b(?:hissing|hiss)\b.{0,30}\b(?:gas|propane)\b/i,
+    /\b(?:filter|tank|vessel)\b.{0,25}\b(?:bulging|swollen)\b|\b(?:bulging|swollen)\b.{0,25}\b(?:filter|tank|vessel)\b/i,
+  ];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
 function getTriageChoices(category: string): Array<{ label: string; prompt: string }> {
   const key = category.toLowerCase();
   if (key.includes("pump")) return [
@@ -757,13 +802,29 @@ function selectDiagnosticModel(action: string, query: string): string {
 function normalizedEquipmentReference(value: unknown): string {
   return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
+
 function extractDiagnosticTokens(text: string): string[] {
+  const genericEquipmentNouns = new Set([
+    "the", "and", "for", "with", "from", "this", "that", "pool", "equipment", "does", "not",
+    "pump", "motor", "heater", "filter", "cleaner", "chlorinator", "part", "parts", "unit",
+    "system", "clean", "cleaning", "check", "issue", "problem", "water", "help", "device"
+  ]);
   return String(text ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length > 2 && !["the", "and", "for", "with", "from", "this", "that", "pool", "equipment", "does", "not"].includes(t));
+    .filter((t) => t.length > 2 && !genericEquipmentNouns.has(t));
 }
+
+function tokenMatches(token: string, source: string): boolean {
+  if (new RegExp(`\\b${token}\\b`, "i").test(source)) return true;
+  if (token.length >= 4) {
+    const stem = token.slice(0, 4);
+    if (new RegExp(`\\b${stem}[a-z]*\\b`, "i").test(source)) return true;
+  }
+  return false;
+}
+
 function symptomMatchesProcedure(
   procedureText: string,
   rowSymptom: string,
@@ -783,17 +844,31 @@ function symptomMatchesProcedure(
   }
 
   const queryTokens = extractDiagnosticTokens(userSymptom);
-  if (queryTokens.length === 0) return true; // Generic intake query without specific symptom keywords
+  // A query with no useful symptom token should ask clarification rather than classify arbitrary manual as resolved.
+  if (queryTokens.length === 0) return false;
 
   // Distinct symptom clusters: an unrelated fix on the same model must NOT qualify
   const isSilentNoStart = /\b(silent|won'?t start|not starting|no power|dead|dark display|no light|trips? breaker)\b/i.test(userSymptom);
+  const isHeaterIgnition = /\b(won'?t ignite|no ignition|ignit|flame failure|no heat|pilot)\b/i.test(userSymptom);
   const isLeak = /\b(leak|leaking|drip|dripping|puddle|water loss)\b/i.test(userSymptom);
   const isPressure = /\b(high pressure|low pressure|psi|gauge|clean filter)\b/i.test(userSymptom);
   const isWaterQuality = /\b(green|cloudy|algae|chlorine|ph|cya|balance|shock)\b/i.test(userSymptom);
 
-  if (isSilentNoStart && !/\b(power|voltage|breaker|silent|start|run|display|fuse|supply|switch|motor|wiring)\b/i.test(combinedSource)) {
+  if (isSilentNoStart) {
+    // Component nouns like 'motor' are not symptoms; require true electrical/power indicators
+    if (!/\b(power|voltage|breaker|silent|start|run|display|fuse|supply|switch|wiring|capacitor)\b/i.test(combinedSource)) {
+      return false;
+    }
+    // Impeller or plumbing cleanouts are NOT electrical no-start repairs
+    if (/\b(impeller|shaft seal|plumbing)\b/i.test(combinedSource) && !/\b(power|voltage|breaker|capacitor)\b/i.test(combinedSource)) {
+      return false;
+    }
+  }
+
+  if (isHeaterIgnition && !/\b(ignit|flame|gas valve|pilot|spark|sensor|orifice|manifold)\b/i.test(combinedSource)) {
     return false;
   }
+
   if (isLeak && !/\b(leak|seal|o-ring|gasket|crack|fitting|drain|pipe|shaft seal)\b/i.test(combinedSource)) {
     return false;
   }
@@ -804,9 +879,10 @@ function symptomMatchesProcedure(
     return false;
   }
 
-  // At least one material diagnostic token must overlap as a whole word
-  return queryTokens.some((token) => new RegExp(`\\b${token}\\b`, "i").test(combinedSource));
+  // At least one material diagnostic token must overlap
+  return queryTokens.some((token) => tokenMatches(token, combinedSource));
 }
+
 function referenceMatchesEquipment(row: AnyRecord, brand: string, model: string): boolean {
   const desiredBrand = normalizedEquipmentReference(brand);
   const desiredModel = normalizedEquipmentReference(model);
@@ -816,6 +892,7 @@ function referenceMatchesEquipment(row: AnyRecord, brand: string, model: string)
   return (!sourceBrand || !desiredBrand || sourceBrand === desiredBrand) &&
     (!sourceModel || !desiredModel || sourceModel === desiredModel);
 }
+
 function preferVerifiedInternalOnly(
   rows: AnyRecord[],
   brand: string,
@@ -846,13 +923,22 @@ function preferVerifiedInternalOnly(
     return symptomMatchesProcedure(procedure, String(row.symptom ?? row.title ?? ""), symptomText, category, errorCode);
   });
 }
+
 function verifyInternalCitation(
-  structured: AnyRecord,
+  structured: AnyRecord | null | undefined,
   kbRows: AnyRecord[],
   brand: string,
   model: string,
   symptom: string
-): { verified: boolean; sourceKind: "company_sop" | "approved_lesson" | "none"; matchedRow?: AnyRecord } {
+): {
+  verified: boolean;
+  sourceKind: "company_sop" | "approved_lesson" | "none";
+  matchedRow?: AnyRecord;
+  sourceId?: string;
+  sourceTitle?: string;
+  page?: string | number;
+} {
+  if (!structured) return { verified: false, sourceKind: "none" };
   const label = textValue(structured.source_label, 40);
   if (label !== "internal_manual") {
     return { verified: false, sourceKind: "none" };
@@ -860,15 +946,35 @@ function verifyInternalCitation(
   const desiredBrand = normalizedEquipmentReference(brand);
   const desiredModel = normalizedEquipmentReference(model);
 
+  const citedSourceId = textValue(structured.source_id ?? structured.sourceId, 80);
+  const citedTitle = textValue(structured.source_title ?? structured.sourceTitle, 200).toLowerCase();
+  const stepText = textValue(structured.step, 1000).toLowerCase();
+
   const matched = kbRows.find((row) => {
     if (row.company_manual_source !== true && row.shared_learning_source !== true) return false;
-    if (!row.id) return false;
+    if (!row.id || typeof row.id !== "string") return false;
+    if (row.shared_learning_source === true && row.approved_for_learning === false) return false;
+
     const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
     const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
     if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
     if (desiredModel && rowModel && rowModel !== desiredModel) return false;
+
     const proc = getProcedureText(row).trim();
-    return proc.length >= 40 && symptomMatchesProcedure(proc, String(row.symptom ?? ""), symptom, "");
+    if (proc.length < 80) return false;
+    if (!symptomMatchesProcedure(proc, String(row.symptom ?? row.title ?? ""), symptom, String(row.category ?? ""))) {
+      return false;
+    }
+
+    // Direct citation check: explicit source ID or title match
+    if (citedSourceId && row.id === citedSourceId) return true;
+    if (citedTitle && String(row.title ?? "").toLowerCase().includes(citedTitle)) return true;
+
+    // Step instruction corroboration: model's step instructions must substantively overlap
+    // the verified procedure text rather than presenting an invented action
+    const stepTokens = extractDiagnosticTokens(stepText);
+    const overlappingTokens = stepTokens.filter((token) => tokenMatches(token, proc.toLowerCase()));
+    return overlappingTokens.length >= 2;
   });
 
   if (!matched) {
@@ -878,6 +984,9 @@ function verifyInternalCitation(
     verified: true,
     sourceKind: matched.company_manual_source === true ? "company_sop" : "approved_lesson",
     matchedRow: matched,
+    sourceId: typeof matched.id === "string" ? matched.id : String(matched.id ?? ""),
+    sourceTitle: typeof matched.title === "string" ? matched.title : String(matched.title ?? ""),
+    page: (matched.page_number ?? matched.page_start) as string | number | undefined,
   };
 }
 
@@ -974,50 +1083,6 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Request body must contain valid JSON.", code: "INVALID_JSON" }, 400);
   }
 
-function isCriticalPoolHazardText(rawText: string): boolean {
-  const text = normalizeDiagnosticLanguage(rawText).replace(/\s+/g, " ")
-    // Safe instructions embedded in prompts are not incident reports.
-    .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]?/gi, " ")
-    .replace(/\b(?:chlorine|bleach|acid|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,30}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, " ")
-    // Strip non-hazard statements: negative answers and conditional instructions
-    .replace(/\b(?:if|in case|whenever|supposing|should you|unless)\b[^.!?\n]{0,100}\b(?:smell|odor|odour|gas|propane|smoke|fire|sparks?|sparking|shock|burning)\b[^.!?\n]{0,60}/gi, " ")
-    .replace(/\b(?:no|not|never|without|none|nor|don't|dont|doesn't|doesnt|didn't|didnt|isn't|isnt|wasn't|wasnt|haven't|havent|hasn't|hasnt|cant|can't|cannot)\b(?:\s+(?:any|a|the|signs? of|evidence of|reports? of|indication of|see|seeing|saw|smell|smells|smelled|smelling|notice|noticed|hear|hearing|feel|feeling|felt))*\s+[^.!?\n,]{0,45}\b(?:gas|propane|smoke|soot|flames?|sparks?|sparking|arcing|arc|shock|shocks|shocking|tingling|burning|burnt|melting|melted|fumes|leaks?|leaking)\b/gi, " ")
-    .replace(/\b(?:gas|propane|smoke|fire|sparks?|sparking|shock|burning|burnt|flames?)\b\s*[:=-]\s*(?:no|none|negative|false|n\/a|zero|not present|clear)\b/gi, " ")
-    // Heaters that "won't fire" or "failed to fire up" are ignition triage, not active fires
-    .replace(/\b(?:won't|wont|doesn't|doesnt|didn't|didnt|not|fails? to|unable to|can't|cant)\s+fire(?:\s+up)?\b/gi, " ")
-    .replace(/\bmisfir(?:e|ing|ed)\b/gi, " ")
-    .replace(/\bfire\s+ants?\b/gi, " ")
-    // Spark igniter / ignition spark is diagnostic, not an electrical hazard
-    .replace(/\b(?:spark\s+ignit(?:er|or)|ignit(?:er|or)\s+sparks?|spark\s+electrode|ignition\s+spark)\b/gi, " ")
-    // Pool chlorine shocking is water chemistry, not electrical shock
-    .replace(/\b(?:shock|shocked|shocking)\s+(?:the\s+)?(?:pool|water)\b/gi, " ")
-    .replace(/\b(?:pool|chlorine|cal-hypo)\s+shock\b/gi, " ");
-
-  const patterns: RegExp[] = [
-    /\b(?:i\s+|we\s+|someone\s+|it\s+)?(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)?(?:natural\s+)?gas\b/i,
-    /\b(?:smell|smells|smelled|smelling)\s+(?:like\s+|of\s+)(?:natural\s+)?propane\b/i,
-    /\b(?:gas|propane|natural gas)\s+(?:odor|odour|smell|leak|leaking|escaping|leaked)\b|\b(?:gas|propane|natural gas)\s+(?:is\s+)?(?:leaking|escaping|leaked)\b/i,
-    /\b(?:odor|odour|smell|smells)\s+(?:of|like)\s+(?:natural\s+)?(?:gas|propane)\b/i,
-    /\brotten[- ]egg(?:s)?(?: smell| odor| odour)?\b/i,
-    /\b(?:carbon monoxide|co alarm|co detector alarm|suspected co exposure)\b/i,
-    /\b(?:smoke|smoking|soot)\b/i,
-    /\b(?:caught fire|on fire|visible fire|there is a fire|equipment (?:is )?on fire|pad is on fire)\b|\bfire\s+(?:in|at|on|inside|around|behind)\s+(?:the\s+)?(?:equipment|heater|pump|motor|panel|breaker|pad|shed)\b/i,
-    /\b(?:burning|burnt)\s+(?:smell|odor|odour|plastic|wire|wiring|rubber|insulation|electrical)\b|\bsmell(?:s|ed|ing)?\s+(?:of\s+|like\s+)?(?:something\s+)?burn(?:ing|t)\b/i,
-    /\b(?:melting|melted|melts)\s+(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b|\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b.{0,40}\b(?:melting|melted|melts)\b|\b(?:melting|melted|melts)\b.{0,40}\b(?:wire|wiring|plastic|insulation|cable|connector|cord|electrical|housing|plug|terminal|relay|component|part)\b/i,
-    /\b(?:flame roll[- ]?out|rollout switch.*(?:tripped|activated)|(?:tripped|activated).*rollout switch)\b/i,
-    /\bflame\s+(?:out of|outside|escaping|coming|shooting|rolling|rollout|roll[- ]out)\b|\bflames?\s+(?:coming|shooting|escaping|rolling|outside|out of)\b|\b(?:see|saw|seeing|visible|there is|there's|there are)\b.{0,35}\bflames?\b/i,
-    /\b(?:sparking|arcing|arc flash|electrical arc|electric arc)\b|\bsparks?\b.{0,20}\b(?:flying|coming|shooting|spraying|out of|from)\b|\b(?:see|saw|visible)\b.{0,15}\bsparks?\b/i,
-    /\b(?:electrical|electric)\s+(?:shock|shocks|shocking)\b|\b(?:got shocked|shocked me|electric shock|tingling from equipment|tingling when touching)\b/i,
-    /\b(?:live wire|exposed energized wire|energized conductor)\b/i,
-    /\b(?:chemical fumes|chlorine gas|acid fumes|toxic fumes)\b/i,
-    /\b(?:mix|mixing|mixed|combine|combining|combined)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:with|and)\s+(?:pool\s+)?(?:chlorine|bleach|acid|muriatic acid)\b|\b(?:chlorine|bleach|acid|muriatic acid)\b.{0,45}\b(?:mix|mixing|mixed|combine|combining|combined)\b.{0,45}\b(?:chlorine|bleach|acid|muriatic acid)\b/i,
-    /\b(?:person|someone|child|swimmer|human|body|hair|arm|leg|hand)\b.{0,45}\b(?:stuck|trapped|held|pinned)\b.{0,45}\b(?:drain|main drain|suction outlet|suction grate)\b|\b(?:stuck to (?:the )?(?:pool )?(?:main )?drain|suction entrapment|person trapped at (?:the )?(?:drain|suction outlet)|can't get off (?:the )?(?:drain|suction outlet))\b/i,
-    /\b(?:unconscious|passed out|someone fainted|person fainted|i feel faint|feeling faint)\b/i,
-    /\b(?:gas|propane)\b.{0,30}\b(?:hissing|hiss)\b|\b(?:hissing|hiss)\b.{0,30}\b(?:gas|propane)\b/i,
-    /\b(?:filter|tank|vessel)\b.{0,25}\b(?:bulging|swollen)\b|\b(?:bulging|swollen)\b.{0,25}\b(?:filter|tank|vessel)\b/i,
-  ];
-  return patterns.some((pattern) => pattern.test(text));
-}
 
   const query = textValue(body.query ?? body.message ?? body.userMessage ?? body.user_message ?? body.question ?? body.input ?? body.prompt, 5000);
   const action = textValue(body.action ?? body.action_type, 80).toLowerCase();
@@ -2110,11 +2175,13 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       // as a privacy-minimized pending review item, regardless of its source.
       const caseIssue = scrubPII([complaint, notes].filter(Boolean).join("\n").slice(0, 1200));
       const caseResolution = scrubPII(resolution || repairSteps.map(x => `${x.action} Result: ${x.result}`).join("\n").slice(0, 1200));
+      const caseOptIn = body.caseLearningOptIn === true;
       const { data: learningCase, error: learningCaseError } = await supabase.from("diagnostic_cases").insert({
         tenant_id: authenticatedCompanyId, case_status: row.case_status, equipment_category: row.equipment_category,
         manufacturer_normalized: row.manufacturer_normalized, model_normalized: row.model_normalized,
         symptom_redacted: caseIssue, resolution_summary_redacted: caseResolution || null,
-        source_ids: [data.id], technician_verified: row.technician_verified, approved_for_learning: false
+        source_ids: [data.id], technician_verified: row.technician_verified, approved_for_learning: false,
+        case_learning_opt_in: caseOptIn
       }).select("id").single();
       let stepLinked = false;
       if (validatedRelatedCaseId) {
@@ -2155,9 +2222,9 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       if (!learningCaseError && learningCase) {
         const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
         await supabase.from("diagnostic_case_steps").insert({ case_id: learningCase.id, step_number: 1, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician job submitted", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
-        if (row.technician_verified) {
+        if (row.technician_verified && caseOptIn) {
           // Only successful, outcome-supported repairs enter the human review
-          // queue. The case itself stays company-private until explicit case
+          // queue when explicit case consent is granted. The case itself stays company-private until explicit case
           // and company sharing consent plus platform approval are verified.
           const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
           const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
@@ -2919,7 +2986,7 @@ MANDATORY DIAGNOSTIC ORDER:
         }
         if (aiReply) {
           // Do not allow a model-generated numbered list to advance more than one step.
-          if (action !== "model_triage" && textValue(structured.response_type, 40).toLowerCase() !== "water_quality_plan") aiReply = limitToSingleDiagnosticStep(aiReply);
+          if (action !== "model_triage" && textValue(structuredResponse?.response_type, 40).toLowerCase() !== "water_quality_plan") aiReply = limitToSingleDiagnosticStep(aiReply);
         } else if (!geminiError) {
           geminiError = `Gemini returned HTTP 200 but no usable structured model output (interaction status: ${responseStatus || "not supplied"}).`;
         }
@@ -2943,12 +3010,14 @@ MANDATORY DIAGNOSTIC ORDER:
   // Dedicated model identification and explicit escalation actions remain separate flows.
   const needsSourceGroundedAnswer = Boolean(category) &&
     action !== "model_triage" && action !== "escalate";
-  const internalCitation = verifyInternalCitation(structured, kbRows, brand, model, symptom || query || latestCustomerMessage);
+  const internalCitation = verifyInternalCitation(structuredResponse, kbRows, brand, model, symptom || query || latestCustomerMessage);
   const internalProcedureIsUsable = isWaterQualityCase
-    ? (relevantWaterQualityProcedurePresent && (internalCitation.verified || structuredSourceLabel === "internal_manual"))
+    ? (relevantWaterQualityProcedurePresent && internalCitation.verified)
     : internalCitation.verified;
+  let sourceKind: "company_sop" | "approved_lesson" | "manufacturer_web" | "none" = "none";
   if (internalCitation.verified) {
-    sourceMode = internalCitation.sourceKind;
+    sourceMode = "manual";
+    sourceKind = internalCitation.sourceKind;
   }
   const initialAlgaePlanComplete = !isConfirmedAlgaeCase ||
     (generatedResponseType === "water_quality_plan" && hasCompleteAlgaeTreatmentPlan(aiReply));
@@ -3186,11 +3255,12 @@ MANDATORY DIAGNOSTIC ORDER:
         exact_verified_internal_candidate: firstPassInternalOnly,
         initial_search_tool_available: !firstPassInternalOnly,
         fallback_search_attempted: forcedWebSearchAttempted,
-        search_queries_attempted: (!firstPassInternalOnly ? 1 : 0) + (forcedWebSearchAttempted ? 1 : 0),
+        search_tool_configured: !firstPassInternalOnly || forcedWebSearchAttempted,
+        web_sources_returned_count: webSources.length,
         source_verified: sourceVerifiedAnswer,
-        kb_answer_verified: sourceVerifiedAnswer && (sourceMode === "company_sop" || sourceMode === "approved_lesson" || sourceMode === "manual"),
-        web_research_invoked: forcedWebSearchAttempted || (!firstPassInternalOnly && sourceMode === "web"),
-        final_source: sourceMode,
+        kb_answer_verified: sourceVerifiedAnswer && (sourceKind === "company_sop" || sourceKind === "approved_lesson" || sourceMode === "manual"),
+        web_research_invoked: webSources.length > 0,
+        final_source: sourceKind !== "none" ? sourceKind : sourceMode,
         tenant_isolated: Boolean(groundingCompanyId),
       }
     });
