@@ -114,6 +114,19 @@ console.log('  PASS: Homepage hero reflects Tech-First value and availability hi
  }
  console.log('  PASS: Shared hero markup has no consecutive duplicate card openings.');
 
+// 10. Public demo must not promise automatic company job-note persistence.
+console.log('\n[Test 10] Verifying accurate diagnostic-summary persistence claims...');
+const obsoleteSaveClaim = 'When you save or complete troubleshooting, this summary populates your editable Job Notes.';
+for (const page of ['index.html','demo.html','how-it-works.html','pricing.html','faq.html','waitlist.html']) {
+  const html = fs.readFileSync(path.join(repoRoot,'website',page),'utf8');
+  assert.ok(!html.includes(obsoleteSaveClaim), page + ': false demo-to-job-note save promise');
+  assert.ok(html.includes('Saving Job Notes requires a signed-in technician account'), page + ': missing honest public demo data boundary');
+}
+assert.ok(!appHtml.includes(obsoleteSaveClaim), 'app: auto-population claim is not verified');
+assert.ok(appHtml.includes('To store your observations, enter them in Job Notes below and select Save Field Notes'), 'app: missing explicit save action');
+console.log('  PASS: Public demo accurately states no job-record save; technician portal names explicit save action.');
+
+
 console.log('\n====================================================================');
 console.log('ALL TASK-003 OWNER COPY & FULL EXPERIENCE TESTS PASSED!');
 console.log('====================================================================');
