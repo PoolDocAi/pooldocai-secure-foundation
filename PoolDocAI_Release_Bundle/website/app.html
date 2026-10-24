@@ -224,7 +224,7 @@
     <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2">
         <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Sign-in required · Full workspace</span>
-        <span class="font-medium">Try 8 turns in Homeowner Triage and a separate 8 turns in the Field Tech Mobile App public preview. Sign in for full account access.</span>
+        <span class="font-medium">Authenticated Field Technician Troubleshooter with company workspace, equipment photo analysis, integrated field notes, and session tracking.</span>
       </div>
       <div class="flex items-center gap-4">
         <a href="demo.html#interactive-demo" class="text-white hover:text-sky-200 font-semibold text-xs flex items-center gap-1">Try Live Demo &rarr;</a>
@@ -490,10 +490,10 @@
       <!-- Surface Mode Switcher (Homeowner Triage vs. Field Tech Copilot) -->
       <div class="mt-8 flex justify-center">
         <div class="inline-flex p-1.5 rounded-2xl bg-slate-950 border border-slate-800 gap-2">
-          <button id="modeHomeownerBtn" type="button" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer">
+          <button id="modeHomeownerBtn" type="button" aria-pressed="false" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer">
             🏠 Homeowner Triage Chat
           </button>
-          <button id="modeTechBtn" type="button" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer">
+          <button id="modeTechBtn" type="button" aria-pressed="true" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer">
             🔧 Field Technician Troubleshooter
           </button>
         </div>
@@ -508,7 +508,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2.5">
                 <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — Secure Troubleshooting Workspace</span>
+                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — Field Technician Troubleshooter</span>
               </div>
               <button id="restartScenarioBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer">
                 ↻ New Conversation
@@ -1811,7 +1811,7 @@
     // 2. PERSISTENT MULTI-TURN SESSION CONTEXT WITH LOCKED CATEGORY & MEMORY
     // =========================================================================
     const requestedSurfaceMode = new URLSearchParams(window.location.search).get('mode');
-    let currentSurfaceMode = requestedSurfaceMode === 'tech' ? 'tech' : 'homeowner';
+    let currentSurfaceMode = requestedSurfaceMode === 'homeowner' ? 'homeowner' : 'tech';
     let conversationHistory = [];
     let lastTurnRequest = null;
     let dispatchMilestone = null;
@@ -4757,6 +4757,7 @@
       bodyEl.dataset.renderedCount = String(conversationHistory.length);
       const newest = bodyEl.querySelector(`[data-conversation-index="${conversationHistory.length - 1}"]`);
       if (newest) bodyEl.scrollTop = Math.max(0, newest.offsetTop - bodyEl.offsetTop + bodyEl.scrollTop - 4);
+      if (typeof syncNotesFromSessionContext === 'function') syncNotesFromSessionContext();
       const announcer = document.getElementById('walkthroughAnnouncement');
       const latestStep = conversationHistory[conversationHistory.length - 1];
       if (announcer && latestStep) announcer.textContent = String(latestStep.aiReply || '').replace(/\*\*/g, '').slice(0, 1000);
@@ -5250,24 +5251,14 @@
     // =========================================================================
     document.addEventListener('click', function (e) {
       if (e.target.closest('#modeHomeownerBtn')) {
-        currentSurfaceMode = 'homeowner';
-        document.body.classList.remove('tech-notes-mode');
-        updateIntegratedTechNotesVisibility();
-        document.getElementById('modeHomeownerBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer";
-        document.getElementById('modeTechBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
-        document.getElementById('walkthroughHeaderTitle').textContent = "PoolDocAI — 24/7 Homeowner Troubleshooting Assistant";
+        syncSurfaceModeUI('homeowner');
         renderSampleStartersBar();
         resetConversationToGreeting();
         return;
       }
 
       if (e.target.closest('#modeTechBtn')) {
-        currentSurfaceMode = 'tech';
-        document.body.classList.add('tech-notes-mode');
-        updateIntegratedTechNotesVisibility();
-        document.getElementById('modeTechBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer";
-        document.getElementById('modeHomeownerBtn').className = "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
-        document.getElementById('walkthroughHeaderTitle').textContent = "PoolDocAI — Field Technician Troubleshooter";
+        syncSurfaceModeUI('tech');
         renderSampleStartersBar();
         resetConversationToGreeting();
         return;
@@ -5344,6 +5335,45 @@
       }
     });
 
+    function syncNotesFromSessionContext() {
+      const catInput = document.getElementById('integratedNotesCategory');
+      const mfrInput = document.getElementById('integratedNotesEquipment');
+      const modInput = document.getElementById('integratedNotesModel');
+      const compInput = document.getElementById('integratedNotesComplaint');
+      if (catInput && !catInput.value && sessionContext.category) catInput.placeholder = sessionContext.category;
+      if (mfrInput && !mfrInput.value && sessionContext.brand) mfrInput.placeholder = sessionContext.brand;
+      if (modInput && !modInput.value && sessionContext.model) modInput.placeholder = sessionContext.model;
+      if (compInput && !compInput.value && sessionContext.symptom) compInput.placeholder = sessionContext.symptom;
+    }
+
+    function syncSurfaceModeUI(mode) {
+      if (mode) currentSurfaceMode = mode;
+      const isTech = currentSurfaceMode === 'tech';
+      document.body.classList.toggle('tech-notes-mode', isTech);
+      updateIntegratedTechNotesVisibility();
+      const techBtn = document.getElementById('modeTechBtn');
+      const homeownerBtn = document.getElementById('modeHomeownerBtn');
+      if (techBtn) {
+        techBtn.className = isTech
+          ? "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer"
+          : "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
+        techBtn.setAttribute('aria-pressed', String(isTech));
+      }
+      if (homeownerBtn) {
+        homeownerBtn.className = !isTech
+          ? "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer"
+          : "mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer";
+        homeownerBtn.setAttribute('aria-pressed', String(!isTech));
+      }
+      const title = document.getElementById('walkthroughHeaderTitle');
+      if (title) {
+        title.textContent = isTech
+          ? "PoolDocAI — Field Technician Troubleshooter"
+          : "PoolDocAI — 24/7 Homeowner Troubleshooting Assistant";
+      }
+      syncNotesFromSessionContext();
+    }
+
     document.getElementById('integratedTechNotesForm')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const status = document.getElementById('integratedNotesStatus');
@@ -5351,22 +5381,34 @@
       const diagnosticNotes = document.getElementById('integratedNotesDiagnostic').value.trim();
       const complaint = document.getElementById('integratedNotesComplaint').value.trim() || String(sessionContext.symptom || '').slice(0,1500);
       const resolution = document.getElementById('integratedNotesResolution').value.trim();
-      if (!diagnosticNotes && !complaint && !resolution) { status.textContent = 'Add an issue, field observation, or resolution before saving.'; return; }
-      button.disabled = true; status.textContent = 'Saving securely to your company job records…';
+      if (!diagnosticNotes && !complaint && !resolution) {
+        status.textContent = 'Add an issue, field observation, or resolution before saving.';
+        status.className = 'text-sm text-rose-400 font-semibold';
+        return;
+      }
+      button.disabled = true;
+      status.textContent = 'Saving securely to your company job records…';
+      status.className = 'text-sm text-sky-300';
       try {
         const headers = secureAuthHeaders();
+        const activeSessionId = diagnosticSessionId || ('tech-' + (APP_SESSION?.user?.id || 'session'));
         const response = await fetch(TROUBLESHOOTER_ENDPOINT, { method:'POST', headers, body:JSON.stringify({
-          action:'save_technician_job', authenticatedApp:true, sessionId:'tech-'+APP_SESSION.user.id,
+          action:'save_technician_job', authenticatedApp:true,
+          sessionId: activeSessionId,
+          diagnosticSessionId: diagnosticSessionId || null,
           source:'troubleshooter', complaint, diagnosticNotes, resolution,
           equipmentCategory:document.getElementById('integratedNotesCategory').value.trim() || String(sessionContext.category || ''),
           manufacturer:document.getElementById('integratedNotesEquipment').value.trim() || String(sessionContext.brand || ''),
-          model:document.getElementById('integratedNotesModel').value.trim() || String(sessionContext.model || ''), outcome:document.getElementById('integratedNotesOutcome').value
+          model:document.getElementById('integratedNotesModel').value.trim() || String(sessionContext.model || ''),
+          outcome:document.getElementById('integratedNotesOutcome').value
         })});
         const result = await response.json().catch(()=>({}));
         if (!response.ok || result.error) throw new Error(result.error || 'Could not save field notes.');
         status.textContent = result.message || 'Field notes saved to your company job records.';
+        status.className = 'text-sm text-emerald-400 font-semibold';
       } catch (error) {
         status.textContent = error?.message || 'Could not save field notes. Check your sign-in and job-note permissions.';
+        status.className = 'text-sm text-rose-400 font-semibold';
       } finally { button.disabled = false; }
     });
 
@@ -5478,6 +5520,7 @@
     onTruckSliderChange();
 
     // Initialize on load
+    syncSurfaceModeUI();
     renderSampleStartersBar();
     resetConversationToGreeting();
     updateRoiCalculator();
@@ -5597,12 +5640,7 @@
         } else if (typeof renderSampleStartersBar === 'function') {
           renderSampleStartersBar();
         }
-        const homeownerBtn = document.getElementById('modeHomeownerBtn');
-        const techBtn = document.getElementById('modeTechBtn');
-        if (homeownerBtn && techBtn) {
-          homeownerBtn.setAttribute('aria-pressed', String(currentSurfaceMode !== 'tech'));
-          techBtn.setAttribute('aria-pressed', String(currentSurfaceMode === 'tech'));
-        }
+        if (typeof syncSurfaceModeUI === 'function') syncSurfaceModeUI();
       }
       restoreForm(snapshot.waitlist);
       lastAppliedAt = Number(snapshot.updatedAt) || Date.now();
