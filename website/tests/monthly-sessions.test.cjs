@@ -150,4 +150,50 @@ assert.ok(handler.includes('code: "CASE_LEARNING_OPT_IN_REQUIRED"'), "clever-han
 assert.ok(handler.includes('action === "withdraw_case_learning_consent"'), "clever-handler provides dedicated case consent withdrawal handler");
 assert.ok(handler.includes('pooldocai_approve_learning_case'), "clever-handler invokes transaction-safe learning approval function");
 
+// TASK-006: Marketing copy regression test - obsolete separate-bucket elimination and pooled copy consistency
+const shippedPages = [
+  "app.html",
+  "demo.html",
+  "faq.html",
+  "how-it-works.html",
+  "index.html",
+  "pricing.html",
+  "waitlist.html"
+];
+
+const obsoletePhrases = [
+  /Separate Homeowner &amp; Tech Allowances/i,
+  /Busy weekend customer chats never use up your Monday technicians/i,
+  /distinct from your technicians' operational allowance/i,
+  /separate homeowner\/tech allowances/i,
+  /Are homeowner sessions and technician sessions separate\?/i,
+  /separate monthly allowances for homeowner sessions and technician sessions/i,
+  /25 bonus technician sessions/i,
+  /The other demo mode has its own separate 8-turn allowance/i,
+  /2,000\+\s*<\/?strong>\s*Homeowner Sessions/i,
+  /3,500\+\s*<\/?strong>\s*(?:Field )?Tech Sessions/i,
+  /2,000 Tech Sessions\)/i
+];
+
+for (const pageName of shippedPages) {
+  const pageContent = fs.readFileSync(path.join(root, "website", pageName), "utf8");
+  for (const pattern of obsoletePhrases) {
+    assert.doesNotMatch(
+      pageContent,
+      pattern,
+      `Page ${pageName} must not contain obsolete separate-bucket copy matching ${pattern}`
+    );
+  }
+
+  // Affirmative pooled-copy assertions
+  assert.match(pageContent, /Pooled Monthly Diagnostic Sessions/, `${pageName} must display pooled feature card title`);
+  assert.match(pageContent, /Single company allowance shared across customer triage and field troubleshooting on Complete plans/, `${pageName} must display single company allowance description`);
+  assert.match(pageContent, /How are monthly diagnostic sessions counted\?/, `${pageName} must have updated FAQ title`);
+  assert.match(pageContent, /Each plan includes one monthly allowance\. On Complete plans, homeowner and technician diagnostics both count toward that shared total/, `${pageName} must have updated FAQ body`);
+  assert.match(pageContent, /25 bonus diagnostic sessions added to your company(?:’|')s single pooled monthly allowance/, `${pageName} must have updated bonus session description`);
+  assert.match(pageContent, /Custom pooled(?:<\/strong>)?\s*monthly session allowance \(confirmed in written quote\)/, `${pageName} must have quote-based pooled Complete Enterprise allowance`);
+  assert.match(pageContent, /2,000(?:<\/strong>)?\s*pooled diagnostic sessions\/mo/, `${pageName} must reflect pooled sessions on Tech Fleet`);
+  assert.match(pageContent, /Custom pooled(?:<\/strong>)?\s*diagnostic session allowance \(confirmed in written quote\)/, `${pageName} must have quote-based pooled Tech Enterprise allowance`);
+}
+
 console.log("PASS: monthly pooled-session limits, safety-hold routing, technician entry, and case-level learning consent passed.");

@@ -871,3 +871,91 @@ BEGIN
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
   DELETE FROM auth.users WHERE id = v_user_id;
 END $$;
+
+-- 9. TEST TASK-005 PART-7 FOLLOW-UP: Active Company Status Enforcement in Search RPCs
+DO $$
+DECLARE
+  v_co_active uuid := gen_random_uuid();
+  v_co_suspended uuid := gen_random_uuid();
+  v_user_id uuid := gen_random_uuid();
+  v_man_active uuid := gen_random_uuid();
+  v_man_suspended uuid := gen_random_uuid();
+  v_chk_active uuid := gen_random_uuid();
+  v_chk_suspended uuid := gen_random_uuid();
+  v_rec record;
+  v_cnt integer := 0;
+BEGIN
+  -- Setup test user for rights attestation FK
+  INSERT INTO auth.users (id, email, aud, role)
+  VALUES (v_user_id, 'ci-active-status@example.com', 'authenticated', 'authenticated')
+  ON CONFLICT (id) DO NOTHING;
+
+  -- Ensure active 'pool' industry module
+  INSERT INTO public.industry_modules (industry_key, display_name, status)
+  VALUES ('pool', 'Pool Industry', 'active')
+  ON CONFLICT (industry_key) DO UPDATE SET status = 'active';
+
+  -- Create one active company and one suspended company
+  INSERT INTO public.companies (id, name, industry_key, status)
+  VALUES
+    (v_co_active, 'Active Company Test', 'pool', 'active'),
+    (v_co_suspended, 'Suspended Company Test', 'pool', 'suspended');
+
+  -- Create matching valid manuals for both companies
+  INSERT INTO public.company_manuals (
+    id, company_id, title, storage_path, document_type, reference_enabled, extraction_status,
+    manufacturer_normalized, model_normalized, equipment_category, industry_key,
+    rights_attested_at, rights_attested_by, knowledge_scope
+  )
+  VALUES
+    (v_man_active, v_co_active, 'Active Pentair IntelliFlo Manual', 'path/act', 'manual', true, 'ready',
+     'pentair', 'intelliflo_vsf', 'pump', 'pool', now(), v_user_id, 'company_private'),
+    (v_man_suspended, v_co_suspended, 'Suspended Pentair IntelliFlo Manual', 'path/susp', 'manual', true, 'ready',
+     'pentair', 'intelliflo_vsf', 'pump', 'pool', now(), v_user_id, 'company_private');
+
+  -- Create chunks for both
+  INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
+  VALUES
+    (v_chk_active, v_co_active, v_man_active, 0, 'Active Chunk', 'Active tenant Pentair IntelliFlo troubleshooting procedures.', 'pool'),
+    (v_chk_suspended, v_co_suspended, v_man_suspended, 0, 'Suspended Chunk', 'Suspended tenant Pentair IntelliFlo troubleshooting procedures.', 'pool');
+
+  -- 1. Verify Active Company returns results for both keyword and hybrid search
+  v_cnt := 0;
+  FOR v_rec IN SELECT * FROM public.search_company_manual_chunks(v_co_active, 'IntelliFlo', 10) LOOP
+    v_cnt := v_cnt + 1;
+  END LOOP;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Active company search_company_manual_chunks expected 1 row, got %', v_cnt;
+  END IF;
+
+  v_cnt := 0;
+  FOR v_rec IN SELECT * FROM public.search_company_manual_chunks_hybrid(v_co_active, 'IntelliFlo', NULL, 10) LOOP
+    v_cnt := v_cnt + 1;
+  END LOOP;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Active company search_company_manual_chunks_hybrid expected 1 row, got %', v_cnt;
+  END IF;
+
+  -- 2. Verify Suspended Company returns ZERO results for both keyword and hybrid search
+  v_cnt := 0;
+  FOR v_rec IN SELECT * FROM public.search_company_manual_chunks(v_co_suspended, 'IntelliFlo', 10) LOOP
+    v_cnt := v_cnt + 1;
+  END LOOP;
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION 'Suspended company search_company_manual_chunks leaked rows: got %', v_cnt;
+  END IF;
+
+  v_cnt := 0;
+  FOR v_rec IN SELECT * FROM public.search_company_manual_chunks_hybrid(v_co_suspended, 'IntelliFlo', NULL, 10) LOOP
+    v_cnt := v_cnt + 1;
+  END LOOP;
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION 'Suspended company search_company_manual_chunks_hybrid leaked rows: got %', v_cnt;
+  END IF;
+
+  -- Teardown Section 9 test fixtures
+  DELETE FROM public.company_manual_chunks WHERE id IN (v_chk_active, v_chk_suspended);
+  DELETE FROM public.company_manuals WHERE id IN (v_man_active, v_man_suspended);
+  DELETE FROM public.companies WHERE id IN (v_co_active, v_co_suspended);
+  DELETE FROM auth.users WHERE id = v_user_id;
+END $$;

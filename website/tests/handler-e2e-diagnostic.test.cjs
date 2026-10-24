@@ -135,6 +135,76 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
       }
       if (func === "search_company_manual_chunks_hybrid" || func === "search_company_manual_chunks") {
         if (params.p_company_id === "comp_tenant_a") {
+          const q = String(params.p_query || "").toLowerCase();
+          if (q.includes("null metadata") || q.includes("general equipment")) {
+            return {
+              data: [{
+                id: "chunk_generic_sop_1",
+                manual_id: "man_generic_sop",
+                title: "General Equipment Guidelines",
+                source_url: null,
+                page_number: 1,
+                page_start: 1,
+                page_end: 1,
+                rank: 0.90,
+                retrieval_method: "hybrid",
+                industry_key: "pool",
+                equipment_category: null,
+                manufacturer_normalized: null,
+                model_normalized: null,
+                reference_enabled: true,
+                extraction_status: "ready",
+                content_text: "General equipment inspection guidelines: If the pump will not start, inspect drive electronics and AC line voltage input to verify 240VAC power supply. Check the main circuit breaker. Ensure all wiring terminals are secure."
+              }],
+              error: null
+            };
+          }
+          if (q.includes("water chemistry") || q.includes("chlorine") || q.includes("algae")) {
+            return {
+              data: [{
+                id: "chunk_water_sop_1",
+                manual_id: "man_water_sop",
+                title: "Standard Water Chemistry Treatment SOP",
+                source_url: null,
+                page_number: 5,
+                page_start: 5,
+                page_end: 5,
+                rank: 0.92,
+                retrieval_method: "hybrid",
+                industry_key: "pool",
+                equipment_category: "water chemistry",
+                manufacturer_normalized: null,
+                model_normalized: null,
+                reference_enabled: true,
+                extraction_status: "ready",
+                content_text: "Standard pool water chemistry balancing: Measure free chlorine, pH, and total alkalinity. If free chlorine is below 2.0 ppm, calculate required sanitizer dose and add chlorine directly to pool water. Re-test after 4 hours circulation."
+              }],
+              error: null
+            };
+          }
+          if (q.includes("mastertemp") || q.includes("heater ignition")) {
+            return {
+              data: [{
+                id: "chunk_heater_mismatch_1",
+                manual_id: "man_heater_mismatch",
+                title: "Hayward Universal H-Series Heater Manual",
+                source_url: null,
+                page_number: 22,
+                page_start: 22,
+                page_end: 22,
+                rank: 0.88,
+                retrieval_method: "hybrid",
+                industry_key: "pool",
+                equipment_category: "heater",
+                manufacturer_normalized: "hayward",
+                model_normalized: "h_series",
+                reference_enabled: true,
+                extraction_status: "ready",
+                content_text: "Hayward Universal H-Series gas heater ignition lockout: If heater will not ignite, verify gas supply valve is open and inspect blower vacuum switch."
+              }],
+              error: null
+            };
+          }
           return {
             data: [{
               id: "chunk_pentair_a_1",
@@ -621,6 +691,170 @@ async function runIntegrationTests() {
     assert.equal(geminiCalls.length, 2, "Mismatched model must trigger fallback web search");
 
     console.log("PASS: Test 7 - Same-tenant mismatched equipment model strictly fails verification and triggers fallback search.");
+  }
+
+  // TEST 8A: Company manual with equipment_category=NULL, manufacturer=NULL, model=NULL cannot certify equipment-specific query
+  {
+    geminiCalls.length = 0;
+    mockGeminiResponses = [
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "internal_manual",
+          source_id: "chunk_generic_sop_1",
+          source_title: "General Equipment Guidelines",
+          step_instructions: "Inspect drive electronics and AC line voltage input to verify 240VAC power supply. Check the main circuit breaker.",
+          follow_up_question: "Do you detect 240VAC across terminals?"
+        })
+      }),
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "general_web",
+          step_instructions: "Inspect drive electronics on Pentair IntelliFlo VSF to verify 240VAC power supply.",
+          follow_up_question: "Are display lights on?"
+        }),
+        grounding_metadata: [
+          {
+            web_search_queries: ["pentair intelliflo vsf drive dead display"],
+            result: [{ title: "Pentair Support", url: "https://www.pentair.com" }]
+          }
+        ]
+      })
+    ];
+
+    const req = new Request("http://localhost:54321/functions/v1/clever-handler", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer tech_token_a"
+      },
+      body: JSON.stringify({
+        authenticatedApp: true,
+        diagnosticSessionId: "session_test_diag_8a",
+        action: "diagnostic_query",
+        query: "Pump won't start, keypad display is dead (null metadata test)",
+        category: "pump",
+        brand: "Pentair",
+        model: "IntelliFlo VSF",
+        symptom: "Pump won't start, keypad display is dead"
+      })
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    assert.notEqual(json.sourceMode, "manual", "Null metadata manual must not route as verified manual for equipment make/model");
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Null metadata manual must trigger fallback search");
+    console.log("PASS: Test 8A - Company manual with null metadata cannot certify Pentair IntelliFlo-specific answer.");
+  }
+
+  // TEST 8B: True water chemistry SOP with explicit source category can provide safe verified advice
+  {
+    geminiCalls.length = 0;
+    mockGeminiResponses = [
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "internal_manual",
+          source_id: "chunk_water_sop_1",
+          source_title: "Standard Water Chemistry Treatment SOP",
+          step_instructions: "Measure free chlorine, pH, and total alkalinity. If free chlorine is below 2.0 ppm, calculate required sanitizer dose and add chlorine directly to pool water. Re-test after 4 hours circulation.",
+          follow_up_question: "What is your measured free chlorine reading?"
+        })
+      })
+    ];
+
+    const req = new Request("http://localhost:54321/functions/v1/clever-handler", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer tech_token_a"
+      },
+      body: JSON.stringify({
+        authenticatedApp: true,
+        diagnosticSessionId: "session_test_diag_8b",
+        action: "diagnostic_query",
+        query: "Cloudy pool water need chlorine dose and water chemistry balancing",
+        category: "water chemistry",
+        symptom: "Cloudy pool water need chlorine dose and water chemistry balancing"
+      })
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    assert.equal(json.sourceMode, "manual", "True water chemistry SOP must verify as internal manual");
+    assert.equal(json.knowledgeDiagnostics.sourceVerifiedAnswer, true, "Water chemistry SOP must be verified");
+    assert.ok(json.manualSources && json.manualSources.length > 0, "Must include manual sources");
+    assert.equal(json.manualSources[0].title, "Standard Water Chemistry Treatment SOP", "Must cite verified water chemistry SOP");
+    console.log("PASS: Test 8B - True water chemistry SOP with explicit source category provides verified advice.");
+  }
+
+  // TEST 8C: Similarly worded but model-mismatched heater manual fails verification
+  {
+    geminiCalls.length = 0;
+    mockGeminiResponses = [
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "internal_manual",
+          source_id: "chunk_heater_mismatch_1",
+          source_title: "Hayward Universal H-Series Heater Manual",
+          step_instructions: "If heater will not ignite, verify gas supply valve is open and inspect blower vacuum switch.",
+          follow_up_question: "Is the gas supply valve turned on?"
+        })
+      }),
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "general_web",
+          step_instructions: "Inspect gas supply valve and igniter on Pentair MasterTemp heater.",
+          follow_up_question: "Is the gas valve open?"
+        }),
+        grounding_metadata: [
+          {
+            web_search_queries: ["pentair mastertemp heater ignition failure"],
+            result: [{ title: "Pentair MasterTemp Support", url: "https://www.pentair.com" }]
+          }
+        ]
+      })
+    ];
+
+    const req = new Request("http://localhost:54321/functions/v1/clever-handler", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer tech_token_a"
+      },
+      body: JSON.stringify({
+        authenticatedApp: true,
+        diagnosticSessionId: "session_test_diag_8c",
+        action: "diagnostic_query",
+        query: "Pentair MasterTemp heater won't ignite, IF code displayed",
+        category: "heater",
+        brand: "Pentair",
+        model: "MasterTemp",
+        subType: "heater_ignition",
+        errorCode: "IF",
+        symptom: "heater won't ignite",
+        initialTriageComplete: true,
+        operatingStateConfirmed: true,
+        context: {
+          subType: "heater_ignition",
+          initialTriageComplete: true,
+          operatingStateConfirmed: true
+        }
+      })
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    console.log("DEBUG 8C JSON:", JSON.stringify(json));
+    assert.notEqual(json.sourceMode, "manual", "Model-mismatched heater manual must fail verification");
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Mismatched heater manual must trigger fallback search");
+    console.log("PASS: Test 8C - Model-mismatched heater manual fails verification and triggers fallback search.");
   }
 
   console.log("\\nALL TRUE HANDLER INTEGRATION TESTS PASSED SUCCESSFULLY.");

@@ -1195,8 +1195,10 @@ function verifyInternalCitation(
     // Conjunction Check 2: Equipment make & model match
     const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
     const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
-    const rowCategory = String(row.category ?? row.equipment_category ?? "").toLowerCase();
-    const isWaterQualitySOP = rowCategory.includes("water") || rowCategory.includes("care") || rowCategory.includes("sop");
+    // Disallow display fallback string ("Company manual / SOP") from satisfying SOP exemption.
+    // Classify truly generic water-chemistry SOPs strictly from explicit, authoritative metadata category.
+    const explicitCategory = String(row.equipment_category || (row.category && row.category !== "Company manual / SOP" ? row.category : "")).toLowerCase().trim();
+    const isWaterQualitySOP = explicitCategory === "water chemistry" || explicitCategory === "water_chemistry" || explicitCategory === "water care" || explicitCategory === "water_care" || explicitCategory === "chemistry";
     if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
     if (desiredModel && rowModel && rowModel !== desiredModel) return false;
     if (desiredModel && !rowModel && !isWaterQualitySOP) return false;
@@ -2950,6 +2952,7 @@ Deno.serve(async (req: Request) => {
           retrieval_method: r.retrieval_method,
           industry_key: r.industry_key,
           category: r.equipment_category || "Company manual / SOP",
+          equipment_category: r.equipment_category || null,
           brand: r.manufacturer_normalized || r.brand || r.manufacturer || "",
           model_family: r.model_normalized || r.model_family || r.model || "",
           content_text: r.content_text,
