@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="index,follow">
   <title>PoolDocAI Live Demo — Pool Troubleshooting</title>
   <meta name="description" content="Try the PoolDocAI pool troubleshooting demo, including homeowner triage, water chemistry help, and technician workflow preview." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏊%3C/text%3E%3C/svg%3E" />
@@ -159,22 +160,10 @@
     @media (max-width:1023px){#dispatchNoteContent{display:none}#dispatchNoteContent.dispatch-summary-open{display:block}}
   </style>
   <script src="/js/config.js"></script>
+  <link rel="stylesheet" href="/css/design-tokens.css" />
 </head>
 <body data-site-page="demo" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
 
-  <!-- TOP VALIDATION & WAITLIST BANNER -->
-  <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
-    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">PUBLIC DEMO · 8 TURNS PER MODE</span>
-        <span class="font-medium">Try 8 turns in Homeowner Triage and a separate 8 turns in the Field Tech Mobile App preview. Join the waitlist for full account access.</span>
-      </div>
-      <div class="flex items-center gap-4">
-        <a href="demo.html#interactive-demo" class="text-white hover:text-sky-200 font-semibold text-xs flex items-center gap-1">Try Live Demo &rarr;</a>
-        <a href="waitlist.html#interest-section" class="text-amber-300 hover:text-amber-200 font-semibold text-xs flex items-center gap-1">Join Pilot &rarr;</a>
-      </div>
-    </div>
-  </div>
 
   <!-- STICKY NAVIGATION HEADER -->
   <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
@@ -199,8 +188,9 @@
       </nav>
 
       <div class="flex items-center gap-2">
-        <a href="demo.html#interactive-demo" class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-sky-700 border border-sky-200 hover:bg-sky-50 transition">Try Live Demo</a>
-        <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition">Join Pilot</a>
+        <a href="#interactive-demo" class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-sky-700 border border-sky-200 hover:bg-sky-50 transition">Try PoolDocAI Tech</a>
+        <button type="button" data-open-homeowner-widget class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-slate-700 border border-slate-200 hover:bg-slate-50 transition cursor-pointer">Try PoolDocAI Homeowner</button>
+        <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition">Join Waitlist</a>
         <button id="mobileMenuBtn" type="button" aria-label="Toggle Menu" aria-expanded="false" aria-controls="mobileMenuPanel" class="xl:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 border border-slate-200 cursor-pointer">
           ☰
         </button>
@@ -211,10 +201,10 @@
     <div id="mobileMenuPanel" class="hidden xl:hidden bg-white border-t border-slate-200 px-4 py-3 space-y-2 text-sm font-medium text-slate-700">
       <a href="index.html#top" class="block py-2 hover:text-sky-600">Home</a>
       <a href="how-it-works.html#solution-section" class="block py-2 hover:text-sky-600">How It Works</a>
-      <a href="demo.html#interactive-demo" class="block py-2 hover:text-sky-600">Try the Demo</a>
-      <a href="pricing.html#pricing-roi-section" class="block py-2 hover:text-sky-600">Pricing</a>
-      <a href="faq.html#faq-section" class="block py-2 hover:text-sky-600">Help &amp; Safety</a>
-      <a href="/admin.html" class="block py-2 text-sky-600 font-bold">Account Login</a><a href="waitlist.html#interest-section" class="block py-2 text-sky-600 font-bold">Join the Pilot</a>
+      <a href="#interactive-demo" class="block py-2 hover:text-sky-600">Try PoolDocAI Tech</a>
+      <button type="button" data-open-homeowner-widget class="block w-full text-left py-2 hover:text-sky-600 font-medium">Try PoolDocAI Homeowner</button>
+      <a href="/admin.html" class="block py-2 text-sky-600 font-bold">Account Login</a>
+      <a href="waitlist.html#interest-section" class="block py-2 text-sky-600 font-bold">Join Waitlist</a>
       <div class="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
         <button id="openPortalModalMobileBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 underline underline-offset-2 cursor-pointer">Setup details</button>
       </div>
@@ -277,25 +267,25 @@
 
             <div class="space-y-3 text-xs">
               <div class="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5">
+              <div class="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5">
                 <div class="flex items-center justify-between">
-                  <span class="font-bold text-sky-300">1. Website Widget OR Textable Customer Links</span>
-                  <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 text-xs font-bold">PLANNED PILOT</span>
+                  <span class="font-bold text-emerald-300">1. Field Technician Diagnostic Copilot</span>
+                  <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-xs font-bold">Available to try now</span>
                 </div>
                 <p class="text-slate-300 leading-relaxed">
-                  The public troubleshooting demo and Pre-Job Summary preview are <strong class="text-emerald-300">available to try now</strong>. Company-branded website chat rollout and customer-specific textable links are <strong class="text-amber-200">planned pilot capabilities</strong>, not activated by this public demo.
+                  The Field Tech Diagnostic Copilot preview is live in the workbench below with a dedicated 8-turn allowance. Technicians verify error codes, wiring, and OEM manuals on-site. Dedicated technician accounts and field notes PWA are available; proposed Tech-Only plans start at <strong class="text-white">$49/mo</strong>, with Complete plans starting at <strong class="text-white">$99/mo</strong>.
                 </p>
               </div>
 
               <div class="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5">
                 <div class="flex items-center justify-between">
-                  <span class="font-bold text-amber-300">2. Field Technician Mobile App</span>
-                  <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-xs font-bold">Available to try now</span>
+                  <span class="font-bold text-sky-300">2. Homeowner Intake &amp; Website Widget</span>
+                  <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 text-xs font-bold">Planned Pilot</span>
                 </div>
                 <p class="text-slate-300 leading-relaxed">
-                  The Field Tech Mobile App preview is available through the same live demo; it has its own separate 8-turn allowance. Dedicated technician accounts and a production mobile app are planned; proposed Tech-Only plans start at <strong class="text-white">$49/mo</strong>, with Complete plans starting at <strong class="text-white">$99/mo</strong>.
+                  A separate 8-turn allowance is available for the customer triage card via the bottom-right toggle. Company-branded website chat widgets and customer-specific textable intake links are <strong class="text-amber-200">planned pilot capabilities</strong>, distinct from your technicians' operational allowance.
                 </p>
               </div>
-
               <div class="p-3.5 rounded-xl bg-emerald-950/50 border border-emerald-500/30 flex items-center justify-between gap-2">
                 <div>
                   <div class="font-bold text-emerald-300">Separate Homeowner &amp; Tech Allowances</div>
@@ -423,27 +413,25 @@
   <section id="interactive-demo" class="py-16 sm:py-20 bg-slate-900 text-white border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="max-w-3xl mx-auto text-center space-y-3">
-        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Live Conversational PoolDocAI Troubleshooter</span>
-        <h2 class="text-2xl sm:text-4xl font-extrabold">Have a Natural Troubleshooting Conversation with PoolDocAI</h2>
+        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Live Field Tech Mobile Demo</span>
+        <h2 class="text-2xl sm:text-4xl font-extrabold">Field Technician AI Diagnostic Copilot</h2>
         <p class="text-slate-300 text-xs sm:text-base">
-          Start with a symptom or choose one of the eight categories below. PoolDocAI guides the intake, runs an illustrative water-balancing calculator, and prepares a Pre-Job Summary for review. This is a demo; it does not book or dispatch a technician.
+          Experience how field service technicians troubleshoot pool equipment at the pad with diagnostic checklists, fault codes, and verified equipment procedures. This public demo provides 8 turns.
         </p>
       </div>
 
-      <!-- Surface Mode Switcher (Homeowner Triage vs. Field Tech Copilot) -->
-      <div class="mt-8 flex justify-center">
-        <div class="inline-flex p-1.5 rounded-2xl bg-slate-950 border border-slate-800 gap-2">
-          <button id="modeHomeownerBtn" type="button" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer">
-            🏠 Homeowner Triage Chat
-          </button>
-          <button id="modeTechBtn" type="button" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer">
-            🔧 Field Tech Mobile App
-          </button>
-        </div>
+      <!-- Tech-First Demo Action Bar with CTA to Secondary Floating Homeowner Widget -->
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <span class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow">
+          🔧 Field Tech Mobile Demo (Primary)
+        </span>
+        <button id="openHomeownerWidgetBtn" type="button" data-open-homeowner-widget class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-800 hover:bg-slate-700 text-sky-200 border border-slate-700 shadow transition cursor-pointer">
+          💬 Try Homeowner Chat Widget (Demo) &rarr;
+        </button>
       </div>
       <div class="mt-3 text-center space-y-1" aria-live="polite">
-        <p id="publicDemoTurnMeter" class="text-sm font-bold text-sky-200">Homeowner Triage demo: 8 of 8 turns remaining (0/8 used).</p>
-        <p class="text-xs text-slate-400">Homeowner Triage and Field Tech Mobile App each have a separate allowance of 8 turns in this browser session.</p>
+        <p id="publicDemoTurnMeter" class="text-sm font-bold text-sky-200">Field Tech Mobile App demo: 8 of 8 turns remaining (0/8 used).</p>
+        <p class="text-xs text-slate-400">Primary Field Tech Mobile Demo has an 8-turn allowance. Homeowner Chat Widget has its own separate 8-turn allowance.</p>
       </div>
 
       <!-- Expanded 2-Column Conversational Interface -->
@@ -455,7 +443,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2.5">
                 <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — 24/7 Homeowner Troubleshooting Assistant</span>
+                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — Field Technician Mobile Copilot</span>
               </div>
               <button id="restartScenarioBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer">
                 ↻ New Conversation
@@ -495,8 +483,8 @@
                   id="liveDemoSendBtn"
                   type="submit"
                   class="px-6 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-sm shadow-lg transition shrink-0 cursor-pointer"
-                >
-                  Ask PoolDoc &rarr;
+                 aria-label="Send message">
+                  Send &rarr;
                 </button>
               </form>
             </div>
@@ -507,11 +495,11 @@
         <div class="lg:col-span-4 bg-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col justify-between min-h-[220px] sm:min-h-[320px] lg:min-h-[750px]">
           <div class="space-y-3">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <span class="text-xs sm:text-sm font-extrabold text-amber-300 uppercase tracking-wider">📋 Pre-Job Summary Preview</span>
+              <span class="text-xs sm:text-sm font-extrabold text-amber-300 uppercase tracking-wider">📋 Diagnostic Summary</span>
               <div class="flex items-center gap-2"><span class="hidden sm:inline text-xs px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-semibold">Updates During Chat</span><button id="toggleDispatchSummaryBtn" type="button" aria-expanded="false" class="lg:hidden text-xs font-semibold text-sky-300 underline underline-offset-2">Show summary</button></div>
             </div>
             <p class="text-xs text-slate-400 leading-relaxed">
-              Updates automatically as PoolDocAI triages the symptom, confirms (or marks unknown) the make and model, logs water chemistry readings, and prepares the parts/chemical list for your technician.
+              Updates automatically as PoolDocAI analyzes observed symptoms, confirms equipment make/model from field manuals, verifies chemistry readings, and organizes diagnostic findings, ruled-out steps, and parts to verify.
             </p>
             <div id="dispatchNoteContent" class="space-y-3 text-xs sm:text-sm text-slate-300 pt-2">
               <!-- Populated by renderDispatchNote() -->
@@ -519,7 +507,7 @@
           </div>
 
           <div class="mt-4 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-slate-400 leading-relaxed">
-            <strong class="text-sky-300">Pre-Job Summary Preview:</strong> Checks completed in this demo are summarized under <em>Confirmed Checks</em>. When troubleshooting reaches its limit or you click <strong>Request Technician / Call Licensed Pro</strong>, you can submit a demo inquiry with the summary for review. The public demo does not contact a local service company or create a real dispatch or appointment.
+            <strong class="text-sky-300">Diagnostic Summary:</strong> Equipment checks completed in this session are summarized under <em>Confirmed Checks</em> and available for your field record. When you save or complete troubleshooting, this summary populates your editable Job Notes. The public demo does not store permanent route records.
           </div>
         </div>
 
@@ -1686,7 +1674,7 @@
     // =========================================================================
     // 2. PERSISTENT MULTI-TURN SESSION CONTEXT WITH LOCKED CATEGORY & MEMORY
     // =========================================================================
-    let currentSurfaceMode = 'homeowner';
+    let currentSurfaceMode = 'tech'; // Field Tech Mobile Demo is primary by default
     let conversationHistory = [];
     let lastTurnRequest = null;
     let dispatchMilestone = null;
@@ -2950,7 +2938,7 @@
       if (!barEl) return;
       const list = SAMPLE_STARTERS[currentSurfaceMode] || SAMPLE_STARTERS.homeowner;
       barEl.innerHTML = list.map(s => `
-        <button type="button" data-starter-prompt="${escapeHtml(s.prompt)}" class="demo-starter-chip px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-sky-500/20 text-sky-300 border border-slate-700 hover:border-sky-400 text-xs font-semibold transition cursor-pointer">
+        <button type="button" data-starter-prompt="${escapeHtml(s.prompt)}" class="demo-starter-chip min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-sky-500/20 text-sky-300 border border-slate-700 hover:border-sky-400 text-xs font-semibold transition cursor-pointer flex items-center justify-center">
           ${escapeHtml(s.label)}
         </button>
       `).join('');
@@ -3500,10 +3488,10 @@
       return (isModelResolved() && modelGate) || (!!sessionContext.initialTriageComplete && (symptomGate || opGate)) || (!!sessionContext.makeConfirmed && makeGate);
     }
 
-    function getLocalTroubleshootingFallback(userText) {
+    function getLocalTroubleshootingFallback(userText, ctx = sessionContext) {
       const q = normalizeConversationalText(userText || '');
-      const category = String(sessionContext.category || '').toLowerCase();
-      const symptom = String(sessionContext.symptom || userText || '');
+      const category = String(ctx?.category || '').toLowerCase();
+      const symptom = String(ctx?.symptom || userText || '');
       if (category.includes('water quality') || /algae|green pool|green water|cloudy water|water chemistry|\bph\b|chlorine|alkalinity|\bcya\b/.test(q)) {
         if (/algae|green pool|green water/.test(`${q} ${symptom.toLowerCase()}`)) return '**FIRST SAFE CHECK — GREEN / CLOUDY WATER (NO DOSING YET)**\n1. If you have a suitable pool test kit, record free chlorine (FC), pH, and CYA/stabilizer; also note total alkalinity and pool volume if known.\n2. Keep swimmers out if the water is cloudy or the pool floor is not clearly visible. Never mix products or guess a chemical dose.\n\nShare the measured readings so the next step can be selected safely. A complete algae-treatment plan still requires applicable verified guidance and the right pool/product details.';
         return '**FIRST SAFE CHECK — WATER CHEMISTRY**\n1. Test and record free chlorine (FC), pH, and CYA/stabilizer; add total alkalinity and pool volume if available.\n2. Do not add chemicals based on appearance alone, and do not guess a dose or combine products.\n\nTell me the actual test readings. If the water may be unsafe or readings are outside product-label guidance, get qualified pool-service help.';
@@ -3868,7 +3856,7 @@
             aiReply: clearServiceReply,
             citation: getSupabaseCitation(payload),
             technicianRecommended: true,
-            choices: [{ label: '📞 REQUEST A POOL SERVICE TECHNICIAN', action: 'escalate' }],
+            choices: [{ label: '📋 Prepare a service summary', action: 'escalate' }],
             type: 'technician_recommended',
             equipment: equipmentLabel
           };
@@ -3988,7 +3976,7 @@
         clearTimeout(timeoutId);
         if (sendBtn) {
           sendBtn.disabled = false;
-          sendBtn.textContent = 'Ask PoolDoc →';
+          sendBtn.textContent = 'Send →';
         }
       }
     }
@@ -4278,7 +4266,7 @@
             { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
           ]
         });
-        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Water Loss / Leak Intake', issue: q, stepsCompleted: 'Intake Step 1: Leak location', actionTaken: 'Asked user to identify the likely leak location before model-specific checks.', parts: 'Pending leak location and make/model', status: 'Leak location triage' });
+        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Water Loss / Leak Intake', issue: q, stepsCompleted: 'Intake Step 1: Leak location', actionTaken: 'Asked user to identify the likely leak location before model-specific checks.', parts: 'Pending leak location and make/model', status: 'Identifying leak location' });
         return;
       }
       if (/\b(fixed it|that fixed it|that worked|it started|running now|problem solved|all set|working now)\b/i.test(lower)) {
@@ -4408,7 +4396,7 @@
             { label: '📞 Request a Pool Service Technician / Licensed Professional', action: 'escalate' }
           ]
         });
-        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Pump / Motor', issue: q, stepsCompleted: 'Intake Step 1: Pump symptom', actionTaken: 'Recorded equipment category and requested symptom selection.', parts: 'Pending symptom and make/model', status: 'Pump symptom triage' });
+        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Pump / Motor', issue: q, stepsCompleted: 'Intake Step 1: Pump symptom', actionTaken: 'Recorded equipment category and requested symptom selection.', parts: 'Pending symptom and make/model', status: 'Identifying pump symptom' });
         return;
       }
 
@@ -4491,7 +4479,7 @@
           stepsCompleted: 'Intake Step 1: Confirming Make (Brand)',
           actionTaken: `Recorded symptom (${sessionContext.subType || q}); requesting make/brand confirmation.`,
           parts: 'Awaiting Make confirmation',
-          status: 'Triaging Make (Brand)'
+          status: 'Identifying equipment brand'
         });
         return;
       }
@@ -4506,7 +4494,7 @@
         });
         renderInteractiveConversation({
           customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session',
-          status: 'Triaging Exact Model'
+          status: 'Identifying exact model'
         });
         return;
       }
@@ -4532,7 +4520,7 @@
           stepsCompleted: 'Intake Step 2: Confirming Model',
           actionTaken: `Confirmed make ${sessionContext.brand}; awaiting model selection.`,
           parts: `Awaiting ${sessionContext.brand} model`,
-          status: 'Triaging Model'
+          status: 'Identifying your equipment'
         });
         return;
       }
@@ -4660,7 +4648,7 @@
           .replace(/\b(?:never|do not|don't|must not|should not|avoid|warn(?:s|ed|ing)?(?: that)?)\b[^.!?]{0,100}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]{0,100}\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]?/gi, ' ')
           .replace(/\b(?:acid|chlorine|bleach|muriatic acid)\b[^.!?]{0,80}\b(?:never|must not|should not|do not|don't)\b[^.!?]{0,40}\b(?:mix|mixing|mixed|combine|combining|combined)\b[^.!?]?/gi, ' ')
           // Safety prohibitions and cautionary examples are not instructions to perform the action.
-          .replace(/\b(?:never|do not|don't|must not|should not|avoid)\s+(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on|reset)\b[^.!?]{0,180}[.!?]?/gi, ' ');
+          .replace(/\b(?:never|do not|don't|must not|should not|avoid)\b[^.!?]*[.!?]?/gi, ' ');
         // Require an affirmative hazardous action. Component names alone (e.g. "capacitor")
         // must not turn a safe pump triage question into a homeowner safety hold.
         const cautionIsHighRisk = /\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on|reset)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring|pressure vessel|filter tank|sealed system)\b/i.test(cautionRiskText) || isDangerousChemicalMixInstruction(cautionRiskText);
@@ -4672,13 +4660,13 @@
         if (isCritical) {
           specialControlHtml = `<div class="mt-3 p-3 rounded-xl bg-rose-950 border border-rose-500/60 text-xs text-rose-200 space-y-1"><div>🚫 <strong>Non-bypassable safety stop:</strong> Do not approach or touch equipment, wiring, switches, gas valves, or breakers while a hazard may be present. Move to a safe location and contact emergency services or the appropriate utility/professional.</div><span class="inline-block px-2 py-0.5 rounded bg-rose-800 text-white font-bold text-xs">SAFETY STOP — NO OVERRIDE</span></div>`;
         } else if (showLargeTechnicianCta) {
-          specialControlHtml = `<section role="status" aria-live="polite" class="mt-4 p-5 sm:p-7 rounded-2xl border-4 border-amber-300 bg-amber-950 text-white shadow-xl space-y-4"><div class="inline-flex items-center rounded-lg bg-amber-300 px-3 py-2 text-base sm:text-lg font-black uppercase tracking-wide text-slate-950">${serviceCtaIsRecommended ? 'THIS IS THE RECOMMENDED NEXT STEP' : 'LIVE TROUBLESHOOTING IS UNAVAILABLE'}</div><h3 class="text-3xl sm:text-4xl font-black leading-tight">${serviceCtaIsRecommended ? 'REQUEST A POOL SERVICE TECHNICIAN' : 'NEED HELP FROM A TECHNICIAN?'}</h3><p class="text-base sm:text-lg leading-relaxed text-white">${serviceCtaIsRecommended ? 'PoolDocAI could not verify a reliable next procedure from the available manuals and live search. A qualified pool service technician should inspect this issue rather than guess at a repair.' : 'The live troubleshooting connection did not finish. You can keep to the safe observation above, retry the question, or prepare a service summary for a qualified professional.'}</p><button type="button" data-followup-action="escalate" data-followup-label="Request a Pool Service Technician" class="demo-followup-btn w-full min-h-[80px] px-5 py-5 rounded-xl bg-amber-300 hover:bg-amber-200 text-slate-950 border-4 border-white font-black text-xl sm:text-2xl leading-tight cursor-pointer focus:outline-none focus:ring-4 focus:ring-white">📞 REQUEST A POOL SERVICE TECHNICIAN</button><p class="text-sm sm:text-base text-amber-100">This prepares a Pre-Job Summary. The public demo does not dispatch a technician or create an appointment.</p></section>`;
+          specialControlHtml = `<section role="status" aria-live="polite" class="mt-4 p-4 sm:p-5 rounded-2xl border border-sky-400/40 bg-slate-900 text-white shadow-lg space-y-3"><div class="flex items-center gap-2"><span class="inline-flex items-center rounded-md bg-sky-500/20 text-sky-300 px-2.5 py-1 text-xs font-bold uppercase tracking-wider">${serviceCtaIsRecommended ? 'Recommended Next Step' : 'Live Troubleshooting Limit'}</span></div><h3 class="text-lg sm:text-xl font-bold leading-snug">${serviceCtaIsRecommended ? 'Get Help From a Pool Professional' : 'Need Help From a Pool Professional?'}</h3><p class="text-xs sm:text-sm leading-relaxed text-slate-300">${serviceCtaIsRecommended ? 'PoolDocAI could not verify a reliable next procedure from available equipment manuals. We recommend having a qualified pool service technician inspect this issue rather than guessing at a repair.' : 'The live troubleshooting connection did not finish. You can keep to the safe observation above, retry the question, or prepare a service summary for a qualified professional.'}</p><button type="button" data-followup-action="escalate" data-followup-label="Prepare a service summary" class="demo-followup-btn w-full min-h-[44px] px-4 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white border border-sky-400 font-bold text-sm leading-tight cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-300">📋 Prepare a service summary</button><p class="text-xs text-slate-400">Prepares a service summary of observed checks. The public demo does not dispatch a technician or create an appointment.</p></section>`;
         } else if (isDrainChoice && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="drainSelectCheckbox" type="checkbox" class="mt-0.5 w-4 h-4 accent-amber-400" /><span>Select the optional partial-drain estimate for professional review. Selecting this option is not an instruction or authorization to start draining.</span></label><button id="openDrainRiskReviewBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Continue to Draining Risk Review</button><div class="text-xs text-amber-100">If you do not want to drain, choose “I don't want to drain my pool” below to continue with the rest of the balancing instructions.</div></div>`;
         } else if (isDrainAck && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="drainRiskAckCheckbox" type="checkbox" class="mt-0.5 w-4 h-4 accent-amber-400" /><span>I understand and accept that draining can cause serious structural/hydrostatic damage, and I will not begin without a qualified pool professional confirming it is safe for this pool and site.</span></label><button id="confirmDrainReviewBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Acknowledge Risks &amp; Show Estimate</button><div class="text-xs text-amber-100">This acknowledgement does not establish that draining is safe and is not a substitute for professional assessment.</div></div>`;
         } else if (currentSurfaceMode !== 'tech' && isCaution && isLatest && cautionIsHighRisk) {
-          specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/50 space-y-2 text-xs text-rose-100"><strong>Homeowner safety hold:</strong> This step appears to involve gas, electricity, pressurized equipment, or another high-risk repair. A checkbox cannot make it safe. Do not attempt this step in homeowner mode.<div class="flex flex-wrap gap-2"><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sky-200 font-bold cursor-pointer">Show a safer alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Request a licensed professional" class="demo-followup-btn px-3 py-2 rounded-lg bg-sky-600 text-white font-bold cursor-pointer">Request a licensed professional</button></div></div>`;
+          specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/50 space-y-2 text-xs text-rose-100"><div class="font-bold flex items-center gap-1.5"><span aria-hidden="true">⚠️</span><span>${/\b(?:gas|burner|ignition|pilot|propane|natural gas)\b/i.test(cautionRiskText) ? 'Gas Safety Notice' : /\b(?:electric|voltage|breaker|live wire|wiring|panel|capacitor|motor wiring)\b/i.test(cautionRiskText) ? 'Electrical Safety Notice' : /\b(?:pressure|pressurized|filter tank|filter lid|clamp ring|pressure vessel)\b/i.test(cautionRiskText) ? 'Pressure Safety Notice' : 'Safety Notice'}:</span></div><p>${/\b(?:gas|burner|ignition|pilot|propane|natural gas)\b/i.test(cautionRiskText) ? 'This procedure involves gas supply, valves, or ignition components. Do not attempt gas repairs in homeowner mode. If you smell gas, leave the area immediately and contact your gas utility or 911.' : /\b(?:electric|voltage|breaker|live wire|wiring|panel|capacitor|motor wiring)\b/i.test(cautionRiskText) ? 'This procedure involves electrical wiring, panels, or live components. Do not open electrical enclosures or touch wiring. You can safely observe external indicator lights from a dry location.' : /\b(?:pressure|pressurized|filter tank|filter lid|clamp ring|pressure vessel)\b/i.test(cautionRiskText) ? 'This procedure involves pressurized filtration equipment. Never loosen clamp rings while the system is under pressure. A qualified pool technician should service pressurized tanks.' : 'This procedure involves high-risk equipment servicing. The demo will not display internal repair steps in homeowner mode. Choose a safe non-invasive observation, skip this step, or prepare a service summary for a qualified professional.'}</p><div class="flex flex-wrap gap-2 pt-1"><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn min-h-[44px] px-3.5 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sky-200 font-bold cursor-pointer">Show a safer alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Prepare a service summary" class="demo-followup-btn min-h-[44px] px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer">Prepare a service summary</button></div></div>`;
         } else if (isCaution && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="demoCautionCheckbox" type="checkbox" class="w-4 h-4 rounded accent-amber-400 cursor-pointer" /><span>I understand the caution and have reviewed the non-invasive check described above. I will skip it if I am unsure.</span></label><div class="flex flex-wrap items-center gap-2"><button id="demoCautionContinueBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Show Cautionary Guidance &rarr;</button><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-slate-800 text-sky-200 border border-slate-600 font-bold text-xs cursor-pointer">Skip this check / Show an alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Request Technician / Call Licensed Pro" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold text-xs cursor-pointer">Request Technician / Call Licensed Pro</button></div><div id="demoUnlockedCautionStep" class="hidden p-3 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200 whitespace-pre-line">${escapeHtml(step.unlockedStep || '')}</div></div>`;
         } else if (isServiceForm && isLatest) {
@@ -4690,7 +4678,7 @@
         const visibleAiReply = dangerousChemicalMixInstruction
           ? 'Chemical safety hold: this response appears to instruct mixing or combining incompatible pool chemicals. Do not follow that instruction. Keep products separate, follow each product label, and consult a qualified pool professional for a safe treatment sequence.'
           : blockHomeownerInstruction
-            ? 'Homeowner safety hold: this response appears to include instructions for gas, electrical, pressurized equipment, or another high-risk repair. The demo will not show those repair instructions in homeowner mode. Do not attempt the repair; choose a non-invasive observation, skip this step, or contact a qualified professional.'
+            ? 'Safety Notice: This response appears to include instructions for gas, electrical, pressurized equipment, or another high-risk repair. The demo will not display high-risk repair instructions in homeowner mode. Do not attempt the repair; choose a non-invasive observation, skip this step, or prepare a service summary for a qualified professional.'
             : (step.aiReply || '');
         const formattedAiReply = escapeHtml(visibleAiReply).replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
         return `<div data-conversation-index="${index}" class="space-y-3 border-b border-slate-900/80 pb-4 last:border-b-0">${step.userMsg ? `<div class="ml-auto max-w-[88%] p-3.5 rounded-2xl bg-sky-600/20 border border-sky-500/40"><div class="text-xs font-bold uppercase text-sky-300">${currentSurfaceMode === 'tech' ? 'Field Technician' : 'You (Homeowner)'}</div><p class="text-white mt-1 text-xs sm:text-sm">${escapeHtml(step.userMsg)}</p></div>` : ''}<div class="mr-auto max-w-[94%] p-4 rounded-2xl ${isCritical ? 'bg-rose-950/80 border border-rose-500/60' : 'bg-slate-900 border border-slate-700/80'}"><div class="text-xs font-bold uppercase ${isCritical ? 'text-rose-300' : 'text-emerald-400'}">PoolDocAI</div><p class="text-slate-100 mt-1.5 whitespace-pre-line leading-relaxed text-xs sm:text-sm">${formattedAiReply}</p>${specialControlHtml}${sourceBadgeHtml(step.citation)}</div>${step.outcomeBanner ? `<div class="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-xs text-emerald-200 font-semibold">${escapeHtml(step.outcomeBanner)}</div>` : ''}</div>`;
@@ -5479,7 +5467,8 @@
       const chat = snapshot.chat || {};
       if (Array.isArray(chat.history) && chat.history.length && typeof conversationHistory !== 'undefined') {
         conversationHistory = chat.history;
-        if (chat.currentSurfaceMode) currentSurfaceMode = chat.currentSurfaceMode;
+        if (chat.currentSurfaceMode === 'tech') currentSurfaceMode = 'tech';
+        else currentSurfaceMode = 'tech'; // Default to tech-first demo
         if (typeof updatePublicDemoTurnMeter === 'function') updatePublicDemoTurnMeter();
         if (chat.sessionContext) sessionContext = chat.sessionContext;
         if (chat.waterHelpState) waterHelpState = chat.waterHelpState;
@@ -5570,5 +5559,341 @@
 </script>
 <script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
 <script src="/js/core.js" defer></script>
+  <!-- Floating Homeowner Chat Launcher Button -->
+  <div id="homeownerFloatingLauncherWrap" class="fixed bottom-5 right-5 z-40">
+    <button id="homeownerFloatingLauncher" type="button" data-open-homeowner-widget aria-expanded="false" aria-controls="homeownerChatWidgetPanel" aria-label="Try Homeowner Troubleshooting Assistant" class="group flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-sky-500 to-cyan-500 text-slate-950 font-black text-xs sm:text-sm shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 border-2 border-white/80 cursor-pointer">
+      <span class="text-base sm:text-lg">💬</span>
+      <span class="hidden sm:inline">Try Homeowner Chat Widget</span>
+      <span class="inline sm:hidden">Homeowner Chat</span>
+      <span class="px-2 py-0.5 rounded-full bg-slate-950 text-sky-300 text-[10px] font-bold">8 Turns</span>
+    </button>
+  </div>
+
+  <!-- Floating Homeowner Chat Widget Pop-up / Mobile Sheet -->
+  <div id="homeownerChatWidgetPanel" role="dialog" aria-modal="true" aria-labelledby="homeownerWidgetTitle" aria-hidden="true" class="hidden fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[420px] max-w-[440px] h-[600px] max-h-[85vh] bg-slate-950 border border-sky-400/50 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200">
+    <!-- Widget Header -->
+    <div class="px-4 py-3 bg-gradient-to-r from-sky-900/90 to-cyan-950/90 border-b border-sky-700/60 flex items-center justify-between text-white">
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        <div>
+          <h3 id="homeownerWidgetTitle" class="text-xs sm:text-sm font-extrabold tracking-tight">PoolDocAI Homeowner Chat Widget</h3>
+          <p class="text-[10px] text-sky-200">Customer Website Assistant · Demo Preview</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button id="closeHomeownerWidgetBtn" type="button" aria-label="Close Homeowner Chat" class="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-base font-bold flex items-center justify-center cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-sky-400">✕</button>
+      </div>
+    </div>
+
+    <!-- Demo Usage & Scope Banner -->
+    <div class="px-3 py-1.5 bg-sky-950/80 border-b border-sky-800/50 flex items-center justify-between text-[11px] text-sky-200">
+      <span id="homeownerWidgetTurnMeter" class="font-bold">Homeowner demo: 8 of 8 turns remaining</span>
+      <span class="text-amber-300 font-semibold">Demo preview</span>
+    </div>
+
+    <!-- Scrollable Conversation Stream -->
+    <div id="homeownerWidgetBody" class="flex-1 space-y-3 p-3.5 overflow-y-auto text-xs sm:text-sm leading-relaxed" style="scrollbar-width:thin">
+      <!-- Dynamic Homeowner Chat Messages -->
+    </div>
+
+    <!-- Homeowner Starter Prompts -->
+    <div id="homeownerWidgetStarters" class="p-2.5 bg-slate-900/90 border-t border-slate-800 space-y-1.5">
+      <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">💡 Quick Customer Questions:</div>
+      <div id="homeownerWidgetStartersBar" class="flex flex-wrap gap-1.5"></div>
+    </div>
+
+    <!-- Chat Input Box -->
+    <div class="p-3 bg-slate-900 border-t border-slate-800">
+      <form id="homeownerWidgetInputForm" class="flex gap-2">
+        <input id="homeownerWidgetCustomInput" type="text" maxlength="600" placeholder="Type a pool symptom (e.g. pump wont start)…" autocomplete="off" class="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-base sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400" />
+        <button id="homeownerWidgetSendBtn" type="submit" class="min-h-[44px] px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm cursor-pointer flex items-center justify-center">Send</button>
+      </form>
+      <p class="mt-1 text-[10px] text-slate-400 text-center">Demonstrates embedded chat widget for pool company websites.</p>
+    </div>
+  </div>
+
+  <script id="pooldocai-floating-homeowner-widget">
+  (function () {
+    let widgetHistory = [];
+    let widgetSessionContext = {
+      category: null, subType: null, brand: null, model: null, symptom: null, currentStep: 0,
+      ruledOut: [], skippedSteps: [], lastRecommendedStep: null, initialTriageComplete: false
+    };
+    let widgetDiagnosticSessionId = 'hw-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    let isWidgetBusy = false;
+
+    function getWidgetRemainingTurns() {
+      const used = Math.min(publicDemoTurns('homeowner'), PUBLIC_DEMO_TURN_LIMIT);
+      return Math.max(0, PUBLIC_DEMO_TURN_LIMIT - used);
+    }
+
+    function updateWidgetTurnMeter() {
+      const el = document.getElementById('homeownerWidgetTurnMeter');
+      if (!el) return;
+      const rem = getWidgetRemainingTurns();
+      const used = PUBLIC_DEMO_TURN_LIMIT - rem;
+      el.textContent = `Homeowner demo: ${rem} of ${PUBLIC_DEMO_TURN_LIMIT} turns remaining (${used}/${PUBLIC_DEMO_TURN_LIMIT} used)`;
+    }
+
+    function renderWidgetStarters() {
+      const bar = document.getElementById('homeownerWidgetStartersBar');
+      if (!bar) return;
+      const starters = [
+        { label: "Pump wont start", prompt: "My pool pump wont start and makes no sound." },
+        { label: "Water is cloudy", prompt: "My pool water is cloudy and chemistry is off." },
+        { label: "Filter pressure high", prompt: "My pool filter pressure is running high." },
+        { label: "Heater not heating", prompt: "My pool heater is not heating the water." }
+      ];
+      bar.innerHTML = starters.map(s => `
+        <button type="button" data-widget-starter="${escapeHtml(s.prompt)}" class="demo-widget-starter-chip min-h-[44px] px-3 py-2 rounded-xl bg-slate-800 hover:bg-sky-900/60 text-sky-200 border border-slate-700 text-xs font-semibold transition cursor-pointer flex items-center">
+          ${escapeHtml(s.label)}
+        </button>
+      `).join('');
+    }
+
+    function initWidgetConversation() {
+      if (widgetHistory.length > 0) return;
+      widgetHistory = [{
+        role: 'assistant',
+        aiReply: "Hi! I'm PoolDocAI's customer troubleshooting assistant. Describe your pool equipment issue below (e.g. pump wont start, high pressure, cloudy water), and I'll help with safe preliminary checks.",
+        citation: "PoolDocAI Customer Chat Widget — Public Demo Preview"
+      }];
+      renderWidgetConversation();
+      renderWidgetStarters();
+      updateWidgetTurnMeter();
+    }
+
+    function renderWidgetConversation() {
+      const bodyEl = document.getElementById('homeownerWidgetBody');
+      if (!bodyEl) return;
+      bodyEl.innerHTML = widgetHistory.map((msg, i) => {
+        if (msg.role === 'user') {
+          return `<div class="ml-auto max-w-[88%] p-2.5 rounded-2xl bg-sky-600/25 border border-sky-500/40 text-right"><div class="text-[10px] font-bold uppercase text-sky-300">You (Homeowner)</div><p class="text-white mt-1 text-xs sm:text-sm text-left">${escapeHtml(msg.userMsg || '')}</p></div>`;
+        }
+        const isCrit = msg.isCritical === true;
+        const replyText = escapeHtml(msg.aiReply || '').replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
+        return `<div class="mr-auto max-w-[94%] p-3 rounded-2xl ${isCrit ? 'bg-rose-950/80 border border-rose-500/60' : 'bg-slate-900 border border-slate-700/80'}"><div class="text-[10px] font-bold uppercase ${isCrit ? 'text-rose-300' : 'text-emerald-400'}">PoolDocAI Widget</div><p class="text-slate-100 mt-1 whitespace-pre-line text-xs sm:text-sm">${replyText}</p>${msg.citation ? `<div class="mt-2 text-[10px] text-slate-400">📋 ${escapeHtml(msg.citation)}</div>` : ''}</div>`;
+      }).join('');
+      bodyEl.scrollTop = bodyEl.scrollHeight;
+    }
+
+    window.openHomeownerWidget = function () {
+      const panel = document.getElementById('homeownerChatWidgetPanel');
+      const launcher = document.getElementById('homeownerFloatingLauncher');
+      if (!panel) return;
+      panel.classList.remove('hidden');
+      panel.setAttribute('aria-hidden', 'false');
+      launcher?.setAttribute('aria-expanded', 'true');
+      initWidgetConversation();
+      document.getElementById('homeownerWidgetCustomInput')?.focus();
+    };
+
+    window.closeHomeownerWidget = function () {
+      const panel = document.getElementById('homeownerChatWidgetPanel');
+      const launcher = document.getElementById('homeownerFloatingLauncher');
+      if (!panel) return;
+      panel.classList.add('hidden');
+      panel.setAttribute('aria-hidden', 'true');
+      launcher?.setAttribute('aria-expanded', 'false');
+      launcher?.focus();
+    };
+
+    async function sendWidgetMessage(userText) {
+      if (!userText || isWidgetBusy) return;
+      if (getWidgetRemainingTurns() <= 0) {
+        showDemoWaitlistNotice("You have reached the 8-turn limit for the Homeowner Chat Widget demo. Join the waitlist for full access!");
+        return;
+      }
+
+      // Check learning consent before invoking public demo Edge function
+      if (typeof ensurePublicDemoLearningConsent === 'function') {
+        const consented = await ensurePublicDemoLearningConsent();
+        if (!consented) return;
+      }
+
+      isWidgetBusy = true;
+      const sendBtn = document.getElementById('homeownerWidgetSendBtn');
+      const inputEl = document.getElementById('homeownerWidgetCustomInput');
+      if (sendBtn) sendBtn.disabled = true;
+      if (inputEl) inputEl.value = '';
+
+      widgetHistory.push({ role: 'user', userMsg: userText });
+      renderWidgetConversation();
+
+      // Check client-side emergency stops on user message
+      if (isCriticalPoolHazard(userText)) {
+        widgetHistory.push({
+          role: 'assistant',
+          aiReply: "🚫 **NON-BYPASSABLE SAFETY STOP:** The reported condition may involve gas, live electricity, active fire/smoke, structural pressure hazard, or suction entrapment. Do not touch equipment or enter the pool. Move to safety and contact emergency services or a qualified professional.",
+          isCritical: true,
+          citation: "Safety Enforcement — Immediate Emergency Stop"
+        });
+        renderWidgetConversation();
+        isWidgetBusy = false;
+        if (sendBtn) sendBtn.disabled = false;
+        return;
+      }
+
+      // Generate distinct per-turn demoTurnId
+      const widgetTurnId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random());
+
+      try {
+        const history = widgetHistory.slice(-8).map(turn => ({
+          user: String(turn.userMsg || '').slice(0, 1200),
+          assistant: String(turn.aiReply || '').slice(0, 1800),
+          citation: String(turn.citation || '').slice(0, 300)
+        }));
+        const messages = [];
+        history.forEach(turn => {
+          if (turn.user) messages.push({ role: 'user', content: turn.user });
+          if (turn.assistant) messages.push({ role: 'assistant', content: turn.assistant });
+        });
+        messages.push({ role: 'user', content: userText });
+
+        const payload = {
+          action: 'troubleshoot',
+          action_type: 'troubleshoot',
+          mode: 'homeowner',
+          authenticatedApp: false,
+          sessionId: getPublicDemoSessionId('homeowner'),
+          demoTurnId: widgetTurnId,
+          diagnosticSessionId: widgetDiagnosticSessionId,
+          query: userText,
+          message: userText,
+          userMessage: userText,
+          sessionContext: widgetSessionContext,
+          history,
+          messages
+        };
+
+        const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+        if (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY.trim()) {
+          headers.apikey = SUPABASE_ANON_KEY.trim();
+          headers.Authorization = `Bearer ${SUPABASE_ANON_KEY.trim()}`;
+        }
+
+        const res = await fetch(TROUBLESHOOTER_ENDPOINT, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+
+        const responseText = await res.text();
+        let data;
+        try { data = responseText ? JSON.parse(responseText) : {}; }
+        catch { data = { error: responseText }; }
+
+        if (!res.ok) {
+          if (res.status === 429 || data?.code === 'DEMO_LIMIT_REACHED') {
+            showDemoWaitlistNotice(data?.error || "You have reached the 8-turn limit for the Homeowner Chat Widget demo. Join the waitlist for full access!");
+            widgetHistory.push({
+              role: 'assistant',
+              aiReply: "Demo limit reached: The public demo allows up to eight turns in the Homeowner Chat Widget. Join the waitlist for full account access.",
+              citation: "PoolDocAI Access Control"
+            });
+            return;
+          }
+          if (res.status === 400 && data?.code === 'DEMO_SESSION_REQUIRED') {
+            widgetHistory.push({
+              role: 'assistant',
+              aiReply: "Demo session verification required. Please refresh the page to start a new demo session.",
+              citation: "PoolDocAI Session Guard"
+            });
+            return;
+          }
+          const errMsg = data?.error || data?.message || `Service unavailable (HTTP ${res.status})`;
+          throw new Error(errMsg);
+        }
+
+        if (data?.error) {
+          throw new Error(String(data.error));
+        }
+
+        let reply = getSupabaseReply(data);
+        if (!reply) {
+          throw new Error("No diagnostic response generated.");
+        }
+
+        // Apply hazardous repair instruction safety filtration for homeowner mode
+        const cautionRiskText = reply;
+        const homeownerHighRisk = /(?:\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring)\b)/i.test(cautionRiskText);
+        const dangerousChem = typeof isDangerousChemicalMixInstruction === 'function' ? isDangerousChemicalMixInstruction(cautionRiskText) : false;
+
+        if (dangerousChem) {
+          reply = 'Chemical safety hold: this response appears to instruct mixing or combining incompatible pool chemicals. Do not follow that instruction. Keep products separate, follow each product label, and consult a qualified pool professional for a safe treatment sequence.';
+        } else if (homeownerHighRisk) {
+          reply = 'Safety Notice: This response appears to include instructions for gas, electrical, pressurized equipment, or another high-risk repair. The demo will not display high-risk repair instructions in homeowner mode. Do not attempt the repair; choose a non-invasive observation, skip this step, or prepare a service summary for a qualified professional.';
+        }
+
+        // Server confirmed turn: increment independent homeowner turn counter
+        const currentUsed = publicDemoTurns('homeowner');
+        sessionStorage.setItem(publicDemoCountKey('homeowner'), String(currentUsed + 1));
+        updateWidgetTurnMeter();
+
+        widgetHistory.push({
+          role: 'assistant',
+          aiReply: reply,
+          citation: data.source || "PoolDocAI Diagnostic Knowledge Base"
+        });
+      } catch (err) {
+        const fallback = getLocalTroubleshootingFallback(userText, widgetSessionContext);
+        widgetHistory.push({
+          role: 'assistant',
+          aiReply: fallback,
+          citation: "PoolDocAI Safe Offline Diagnostic Guidance (Service Temporarily Unavailable)"
+        });
+      } finally {
+        isWidgetBusy = false;
+        if (sendBtn) sendBtn.disabled = false;
+        renderWidgetConversation();
+      }
+    }
+
+    // Expose for DOM events and executable test suites
+    window.sendWidgetMessage = sendWidgetMessage;
+    window.getWidgetHistory = () => widgetHistory;
+    window.resetWidgetState = () => {
+      widgetHistory = [];
+      widgetSessionContext = {
+        category: null, subType: null, brand: null, model: null, symptom: null, currentStep: 0,
+        ruledOut: [], skippedSteps: [], lastRecommendedStep: null, initialTriageComplete: false
+      };
+      widgetDiagnosticSessionId = 'hw-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+      initWidgetConversation();
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      renderWidgetStarters();
+      updateWidgetTurnMeter();
+      document.querySelectorAll('[data-open-homeowner-widget]').forEach(btn => {
+        btn.addEventListener('click', () => window.openHomeownerWidget());
+      });
+      document.getElementById('closeHomeownerWidgetBtn')?.addEventListener('click', () => window.closeHomeownerWidget());
+      document.getElementById('homeownerWidgetInputForm')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('homeownerWidgetCustomInput');
+        if (input && input.value.trim()) sendWidgetMessage(input.value.trim());
+      });
+      document.getElementById('homeownerWidgetStartersBar')?.addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-widget-starter]');
+        if (chip) {
+          const prompt = chip.getAttribute('data-widget-starter');
+          if (prompt) sendWidgetMessage(prompt);
+        }
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const panel = document.getElementById('homeownerChatWidgetPanel');
+          if (panel && !panel.classList.contains('hidden') && panel.getAttribute('aria-hidden') === 'false') {
+            window.closeHomeownerWidget();
+          }
+        }
+      });
+      if (window.location.hash === '#open-homeowner-widget' || new URLSearchParams(window.location.search).get('widget') === 'homeowner') {
+        setTimeout(window.openHomeownerWidget, 200);
+      }
+    });
+  })();
+  </script>
 </body>
 </html>

@@ -34,12 +34,31 @@ jobs:
       - name: Test worker SSRF and webhook boundaries
         run: node document-worker/tests/network-webhook-boundary.test.cjs
 
-      - name: Test conversational troubleshooting routing
+      - name: Test conversational troubleshooting routing and script parsing
         run: node website/tests/troubleshooter-intent.test.cjs
       - name: Test troubleshooter safety stop reasonable boundaries
         run: node website/tests/safety-stop.test.cjs
-      - name: Test monthly session entitlements and trial RPC scope
+      - name: Test TASK-002 troubleshooter UX, technician default, and site readiness
+        run: node website/tests/task002-troubleshooter-ux.test.cjs
+      - name: Test TASK-003 design tokens, logo concepts, and Option C hybrid styling
+        run: node website/tests/task003-design-tokens-and-logos.test.cjs
+      - name: Test TASK-003 owner-approved copy updates and experience integration
+        run: node website/tests/task003-copy-and-experience-updates.test.cjs
+      - name: Test monthly session entitlements, technician sync, and trial RPC scope
         run: node website/tests/monthly-sessions.test.cjs
+
+      - name: Test Stripe billing alignment and simulated webhook replay
+        run: node website/tests/stripe-simulation.test.cjs
+      - name: Test Stripe checkout runtime execution and billing portal
+        run: node website/tests/stripe-checkout-handler.test.cjs
+      - name: Test authenticated browser state teardown and cross-account isolation
+        run: node website/tests/browser-isolation.test.cjs
+      - name: Test fail-closed learning approval and contributor consent verification
+        run: node website/tests/learning-consent-fail-closed.test.cjs
+      - name: Test staging configuration and Vercel preview fail-closed guards
+        run: node website/tests/staging-config.test.cjs
+      - name: Test environment-specific indexing and SEO directives
+        run: node website/tests/seo-indexing.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
@@ -61,6 +80,9 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             --set ON_ERROR_STOP=1 \
             --file supabase/tests/security_review.sql
+
+      - name: Run true two-connection PostgreSQL webhook concurrency and claim-fencing test
+        run: node supabase/tests/stripe-concurrency.test.cjs
 
       - name: Stop local Supabase
         if: always()

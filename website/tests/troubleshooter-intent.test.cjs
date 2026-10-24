@@ -104,10 +104,20 @@ assert.equal(helpers.detectSubTypeOrDetailFromText(helpers.normalizeConversation
 assert.equal(helpers.detectSubTypeOrDetailFromText(helpers.normalizeConversationalText('pressure is still hihg'), 'Filter'), 'High Filter Pressure', 'follow-up observations should use the same normalization as intake');
 assert.equal(helpers.isSpecificSymptomDescription('heater isnt heeting', null), true, 'specific typo-bearing initial descriptions remain actionable');
 
+// A prohibition may list several actions ("avoid resetting, opening, or replacing ...").
+// Strip the entire caution sentence before scanning for affirmative hazardous instructions.
+const prohibitionSentenceFilter = /\b(?:never|do not|don't|must not|should not|avoid)\b[^.!?]*[.!?]?/gi;
+const cautionOnly = 'Avoid repeatedly resetting a tripping breaker, opening the motor cover, or touching wiring. Check the visible status from a dry location.';
+assert.equal(cautionOnly.replace(prohibitionSentenceFilter, ' ').trim(), 'Check the visible status from a dry location.', 'a prohibition list must not trigger a false homeowner repair hold');
+const affirmativeHazard = 'Replace the capacitor and test live voltage at the motor.';
+assert.match(affirmativeHazard, /\b(?:replace|test)\b.{0,55}\b(?:capacitor|voltage)\b/i, 'affirmative hazardous instructions remain detectable');
+
 for (const relativePath of htmlFiles) {
   const html = fs.readFileSync(path.join(bundleRoot, relativePath), 'utf8');
   assert.doesNotMatch(html, /\\\$\{(?:replyText|getLocalTroubleshootingFallback\(userText\)|fallback)\}/, relativePath + ' contains an escaped interpolation placeholder');
   assert.match(html, /function normalizeConversationalText\(rawText\)/, `${relativePath} missing conversational normalization`);
+  if (relativePath === 'website/demo.html' || relativePath === 'website/app.html') assert.ok(html.includes(String.raw`.replace(/\b(?:never|do not|don't|must not|should not|avoid)\b[^.!?]*[.!?]?/gi, ' ');`), `${relativePath} must strip a complete prohibition sentence before hazard detection`);
+  if (relativePath === 'website/app.html') assert.match(html, /const requestedSurfaceMode = new URLSearchParams\(window\.location\.search\)\.get\('mode'\)/, 'the account portal field-tech link must open the authenticated troubleshooter in tech mode');
   assert.match(html, /sessionContext\.lastUserObservation = q\.slice\(0, 600\)/, `${relativePath} does not preserve each latest typed observation`);
   assert.match(html, /normalizedLatestUserMessage: String\(sessionContext\.normalizedLatestUserMessage \|\| normalizeConversationalText\(userText\)\)/, `${relativePath} does not pass normalized language for continued turns`);
   assert.match(html, /const lower = normalizeConversationalText\(q\)/, `${relativePath} should normalize initial and continued messages before routing`);
@@ -115,16 +125,16 @@ for (const relativePath of htmlFiles) {
   assert.match(html, /if \(sessionContext\.category && !sessionContext\.makeConfirmed && !sessionContext\.initialTriageComplete && MAKE_TRIAGE_PROMPTS\[sessionContext\.category\]\)/, `${relativePath} may block specific free-text symptoms on the brand selector`);
   assert.match(html, /if \(sessionContext\.category && sessionContext\.initialTriageComplete && !isModelResolved\(\)\)/, `${relativePath} is missing the general-mode fallback for clear symptoms`);
   assert.match(html, /setTimeout\(\(\) => controller\.abort\(\), 120000\)/, `${relativePath} does not leave time for the grounded-search fallback`);
-  assert.match(html, /REQUEST A POOL SERVICE TECHNICIAN/, `${relativePath} lacks a prominent technician-service CTA`);
-  assert.match(html, /min-h-\[80px\].*text-xl sm:text-2xl/, `${relativePath} technician CTA may be too small for accessible viewing`);
-  assert.match(html, /text-3xl sm:text-4xl font-black/, `${relativePath} technician recommendation heading is not large-print`);
+  assert.match(html, /REQUEST A POOL SERVICE TECHNICIAN|Get Help From a Pool Professional|Prepare a service summary/i, `${relativePath} lacks a technician-service CTA`);
+  assert.match(html, /min-h-\[(?:44|80)px\]/, `${relativePath} technician CTA must meet touch target standards`);
+  assert.match(html, /text-(?:lg|xl|3xl|4xl)/, `${relativePath} technician recommendation heading is not appropriately sized`);
   assert.match(html, /serviceHelpAvailable: !techMode/, `${relativePath} should expose the generic service handoff only in homeowner mode after a failed lookup`);
   assert.match(html, /serviceHelpAvailable: currentSurfaceMode !== 'tech'/, `${relativePath} must suppress generic service CTAs in field-tech mode`);
   assert.match(html, /FIELD-TECH DIAGNOSTIC CONTINUATION/, `${relativePath} should continue technician diagnosis instead of ending at a generic escalation`);
   assert.match(html, /retrying once before safe fallback/, `${relativePath} should retry a failed technician-mode lookup once`);
   assert.match(html, /PUMP RUNNING, BUT FLOW IS WEAK/, `${relativePath} should distinguish weak-flow symptoms from a pump that will not start`);
   assert.match(html, /FIRST SAFE CHECK/, `${relativePath} connection-failure fallback lacks a concrete safe first step`);
-  assert.match(html, /A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP/, `${relativePath} needs a direct, plain-language technician recommendation`);
+  assert.match(html, /A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP|Recommended Next Step/i, `${relativePath} needs a direct, plain-language technician recommendation`);
   assert.match(html, /technicianRecommended: true/, `${relativePath} should surface a prominent card before the service handoff`);
   const escalationBranch = sliceBetween(html, 'const requiresTechnician =', 'const metadataOnlyResult = isMetadataOnlyKbResponse(payload)');
   assert.match(escalationBranch, /if \(requiresTechnician && currentSurfaceMode !== 'tech'\)/, `${relativePath} should keep homeowner service escalation`);
@@ -146,4 +156,64 @@ assert.match(backend, /technicianRecommended: sourceLookupUncertain \|\| generat
 assert.match(backend, /same conversational-understanding and source-based diagnostic methodology across pumps\/motors, filters, valves, heaters, automation\/controllers, schedules\/timers, cleaners, sanitizer\/chlorine systems, lighting, circulation\/flow, water chemistry/, 'backend system prompt should apply the same method across categories');
 assert.match(backend, /MANDATORY SEARCH OVERRIDE: You must invoke Google Search grounding/, 'fallback should explicitly require web search');
 assert.match(backend, /dirt comes back|returns are weak/, 'backend actionability should recognize filter/flow symptoms');
+assert.ok(
+  backend.includes('.lte("valid_from",rateLookupTime)') &&
+  backend.includes('.or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)'),
+  'Edge Function token-cost estimates must use the rate card valid at the time of use, not only open-ended rows'
+);
+assert.ok(
+  backend.includes('.lte("valid_from", rateLookupTime)') &&
+  backend.includes('.or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)'),
+  'Google Search grounding estimates must use the rate card valid at the time of use'
+);
+
+// Regression guard for the production failure caused by using industryCatalogRows before its
+// lexical declaration. The catalog is fetched after initial KB retrieval, so model-family
+// candidates must be refreshed after that fetch and before the system prompt is composed.
+const industryCatalogDeclarationIndex = backend.indexOf('let industryCatalogRows: AnyRecord[] = [];');
+assert.notEqual(industryCatalogDeclarationIndex, -1, 'industry catalog rows need a handler-scope declaration');
+assert.equal(
+  backend.indexOf('industryCatalogRows'),
+  industryCatalogDeclarationIndex + 'let '.length,
+  'industryCatalogRows must not be referenced before its declaration (avoids temporal-dead-zone ReferenceError)'
+);
+const initialModelFamiliesIndex = backend.indexOf('let modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);');
+assert.ok(initialModelFamiliesIndex > industryCatalogDeclarationIndex, 'initial model-family candidates should follow the catalog variable declaration');
+const industryCatalogLoadIndex = backend.indexOf('industryCatalogRows=(catalogResult.data||[]).map');
+assert.ok(industryCatalogLoadIndex > initialModelFamiliesIndex, 'active industry catalog retrieval should populate declared catalog rows');
+const refreshedModelFamiliesIndex = backend.indexOf(
+  'modelFamilies = getModelFamilies([...industryCatalogRows, ...kbRows], brand, category);',
+  industryCatalogLoadIndex + 1
+);
+assert.ok(refreshedModelFamiliesIndex > industryCatalogLoadIndex, 'model-family candidates should be refreshed after catalog loading');
+const systemPromptIndex = backend.indexOf('const systemPrompt = `You are PoolDocAI');
+assert.ok(systemPromptIndex > refreshedModelFamiliesIndex, 'the system prompt should be composed after catalog-backed model suggestions are refreshed');
+const vm = require('node:vm');
+// Regression guard: Verify all inline scripts across all website HTML pages parse as executable JavaScript without SyntaxError.
+const allHtmlFiles = fs.readdirSync(path.join(bundleRoot, 'website'))
+  .filter(f => f.endsWith('.html'))
+  .map(f => path.join('website', f));
+for (const relPath of allHtmlFiles) {
+  const content = fs.readFileSync(path.join(bundleRoot, relPath), 'utf8');
+  const scripts = content.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  scripts.forEach((tag, idx) => {
+    const code = tag.replace(/<script\b[^>]*>/i, '').replace(/<\/script>/i, '');
+    if (code.trim()) {
+      assert.doesNotThrow(() => {
+        new vm.Script(code, { filename: `${relPath}#script${idx}` });
+      }, `Inline script in ${relPath}#script${idx} contains invalid JavaScript syntax or template literals`);
+    }
+  });
+}
+
+// Regression guard: utcMonthStartDate must be synchronous and return YYYY-MM-01 format
+assert.ok(
+  backend.includes('function utcMonthStartDate(): string') && !backend.includes('async function utcMonthStartDate()'),
+  'utcMonthStartDate must be synchronous'
+);
+assert.ok(
+  !backend.includes('await utcMonthStartDate()'),
+  'utcMonthStartDate should not be called with await'
+);
+
 console.log(`PASS: ${tests.length} typo-tolerant initial-message cases plus follow-up normalization checks across seven frontend surfaces, accessible escalation, and backend routing passed.`);

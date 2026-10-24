@@ -144,3 +144,422 @@ BEGIN
     RAISE EXCEPTION 'trigger-only diagnostic consent audit function is callable through the client API';
   END IF;
 END $$;
+-- Case-level diagnostic learning consent, terms version, and atomic approval verification
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='diagnostic_cases' AND column_name='case_learning_opt_in'
+  ) THEN
+    RAISE EXCEPTION 'diagnostic_cases.case_learning_opt_in column is missing';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='diagnostic_cases' AND column_name='learning_terms_version'
+  ) THEN
+    RAISE EXCEPTION 'diagnostic_cases.learning_terms_version column is missing';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid='public.diagnostic_cases'::regclass
+      AND tgname='diagnostic_cases_learning_consent_audit'
+      AND NOT tgisinternal AND tgenabled <> 'D'
+  ) THEN
+    RAISE EXCEPTION 'diagnostic_cases_learning_consent_audit trigger is missing or disabled';
+  END IF;
+
+  IF has_function_privilege('anon','public.pooldocai_audit_case_learning_consent()','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_audit_case_learning_consent()','execute') THEN
+    RAISE EXCEPTION 'trigger-only case consent audit function is callable through the client API';
+  END IF;
+
+  IF to_regprocedure('public.pooldocai_approve_learning_case(uuid,text,uuid,text)') IS NULL THEN
+    RAISE EXCEPTION 'atomic pooldocai_approve_learning_case function is missing';
+  END IF;
+
+  IF has_function_privilege('anon','public.pooldocai_approve_learning_case(uuid,text,uuid,text)','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_approve_learning_case(uuid,text,uuid,text)','execute') THEN
+    RAISE EXCEPTION 'atomic learning approval function must not be callable by public/anon/authenticated roles';
+  END IF;
+END $$;
+
+-- Migration 030: Restrictive temporary-account Storage expiry guard
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'storage' AND tablename = 'objects') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'temporary_access_storage_expiry_guard'
+    ) THEN
+      RAISE EXCEPTION 'storage.objects is missing restrictive policy temporary_access_storage_expiry_guard';
+    END IF;
+  END IF;
+END $$;
+
+
+-- Migration 034: Stripe webhook claim ownership fencing, atomic billing application, and lease governance
+DO $$
+DECLARE
+  v_test_event_id text := 'evt_ci_concurrency_test_' || md5(clock_timestamp()::text || random()::text);
+  v_claim1 jsonb;
+  v_claim2 jsonb;
+  v_claim3 jsonb;
+  v_claim4 jsonb;
+  v_claim5 jsonb;
+  v_token1 text;
+  v_token2 text;
+  v_stale_apply jsonb;
+  v_stale_release jsonb;
+  v_valid_apply jsonb;
+  v_bad_apply jsonb;
+  v_test_company_id uuid := gen_random_uuid();
+  v_test_event_stale text := 'evt_ci_stale_' || md5(clock_timestamp()::text || random()::text);
+  v_claim_stale jsonb;
+  v_res_stale jsonb;
+  v_test_event_inv_a text := 'evt_ci_inv_a_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_inv_bad text := 'evt_ci_inv_bad_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_inv_nosub text := 'evt_ci_inv_nosub_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_paid text := 'evt_ci_same_paid_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_fail text := 'evt_ci_same_fail_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_newer text := 'evt_ci_same_newer_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_rec text := 'evt_ci_same_rec_' || md5(clock_timestamp()::text || random()::text);
+  v_claim_inv_a jsonb;
+  v_claim_inv_bad jsonb;
+  v_claim_inv_nosub jsonb;
+  v_claim_same_paid jsonb;
+  v_claim_same_fail jsonb;
+  v_claim_same_newer jsonb;
+  v_claim_same_rec jsonb;
+  v_res_inv_a jsonb;
+  v_res_inv_bad jsonb;
+  v_res_inv_nosub jsonb;
+  v_res_same_paid jsonb;
+  v_res_same_fail jsonb;
+  v_res_same_newer jsonb;
+  v_res_same_rec jsonb;
+  v_company_rec record;
+BEGIN
+  -- 1. Routine existence checks
+  IF to_regprocedure('public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)') IS NULL THEN
+    RAISE EXCEPTION 'atomic pooldocai_claim_stripe_webhook_event function is missing';
+  END IF;
+  IF to_regprocedure('public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'atomic pooldocai_apply_and_finalize_stripe_webhook function is missing';
+  END IF;
+  IF to_regprocedure('public.pooldocai_release_stripe_webhook_event(text,text,text)') IS NULL THEN
+    RAISE EXCEPTION 'atomic pooldocai_release_stripe_webhook_event function is missing';
+  END IF;
+
+  -- 2. Privilege checks: Restrictive execution rights
+  IF has_function_privilege('anon','public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)','execute') THEN
+    RAISE EXCEPTION 'atomic webhook claim function must not be callable by public/anon/authenticated roles';
+  END IF;
+  IF has_function_privilege('anon','public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean,jsonb)','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_apply_and_finalize_stripe_webhook(text,text,uuid,jsonb,jsonb,text,boolean,jsonb)','execute') THEN
+    RAISE EXCEPTION 'webhook apply and finalize function must not be callable by public/anon/authenticated roles';
+  END IF;
+  IF has_function_privilege('anon','public.pooldocai_release_stripe_webhook_event(text,text,text)','execute')
+     OR has_function_privilege('authenticated','public.pooldocai_release_stripe_webhook_event(text,text,text)','execute') THEN
+    RAISE EXCEPTION 'webhook release function must not be callable by public/anon/authenticated roles';
+  END IF;
+
+  -- 3. Column presence checks
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='pooldocai_stripe_webhook_events' AND column_name='claim_token') THEN
+    RAISE EXCEPTION 'claim_token column is missing from pooldocai_stripe_webhook_events';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='pooldocai_stripe_webhook_events' AND column_name='lease_generation') THEN
+    RAISE EXCEPTION 'lease_generation column is missing from pooldocai_stripe_webhook_events';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='companies' AND column_name='last_billing_event_created') THEN
+    RAISE EXCEPTION 'last_billing_event_created column is missing from companies';
+  END IF;
+
+  -- 4. Initial claim on a fresh event succeeds and returns unpredictable token + monotonic lease generation
+  v_claim1 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim1->>'status') <> 'claimed' OR (v_claim1->>'attempts')::int <> 1 THEN
+    RAISE EXCEPTION 'Initial claim failed: %', v_claim1;
+  END IF;
+  v_token1 := v_claim1->>'claim_token';
+  IF v_token1 IS NULL OR NOT v_token1 LIKE 'claim_%' THEN
+    RAISE EXCEPTION 'Initial claim must return a valid unpredictable claim_token: %', v_claim1;
+  END IF;
+  IF (v_claim1->>'lease_generation')::int <> 1 THEN
+    RAISE EXCEPTION 'Initial claim must return lease_generation 1: %', v_claim1;
+  END IF;
+
+  -- 5. Immediate second claim while lease is active is rejected with in_progress
+  v_claim2 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim2->>'status') <> 'in_progress' OR (v_claim2->>'retry_after')::int < 1 THEN
+    RAISE EXCEPTION 'Concurrent active claim unexpectedly succeeded: %', v_claim2;
+  END IF;
+
+  -- 6. Strict validation: empty claim token is rejected
+  v_bad_apply := public.pooldocai_apply_and_finalize_stripe_webhook(v_test_event_id, '', NULL, NULL, NULL, NULL, true);
+  IF (v_bad_apply->>'success')::boolean <> false OR (v_bad_apply->>'status') <> 'invalid_claim_token' THEN
+    RAISE EXCEPTION 'Empty claim token must be rejected on apply: %', v_bad_apply;
+  END IF;
+
+  -- 7. Fencing check: wrong claim token is rejected
+  v_stale_apply := public.pooldocai_apply_and_finalize_stripe_webhook(v_test_event_id, 'claim_wrong_token_123', NULL, NULL, NULL, NULL, true);
+  IF (v_stale_apply->>'success')::boolean <> false OR (v_stale_apply->>'fenced')::boolean <> true THEN
+    RAISE EXCEPTION 'Wrong claim token must be fenced out on apply: %', v_stale_apply;
+  END IF;
+
+  -- 8. Simulate first worker timing out (lease expired 70 seconds ago)
+  UPDATE public.pooldocai_stripe_webhook_events
+  SET claimed_at = clock_timestamp() - interval '70 seconds',
+      processing_error = 'Simulated worker pause'
+  WHERE stripe_event_id = v_test_event_id;
+
+  -- 9. Retry claim after lease expiration acquires the claim on attempt 2 with a NEW token and lease_generation 2
+  v_claim3 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim3->>'status') <> 'claimed' OR (v_claim3->>'attempts')::int <> 2 THEN
+    RAISE EXCEPTION 'Retry after lease expiry failed: %', v_claim3;
+  END IF;
+  v_token2 := v_claim3->>'claim_token';
+  IF v_token2 = v_token1 THEN
+    RAISE EXCEPTION 'Subsequent claim must receive a distinct token: %', v_claim3;
+  END IF;
+  IF (v_claim3->>'lease_generation')::int <> 2 THEN
+    RAISE EXCEPTION 'Lease generation must increment to 2: %', v_claim3;
+  END IF;
+
+  -- 10. Stale worker trying to apply with old token1 is FENCED OUT
+  v_stale_apply := public.pooldocai_apply_and_finalize_stripe_webhook(v_test_event_id, v_token1, NULL, NULL, NULL, NULL, true);
+  IF (v_stale_apply->>'success')::boolean <> false OR (v_stale_apply->>'status') <> 'fenced_out' THEN
+    RAISE EXCEPTION 'Stale worker with token1 must be fenced out: %', v_stale_apply;
+  END IF;
+
+  -- 11. Stale worker trying to release with old token1 is FENCED OUT
+  v_stale_release := public.pooldocai_release_stripe_webhook_event(v_test_event_id, v_token1, 'Stale failure');
+  IF (v_stale_release->>'success')::boolean <> false OR (v_stale_release->>'status') <> 'fenced_out' THEN
+    RAISE EXCEPTION 'Stale worker release with token1 must be fenced out: %', v_stale_release;
+  END IF;
+
+  -- 12. Active worker with valid token2 successfully applies and finalizes
+  v_valid_apply := public.pooldocai_apply_and_finalize_stripe_webhook(v_test_event_id, v_token2, NULL, NULL, NULL, 'Legitimate processing note', true);
+  IF (v_valid_apply->>'success')::boolean <> true OR (v_valid_apply->>'processed')::boolean <> true THEN
+    RAISE EXCEPTION 'Active worker finalization failed: %', v_valid_apply;
+  END IF;
+
+  -- 13. Subsequent deliveries of fully processed event return already_processed (idempotent)
+  v_claim4 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'customer.subscription.updated', 60, 5);
+  IF (v_claim4->>'status') <> 'already_processed' OR (v_claim4->>'duplicate')::boolean <> true THEN
+    RAISE EXCEPTION 'Processed event was not acknowledged idempotently: %', v_claim4;
+  END IF;
+
+  -- 14. Test bounded attempts: simulate 5 failed attempts on a new event
+  v_test_event_id := 'evt_ci_max_attempts_' || md5(clock_timestamp()::text || random()::text);
+  INSERT INTO public.pooldocai_stripe_webhook_events (stripe_event_id, event_type, processed, attempts, claimed_at)
+  VALUES (v_test_event_id, 'invoice.payment_failed', false, 5, clock_timestamp() - interval '70 seconds');
+
+  v_claim5 := public.pooldocai_claim_stripe_webhook_event(v_test_event_id, 'invoice.payment_failed', 60, 5);
+  IF (v_claim5->>'status') <> 'max_attempts_exceeded' THEN
+    RAISE EXCEPTION 'Max attempts exceeded was not enforced: %', v_claim5;
+  END IF;
+
+  -- 15. Migration 035: Company row lock and conditional ordering guard
+  INSERT INTO public.companies (id, name, status, plan_name, seat_limit, billing_status, billing_period_start)
+  VALUES (v_test_company_id, 'SQL Security Guard Test Co', 'active', 'pro_complete', 5, 'active', '2026-03-01T00:00:00Z');
+
+  v_claim_stale := public.pooldocai_claim_stripe_webhook_event(v_test_event_stale, 'customer.subscription.updated', 60, 5);
+  IF (v_claim_stale->>'status') <> 'claimed' THEN
+    RAISE EXCEPTION 'Claim for stale ordering test event failed: %', v_claim_stale;
+  END IF;
+
+  -- Attempt to apply older February update to company with March period start
+  v_res_stale := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_stale,
+    v_claim_stale->>'claim_token',
+    v_test_company_id,
+    '{"plan_name": "solo_tech", "billing_status": "active", "billing_period_start": "2026-02-01T00:00:00Z"}'::jsonb,
+    NULL,
+    NULL,
+    false
+  );
+
+  IF (v_res_stale->>'success')::boolean <> true
+     OR (v_res_stale->>'status') <> 'ignored'
+     OR (v_res_stale->>'reason') <> 'stale_out_of_order_event' THEN
+    RAISE EXCEPTION 'Database-side ordering guard failed to ignore stale event: %', v_res_stale;
+  END IF;
+
+  SELECT plan_name, billing_period_start INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.plan_name <> 'pro_complete' OR v_company_rec.billing_period_start <> '2026-03-01 00:00:00+00'::timestamptz THEN
+    RAISE EXCEPTION 'Company state was corrupted by stale out-of-order event: %', v_company_rec;
+  END IF;
+
+  -- 16. Migration 036: Event provenance validation and old invoice protection against replacement subscription
+  UPDATE public.companies
+  SET stripe_subscription_id = 'sub_replacement_b',
+      plan_name = 'enterprise',
+      billing_status = 'active',
+      billing_period_start = '2026-03-15T00:00:00Z'
+  WHERE id = v_test_company_id;
+
+  v_claim_inv_a := public.pooldocai_claim_stripe_webhook_event(v_test_event_inv_a, 'invoice.payment_failed', 60, 5);
+  IF (v_claim_inv_a->>'status') <> 'claimed' THEN
+    RAISE EXCEPTION 'Claim for invoice test event failed: %', v_claim_inv_a;
+  END IF;
+
+  -- Attempt to apply old failed invoice belonging to superseded sub_initial_a
+  v_res_inv_a := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_inv_a,
+    v_claim_inv_a->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_initial_a", "period_start": "2026-02-15T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+  );
+
+  IF (v_res_inv_a->>'success')::boolean <> true
+     OR (v_res_inv_a->>'status') <> 'ignored'
+     OR (v_res_inv_a->>'reason') <> 'stale_old_subscription_invoice' THEN
+    RAISE EXCEPTION 'Old subscription invoice was not safely ignored: %', v_res_inv_a;
+  END IF;
+
+  SELECT billing_status, stripe_subscription_id INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' OR v_company_rec.stripe_subscription_id <> 'sub_replacement_b' THEN
+    RAISE EXCEPTION 'Old subscription invoice corrupted active replacement subscription: %', v_company_rec;
+  END IF;
+
+  -- Verify missing invoice provenance on tenant with active subscription fails closed
+  v_claim_inv_bad := public.pooldocai_claim_stripe_webhook_event(v_test_event_inv_bad, 'invoice.payment_failed', 60, 5);
+  v_res_inv_bad := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_inv_bad,
+    v_claim_inv_bad->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"event_type": "invoice.payment_failed"}'::jsonb -- missing subscription_id and period_start
+  );
+
+  IF (v_res_inv_bad->>'success')::boolean <> false
+     OR (v_res_inv_bad->>'status') <> 'missing_invoice_provenance' THEN
+    RAISE EXCEPTION 'Invoice with missing provenance did not fail closed: %', v_res_inv_bad;
+  END IF;
+
+  -- 17. Migration 037: Strict invoice subscription provenance & same-period event ordering
+  -- Permutation A: Missing subscription ID with present period fails closed
+  v_claim_inv_nosub := public.pooldocai_claim_stripe_webhook_event(v_test_event_inv_nosub, 'invoice.payment_failed', 60, 5);
+  v_res_inv_nosub := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_inv_nosub,
+    v_claim_inv_nosub->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+  );
+
+  IF (v_res_inv_nosub->>'success')::boolean <> false
+     OR (v_res_inv_nosub->>'status') <> 'missing_invoice_provenance' THEN
+    RAISE EXCEPTION 'Invoice with missing subscription ID did not fail closed: %', v_res_inv_nosub;
+  END IF;
+
+  -- Permutation B: Same-subscription same-period invoice ordering (P1 Blocker 2)
+  -- 1. Payment succeeded at 12:05:00 applies and records last_billing_event_created
+  v_claim_same_paid := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_paid, 'invoice.payment_succeeded', 60, 5);
+  v_res_same_paid := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_paid,
+    v_claim_same_paid->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "active"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_succeeded", "event_created": "2026-03-20T12:05:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_paid->>'success')::boolean <> true
+     OR (v_res_same_paid->>'status') <> 'applied' THEN
+    RAISE EXCEPTION 'Payment succeeded in same period failed to apply: %', v_res_same_paid;
+  END IF;
+
+  SELECT billing_status, last_billing_event_created INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' OR v_company_rec.last_billing_event_created <> '2026-03-20 12:05:00+00'::timestamptz THEN
+    RAISE EXCEPTION 'Company state not updated with event timestamp: %', v_company_rec;
+  END IF;
+
+  -- 2. Delayed payment failed at 12:00:00 (older) arrives for same sub & period: MUST BE IGNORED
+  v_claim_same_fail := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_fail, 'invoice.payment_failed', 60, 5);
+  v_res_same_fail := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_fail,
+    v_claim_same_fail->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_failed", "event_created": "2026-03-20T12:00:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_fail->>'success')::boolean <> true
+     OR (v_res_same_fail->>'status') <> 'ignored'
+     OR (v_res_same_fail->>'reason') <> 'stale_out_of_order_invoice' THEN
+    RAISE EXCEPTION 'Older payment failure in same period was not safely ignored: %', v_res_same_fail;
+  END IF;
+
+  SELECT billing_status INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' THEN
+    RAISE EXCEPTION 'Delayed failure corrupted active billing status: %', v_company_rec;
+  END IF;
+
+  -- 3. Newer payment failure at 12:10:00 arrives: MUST APPLY
+  v_claim_same_newer := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_newer, 'invoice.payment_failed', 60, 5);
+  v_res_same_newer := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_newer,
+    v_claim_same_newer->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_failed", "event_created": "2026-03-20T12:10:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_newer->>'success')::boolean <> true
+     OR (v_res_same_newer->>'status') <> 'applied' THEN
+    RAISE EXCEPTION 'Newer payment failure in same period failed to apply: %', v_res_same_newer;
+  END IF;
+
+  SELECT billing_status INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'past_due' THEN
+    RAISE EXCEPTION 'Newer failure did not transition company to past_due: %', v_company_rec;
+  END IF;
+
+  -- 4. Recovery payment succeeded at 12:15:00 arrives: RESTORES ACTIVE
+  v_claim_same_rec := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_rec, 'invoice.payment_succeeded', 60, 5);
+  v_res_same_rec := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_rec,
+    v_claim_same_rec->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "active"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_succeeded", "event_created": "2026-03-20T12:15:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_rec->>'success')::boolean <> true
+     OR (v_res_same_rec->>'status') <> 'applied' THEN
+    RAISE EXCEPTION 'Recovery payment in same period failed to apply: %', v_res_same_rec;
+  END IF;
+
+  SELECT billing_status INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' THEN
+    RAISE EXCEPTION 'Recovery payment did not restore active status: %', v_company_rec;
+  END IF;
+
+  -- Clean up test company and test events
+  DELETE FROM public.companies WHERE id = v_test_company_id;
+  DELETE FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id LIKE 'evt_ci_%';
+END $$;

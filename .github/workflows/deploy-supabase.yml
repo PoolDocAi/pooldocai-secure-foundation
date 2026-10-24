@@ -1,30 +1,110 @@
 name: Deploy Supabase Edge Function
 on:
   workflow_dispatch:
-  push:
+  workflow_run:
+    workflows: ["PoolDocAI security and migration tests"]
     branches: [main]
-    paths:
-      - 'supabase/functions/clever-handler/**'
-      - 'supabase/functions/stripe-webhook/**'
-      - 'supabase/migrations/**'
+    types:
+      - completed
+
 jobs:
-  deploy:
+  pre-deploy-validation:
+    name: Verify release checks before deployment
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out exact tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Validate document worker syntax
+        run: node --check document-worker/src/server.js
+
+      - name: Test worker SSRF and webhook boundaries
+        run: node document-worker/tests/network-webhook-boundary.test.cjs
+
+      - name: Test conversational troubleshooting routing and script parsing
+        run: node website/tests/troubleshooter-intent.test.cjs
+
+      - name: Test troubleshooter safety stop reasonable boundaries
+        run: node website/tests/safety-stop.test.cjs
+
+      - name: Test monthly session entitlements, technician sync, and trial RPC scope
+        run: node website/tests/monthly-sessions.test.cjs
+
+      - name: Test Stripe billing alignment and simulated webhook replay
+        run: node website/tests/stripe-simulation.test.cjs
+      - name: Test Stripe checkout runtime execution and billing portal
+        run: node website/tests/stripe-checkout-handler.test.cjs
+      - name: Test authenticated browser state teardown and cross-account isolation
+        run: node website/tests/browser-isolation.test.cjs
+      - name: Test fail-closed learning approval and contributor consent verification
+        run: node website/tests/learning-consent-fail-closed.test.cjs
+      - name: Test staging configuration and Vercel preview fail-closed guards
+        run: node website/tests/staging-config.test.cjs
+
+      - name: Validate Edge Function TypeScript syntax
+        run: |
+          npx --yes esbuild supabase/functions/clever-handler/index.ts --bundle --format=esm --outfile=/tmp/clever-handler-check.js --external:npm:*
+          npx --yes esbuild supabase/functions/stripe-webhook/index.ts --bundle --format=esm --outfile=/tmp/stripe-webhook-check.js --external:npm:*
+
+      - name: Start clean local Supabase and apply all migrations
+        run: |
+          supabase start
+          supabase db reset
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Run SQL security smoke tests
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            --set ON_ERROR_STOP=1 \
+            --file supabase/tests/security_review.sql
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
+
+  deploy:
+    name: Deploy to Supabase
+    needs: [pre-deploy-validation]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
       - uses: supabase/setup-cli@v3
         with:
           version: latest
+
       - name: Link project
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
       - name: Deploy troubleshooting Edge Function
         run: supabase functions deploy clever-handler --project-ref "$SUPABASE_PROJECT_REF"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
       - name: Deploy Stripe webhook (stays inactive until Stripe is configured)
         run: supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_REF"
         env:

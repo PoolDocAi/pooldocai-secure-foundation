@@ -1,0 +1,61 @@
+/* ==========================================================================
+   PoolDocAI — Option C Unified Hybrid Design Tokens
+   Governs shared semantic branding, workbench palettes, & touch targets.
+   ========================================================================== */
+:root {
+  /* Brand Typography & Base */
+  --pooldoc-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --pooldoc-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Brand Accents */
+  --pooldoc-brand-primary: #0284c7;     /* Sky 600 */
+  --pooldoc-brand-accent: #38bdf8;      /* Sky 400 */
+  --pooldoc-brand-cyan: #06b6d4;        /* Cyan 500 */
+  --pooldoc-brand-navy: #06182c;        /* Maritime Navy */
+
+  /* Surface Role 1: Technician Professional Workbench (Dark Diagnostic) */
+  --pooldoc-tech-bg: #030712;           /* Deep Slate / True Dark */
+  --pooldoc-tech-surface: #0b1329;      /* Elevated Workbench Card */
+  --pooldoc-tech-border: #1e293b;       /* Subtle Separation Border */
+  --pooldoc-tech-border-glow: rgba(56, 189, 248, 0.3);
+  --pooldoc-tech-text: #f8fafc;         /* Crisp White */
+  --pooldoc-tech-muted: #94a3b8;        /* Slate 400 */
+
+  /* Surface Role 2: Public Marketing & Owner Portal (Clean B2B Light) */
+  --pooldoc-market-bg: #ffffff;
+  --pooldoc-market-surface: #f8fafc;
+  --pooldoc-market-border: #e2e8f0;
+  --pooldoc-market-text: #0f172a;
+  --pooldoc-market-muted: #64748b;
+
+  /* Surface Role 3: Customer Floating Chat Widget (Welcoming Light Hybrid) */
+  --pooldoc-widget-bg: #ffffff;
+  --pooldoc-widget-surface: #f1f5f9;
+  --pooldoc-widget-border: #cbd5e1;
+  --pooldoc-widget-text: #0f172a;
+
+  /* Diagnostic Status & Safety Flags */
+  --pooldoc-status-danger: #ef4444;     /* Non-bypassable emergency stop */
+  --pooldoc-status-warning: #f59e0b;    /* Caution acknowledgement / Waitlist */
+  --pooldoc-status-success: #10b981;    /* Verification / Optimal reading */
+  --pooldoc-status-info: #0284c7;       /* Triage guidance */
+
+  /* Accessibility & Ergonomics */
+  --pooldoc-min-touch-target: 44px;
+}
+
+/* Touch Target Minimum Class */
+.pooldoc-touch-target {
+  min-height: var(--pooldoc-min-touch-target);
+  min-width: var(--pooldoc-min-touch-target);
+}
+
+/* Mobile Input Auto-Zoom Prevention */
+@media (max-width: 640px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="password"] {
+    font-size: 16px !important;
+  }
+}
