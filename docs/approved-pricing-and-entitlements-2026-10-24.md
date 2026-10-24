@@ -2,6 +2,7 @@
 **Owner approval:** 2026-10-24
 **Status:** Approved for implementation and testing on PR #14 only; **NOT APPROVED FOR PRODUCTION BILLING/DEPLOYMENT**.
 **Prior proposal status:** Supersedes the $79 minimum and all $29/$39/$75 conflicting draft proposals except the final exact tables below. No founders discount now. Existing legacy subscription rights must remain intact.
+**Owner-approved margin policy:** Subscription prices are not automatically reduced as internal diagnostic costs fall. More approved knowledge and less paid web research should raise PoolDocAI's gross/contribution margins, not trigger automatic plan discounts, additional free seats, additional free sessions, or automatic allowance increases. Any future pricing changes require a separate owner commercial decision. Continue maintaining safety, evidence quality, and consent while optimizing retrieval and model routing.
 
 ## A. Recurring subscriptions (USD, monthly)
 All figures are **company-wide pooled diagnostic cases per billing period**, NOT per-seat quotas, NOT separate homeowner/technician buckets, and NOT a number of AI messages. A new diagnostic case counts once for its verified company; follow-ups in that same case do not open extra sessions. Every case still requires cost and turn/timeout protection. The public demo's 8 turns/mode are separate.
