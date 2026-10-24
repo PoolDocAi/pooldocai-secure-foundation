@@ -25,23 +25,6 @@ REVOKE ALL ON public.company_notifications FROM public, anon, authenticated;
 GRANT SELECT ON public.company_notifications TO authenticated;
 GRANT ALL ON public.company_notifications TO service_role;
 
--- Authenticated members can only inspect company events if they are an active recipient of that event
-DROP POLICY IF EXISTS company_notifications_select_policy ON public.company_notifications;
-CREATE POLICY company_notifications_select_policy ON public.company_notifications
-  FOR SELECT TO authenticated
-  USING (
-    public.is_platform_admin() OR EXISTS (
-      SELECT 1 FROM public.user_notifications un
-      JOIN public.company_members m ON m.company_id = un.company_id AND m.user_id = un.user_id
-      JOIN public.companies c ON c.id = un.company_id
-      WHERE un.notification_id = company_notifications.id
-        AND un.company_id = company_notifications.company_id
-        AND un.user_id = auth.uid()
-        AND m.status = 'active'
-        AND c.status = 'active'
-    )
-  );
-
 -- 2. Per-recipient delivery & read state
 CREATE TABLE IF NOT EXISTS public.user_notifications (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -84,6 +67,24 @@ CREATE POLICY user_notifications_select_policy ON public.user_notifications
 
 -- Direct client updates are disallowed; status changes are strictly performed via RPC
 DROP POLICY IF EXISTS user_notifications_update_policy ON public.user_notifications;
+
+-- Authenticated members can only inspect company events if they are an active recipient of that event
+-- (Defined after user_notifications table creation to resolve dependency order on clean bootstrap)
+DROP POLICY IF EXISTS company_notifications_select_policy ON public.company_notifications;
+CREATE POLICY company_notifications_select_policy ON public.company_notifications
+  FOR SELECT TO authenticated
+  USING (
+    public.is_platform_admin() OR EXISTS (
+      SELECT 1 FROM public.user_notifications un
+      JOIN public.company_members m ON m.company_id = un.company_id AND m.user_id = un.user_id
+      JOIN public.companies c ON c.id = un.company_id
+      WHERE un.notification_id = company_notifications.id
+        AND un.company_id = company_notifications.company_id
+        AND un.user_id = auth.uid()
+        AND m.status = 'active'
+        AND c.status = 'active'
+    )
+  );
 
 -- 3. Notification delivery queue (for in_app, email, and web_push adapters)
 CREATE TABLE IF NOT EXISTS public.notification_delivery_queue (
