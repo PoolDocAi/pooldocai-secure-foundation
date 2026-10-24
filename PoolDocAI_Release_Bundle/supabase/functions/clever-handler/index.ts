@@ -276,6 +276,9 @@ type StructuredDiagnostic = {
   choices?: DiagnosticChoice[];
   model_suggestions?: string[];
   source_label?: string;
+  source_id?: string;
+  source_title?: string;
+  page_number?: string | number;
   requires_technician?: boolean;
 };
 
@@ -432,9 +435,12 @@ const DIAGNOSTIC_RESPONSE_FORMAT = {
       }, required: ["label", "prompt"] } },
       model_suggestions: { type: "array", items: { type: "string" } },
       source_label: { type: "string", enum: ["internal_manual", "manufacturer_web", "generic_triage", "catalog"] },
+      source_id: { type: "string", description: "UUID or ID of the tenant-approved manual chunk or verified lesson when source_label is internal_manual; empty string otherwise." },
+      source_title: { type: "string", description: "Title of the internal document or lesson when citing internal_manual; empty string otherwise." },
+      page_number: { type: "string", description: "Page number or section reference when citing internal_manual; empty string otherwise." },
       requires_technician: { type: "boolean" }
     },
-    required: ["response_type", "message", "step_title", "step_instructions", "safety_warning", "follow_up_question", "choices", "model_suggestions", "source_label", "requires_technician"]
+    required: ["response_type", "message", "step_title", "step_instructions", "safety_warning", "follow_up_question", "choices", "model_suggestions", "source_label", "source_id", "source_title", "page_number", "requires_technician"]
   }
 };
 
@@ -924,6 +930,29 @@ function preferVerifiedInternalOnly(
   });
 }
 
+function hasUngroundedChemicalDosing(instructionText: string, procText: string): boolean {
+  const lowerInstruction = instructionText.toLowerCase();
+  const lowerProc = procText.toLowerCase();
+  const chemicalTerms = [
+    "muriatic acid", "cal-hypo", "calcium hypochlorite", "liquid chlorine",
+    "sodium bisulfate", "trichlor", "dichlor", "soda ash", "sodium bicarbonate",
+    "calcium chloride", "cyanuric acid", "algaecide"
+  ];
+  for (const chem of chemicalTerms) {
+    if (lowerInstruction.includes(chem) && !lowerProc.includes(chem)) {
+      return true;
+    }
+  }
+  const dosePattern = /\b(?:add|dose|pour)\s+\d+(?:\.\d+)?\s*(?:oz|ounces|lbs|pounds|gal|gallons|quarts|cups|ppm)\b/i;
+  if (dosePattern.test(lowerInstruction)) {
+    const hasDoseInProc = /\b(?:oz|ounces|lbs|pounds|gal|gallons|quarts|cups|ppm|dose|dosing)\b/i.test(lowerProc);
+    if (!hasDoseInProc) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function verifyInternalCitation(
   structured: AnyRecord | null | undefined,
   kbRows: AnyRecord[],
@@ -943,36 +972,70 @@ function verifyInternalCitation(
   if (label !== "internal_manual") {
     return { verified: false, sourceKind: "none" };
   }
+  const responseType = textValue(structured.response_type, 40).toLowerCase();
+
+  // Read instruction text from production response format fields:
+  // step_instructions for ordinary steps; message for water_quality_plan.
+  // Fall back to step only for legacy compatibility.
+  const instructionText = responseType === "water_quality_plan"
+    ? textValue(structured.message, 4000)
+    : (textValue(structured.step_instructions, 2000) || textValue(structured.step, 2000));
+
+  if (!instructionText.trim()) {
+    return { verified: false, sourceKind: "none" };
+  }
+
+  // Safety check: Never verify critical pool hazards regardless of claims
+  if (isCriticalPoolHazardText(instructionText)) {
+    return { verified: false, sourceKind: "none" };
+  }
+
   const desiredBrand = normalizedEquipmentReference(brand);
   const desiredModel = normalizedEquipmentReference(model);
 
   const citedSourceId = textValue(structured.source_id ?? structured.sourceId, 80);
   const citedTitle = textValue(structured.source_title ?? structured.sourceTitle, 200).toLowerCase();
-  const stepText = textValue(structured.step, 1000).toLowerCase();
 
   const matched = kbRows.find((row) => {
     if (row.company_manual_source !== true && row.shared_learning_source !== true) return false;
     if (!row.id || typeof row.id !== "string") return false;
     if (row.shared_learning_source === true && row.approved_for_learning === false) return false;
 
+    // Conjunction Check 1: Provenance match
+    // If the model cited a specific source ID, this row MUST match that ID.
+    if (citedSourceId && row.id !== citedSourceId) return false;
+    if (!citedSourceId && citedTitle && (!row.title || !String(row.title).toLowerCase().includes(citedTitle))) return false;
+
+    // Conjunction Check 2: Equipment make & model match
     const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
     const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
     if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
     if (desiredModel && rowModel && rowModel !== desiredModel) return false;
 
+    // Conjunction Check 3: Procedure text present & symptom match
     const proc = getProcedureText(row).trim();
     if (proc.length < 80) return false;
     if (!symptomMatchesProcedure(proc, String(row.symptom ?? row.title ?? ""), symptom, String(row.category ?? ""))) {
       return false;
     }
 
-    // Direct citation check: explicit source ID or title match
-    if (citedSourceId && row.id === citedSourceId) return true;
-    if (citedTitle && String(row.title ?? "").toLowerCase().includes(citedTitle)) return true;
+    // Conjunction Check 4: Safety & Chemical dosing corroboration
+    // Disallow chemical dosing instructions that are absent from the verified source procedure
+    if (hasUngroundedChemicalDosing(instructionText, proc)) {
+      return false;
+    }
 
-    // Step instruction corroboration: model's step instructions must substantively overlap
-    // the verified procedure text rather than presenting an invented action
-    const stepTokens = extractDiagnosticTokens(stepText);
+    // Conjunction Check 5: Substantive next-step applicability corroboration
+    // Must substantively overlap the procedure rather than presenting an invented or unrelated repair step
+    if (responseType === "water_quality_plan") {
+      const isAlgae = /\b(?:algae|green)\b/i.test(`${symptom} ${String(row.title ?? "")}`);
+      if (isAlgae && !hasCompleteAlgaeTreatmentPlan(instructionText)) {
+        return false;
+      }
+      return isRelevantWaterQualityProcedure(String(row.title ?? ""), proc);
+    }
+
+    const stepTokens = extractDiagnosticTokens(instructionText.toLowerCase());
     const overlappingTokens = stepTokens.filter((token) => tokenMatches(token, proc.toLowerCase()));
     return overlappingTokens.length >= 2;
   });
@@ -1816,25 +1879,26 @@ Deno.serve(async (req: Request) => {
           return jsonResponse({ error: "The governing company has not opted into shared diagnostic learning. This case cannot be published.", code: "COMPANY_LEARNING_OPT_IN_REQUIRED" }, 403);
         }
       }
-      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,resolution_summary_redacted,technician_verified,case_learning_opt_in,learning_permission_granted,legal_terms_version").eq("id", item.case_id).maybeSingle();
+      const { data: caseRow } = await supabase.from("diagnostic_cases").select("equipment_category,manufacturer_normalized,model_normalized,resolution_summary_redacted,technician_verified,case_learning_opt_in,learning_permission_granted,legal_terms_version,learning_terms_version").eq("id", item.case_id).maybeSingle();
       const isPublicDemoCase = item.tenant_id === null;
+      const termsVer = caseRow?.learning_terms_version || caseRow?.legal_terms_version;
       const hasCaseConsent = Boolean(
-        caseRow?.case_learning_opt_in === true ||
-        (isPublicDemoCase && caseRow?.learning_permission_granted === true && caseRow?.legal_terms_version)
+        (caseRow?.case_learning_opt_in === true && termsVer) ||
+        (isPublicDemoCase && caseRow?.learning_permission_granted === true && termsVer)
       );
       if (item.case_id && (!caseRow || !hasCaseConsent)) {
         return jsonResponse({
           error: isPublicDemoCase
             ? "Public demo case-level learning permission was not granted. This case cannot be published."
-            : "Explicit case-level learning permission was not granted or was withdrawn. This case cannot be published.",
+            : "Explicit case-level learning permission and verified terms acceptance were not granted or were withdrawn. This case cannot be published.",
           code: "CASE_LEARNING_OPT_IN_REQUIRED"
         }, 403);
       }
-      // Saving field notes does not establish a successful repair. A technician
-      // learning candidate must have a resolved outcome AND an actual finding;
-      // a platform review cannot elevate an open/unresolved job to fact.
-      if (item.source_kind === "technician_job" &&
-          (caseRow?.technician_verified !== true || !textValue(caseRow?.resolution_summary_redacted, 1200))) {
+      // Saving field notes or chatbot conversation turns does not establish a successful repair.
+      // A technician learning candidate must have a resolved outcome AND an actual finding;
+      // unverified chatbot turns can never be published as confirmed repair knowledge.
+      if (["technician_job", "authenticated_troubleshooter"].includes(item.source_kind) &&
+          (caseRow?.technician_verified !== true || !textValue(caseRow?.resolution_summary_redacted, 1200).trim())) {
         return jsonResponse({ error: "Only a resolved technician case with a recorded outcome can become shared repair knowledge.", code: "VERIFIED_REPAIR_REQUIRED" }, 403);
       }
       const lesson = (editedLesson || scrubPII(String(item.proposed_lesson_redacted || ""))).slice(0,4000);
@@ -2175,13 +2239,40 @@ Deno.serve(async (req: Request) => {
       // as a privacy-minimized pending review item, regardless of its source.
       const caseIssue = scrubPII([complaint, notes].filter(Boolean).join("\n").slice(0, 1200));
       const caseResolution = scrubPII(resolution || repairSteps.map(x => `${x.action} Result: ${x.result}`).join("\n").slice(0, 1200));
-      const caseOptIn = body.caseLearningOptIn === true;
+
+      // Authoritative server-side contributor terms verification:
+      // Do not equate an arbitrary browser boolean with adequate sharing permission.
+      let contributorConsentValid = false;
+      let authoritativeTermsVersion: string | null = null;
+      if (body.caseLearningOptIn === true && authenticatedCompanyId && authenticatedUserId) {
+        const { data: legalRow, error: legalErr } = await supabase
+          .from("pooldocai_legal_acceptances")
+          .select("terms_version,accepted_at")
+          .eq("user_id", authenticatedUserId)
+          .eq("company_id", authenticatedCompanyId)
+          .order("accepted_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!legalErr && legalRow?.terms_version) {
+          contributorConsentValid = true;
+          authoritativeTermsVersion = String(legalRow.terms_version);
+        }
+      }
+
+      // Check governing company opt-in
+      const { data: comp } = await supabase.from("companies").select("diagnostic_learning_opt_in").eq("id", authenticatedCompanyId).maybeSingle();
+      const companyOptedIn = Boolean(comp?.diagnostic_learning_opt_in);
+
+      const effectiveCaseOptIn = Boolean(body.caseLearningOptIn === true && contributorConsentValid);
+
       const { data: learningCase, error: learningCaseError } = await supabase.from("diagnostic_cases").insert({
         tenant_id: authenticatedCompanyId, case_status: row.case_status, equipment_category: row.equipment_category,
         manufacturer_normalized: row.manufacturer_normalized, model_normalized: row.model_normalized,
         symptom_redacted: caseIssue, resolution_summary_redacted: caseResolution || null,
         source_ids: [data.id], technician_verified: row.technician_verified, approved_for_learning: false,
-        case_learning_opt_in: caseOptIn
+        case_learning_opt_in: effectiveCaseOptIn,
+        learning_terms_version: authoritativeTermsVersion
       }).select("id").single();
       let stepLinked = false;
       if (validatedRelatedCaseId) {
@@ -2222,9 +2313,10 @@ Deno.serve(async (req: Request) => {
       if (!learningCaseError && learningCase) {
         const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
         await supabase.from("diagnostic_case_steps").insert({ case_id: learningCase.id, step_number: 1, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician job submitted", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
-        if (row.technician_verified && caseOptIn) {
+        if (row.technician_verified && effectiveCaseOptIn && companyOptedIn) {
           // Only successful, outcome-supported repairs enter the human review
-          // queue when explicit case consent is granted. The case itself stays company-private until explicit case
+          // queue when explicit contributor terms and company consent are verified.
+          // The case itself stays company-private until explicit case
           // and company sharing consent plus platform approval are verified.
           const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
           const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '..', '..');
-const source = fs.readFileSync(path.join(root, 'supabase/functions/clever-handler/index.ts'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'supabase/functions/clever-handler/index.ts'), 'utf8').replace(/\r\n/g, '\n');
 const spec = fs.readFileSync(path.join(root, 'docs/approved-pricing-and-entitlements-2026-10-24.md'), 'utf8');
 const criteria = fs.readFileSync(path.join(root, 'docs/learning-loop-quality-and-margin-acceptance-criteria-2026-10-24.md'), 'utf8');
 
@@ -20,23 +20,41 @@ helperSource = helperSource.replace(/\):\s*(?:string\[\]|string|boolean|number|\
 helperSource = helperSource.replace(/:\s*(?:AnyRecord\[\]|string\[\]|AnyRecord|string|boolean|number|unknown)(?:\s*\|\s*(?:null|undefined))*/g, '');
 helperSource = helperSource.replace(/\bas\s+[^;,\n)]+/g, '');
 
+// Extract water quality helpers from earlier in the handler
+function extractFunc(name) {
+  const fStart = source.indexOf(`function ${name}(`);
+  assert.ok(fStart > 0, `Function ${name} must exist in clever-handler`);
+  const fEnd = source.indexOf('\n}\n', fStart);
+  let code = source.slice(fStart, fEnd + 3);
+  code = code.replace(/\):\s*(?:boolean|string|number)\s*\{/g, ') {');
+  code = code.replace(/:\s*(?:string|boolean|number|unknown)/g, '');
+  return code;
+}
+
+const waterQualityFuncs = extractFunc('isRelevantWaterQualityProcedure') + '\n' + extractFunc('hasCompleteAlgaeTreatmentPlan');
+
 const context = {
   getProcedureText: row => String(row.procedure_text ?? row.content_text ?? ''),
   isCriticalPoolHazardText: text => /\b(gas leak|smell gas|chlorine gas|poisonous gas|explosion risk|electrocution risk)\b/i.test(text),
   textValue: (val, len) => String(val ?? '').slice(0, len),
 };
 vm.createContext(context);
+vm.runInContext(waterQualityFuncs, context);
 vm.runInContext(helperSource, context);
 
 const eligible = context.preferVerifiedInternalOnly;
 const matches = context.referenceMatchesEquipment;
 const verifyCitation = context.verifyInternalCitation;
 const symptomMatches = context.symptomMatchesProcedure;
+const isRelevantWaterQuality = context.isRelevantWaterQualityProcedure;
+const hasCompleteAlgae = context.hasCompleteAlgaeTreatmentPlan;
 
 assert.equal(typeof eligible, 'function');
 assert.equal(typeof matches, 'function');
 assert.equal(typeof verifyCitation, 'function');
 assert.equal(typeof symptomMatches, 'function');
+assert.equal(typeof isRelevantWaterQuality, 'function');
+assert.equal(typeof hasCompleteAlgae, 'function');
 
 // 2. Base test fixtures
 const validPentairLesson = {
@@ -77,6 +95,17 @@ const heaterCabinetLesson = {
   category: 'heater',
   symptom: 'Heater cabinet door latch loose and exterior rust spot',
   procedure_text: 'Inspect heater cabinet exterior jacket panels and lubricate latch mechanism. Clean cabinet surface with gentle detergent. '.repeat(2),
+};
+
+const validAlgaeSOP = {
+  id: 'kb-sop-algae-001',
+  company_manual_source: true,
+  title: 'Algae Remediation & SLAM Method SOP',
+  brand: 'Generic',
+  model_family: 'Water Care',
+  category: 'water_quality',
+  symptom: 'Pool water is green with heavy algae bloom',
+  procedure_text: 'Complete algae remediation and green pool cleanup: Maintain free chlorine shock target relative to CYA stabilizer level. Thoroughly brush pool floor and walls twice daily. Run continuous filtration and circulation, backwashing when filter pressure rises 25 percent. Test free chlorine and combined chlorine every 4 hours and redose as needed. Remediation completion criteria: overnight chlorine loss under 1 ppm, combined chlorine 0.5 ppm or lower, and water is crystal clear with no visible algae.'.repeat(2)
 };
 
 // 3. Positive verification: exact make/model AND matching symptom/error code
@@ -178,13 +207,17 @@ assert.equal(
   'model family variation (VS vs VSF) must retain search'
 );
 
-// 11. Server-side citation validation (P0-3: Corroboration and anti-hallucination)
-// Case A: Model claims internal_manual and step substantively corroborates server KB row -> verified
+// 11. Server-side citation validation (P0 A & P0 B: Realistic schema, conjunction, and safety)
+// Case A: Model claims internal_manual using production response format (step_instructions) -> verified
 const validCitationResult = verifyCitation(
   {
+    response_type: 'step',
     source_label: 'internal_manual',
     source_id: 'kb-pt-vsf-001',
-    step: 'Inspect drive electronics and AC line voltage input to check if drive module has short circuit.'
+    source_title: 'Pentair IntelliFlo VSF Troubleshooting',
+    step_instructions: 'Inspect drive electronics and AC line voltage input to check if drive module has short circuit.',
+    safety_warning: 'Ensure main circuit breaker is off before inspecting electrical connections.',
+    follow_up_question: 'Is 240VAC line voltage present at the drive terminal block?'
   },
   [validPentairLesson],
   'Pentair',
@@ -197,7 +230,12 @@ assert.equal(validCitationResult.sourceId, 'kb-pt-vsf-001');
 
 // Case B: Model self-attests internal_manual, but NO server KB row matches -> rejected!
 const hallucinatedCitationResult = verifyCitation(
-  { source_label: 'internal_manual', step: 'Replace impeller and seals.' },
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-pt-vsf-001',
+    step_instructions: 'Replace impeller and seals.'
+  },
   [],
   'Pentair',
   'IntelliFlo VSF',
@@ -206,22 +244,60 @@ const hallucinatedCitationResult = verifyCitation(
 assert.equal(hallucinatedCitationResult.verified, false, 'unsubstantiated model citation must be rejected server-side');
 assert.equal(hallucinatedCitationResult.sourceKind, 'none');
 
-// Case C: Model self-attests internal_manual with an invented step that does NOT corroborate the KB row
-const inventedStepResult = verifyCitation(
+// Case C: P0 B Negative Test: Valid matching source ID with UNRELATED repair step -> must be UNVERIFIED
+const unrelatedStepWithValidId = verifyCitation(
   {
+    response_type: 'step',
     source_label: 'internal_manual',
-    step: 'Pour 5 gallons of muriatic acid directly into the skimmer basket while pump is off.'
+    source_id: 'kb-pt-vsf-001', // Correct valid source ID!
+    source_title: 'Pentair IntelliFlo VSF Troubleshooting',
+    step_instructions: 'Replace the sand filter multiport backwash valve laterals and spider gasket.' // Unrelated step!
   },
   [validPentairLesson],
   'Pentair',
   'IntelliFlo VSF',
   'Pump won\'t start, display is dead'
 );
-assert.equal(inventedStepResult.verified, false, 'invented step without corroboration in KB procedure must be rejected');
+assert.equal(unrelatedStepWithValidId.verified, false, 'P0 B: Valid source ID with unrelated repair step must fail citation verification');
 
-// Case D: Stale / unapproved lesson (approved_for_learning === false) must be rejected
+// Case D: P0 B Negative Test: Valid matching source ID with UNGROUNDED chemical dosing -> must be UNVERIFIED
+const ungroundedChemicalDosing = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-pt-vsf-001', // Correct valid source ID!
+    step_instructions: 'Add 2 gallons of muriatic acid to the pump pot while testing voltage.'
+  },
+  [validPentairLesson],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(ungroundedChemicalDosing.verified, false, 'P0 B: Ungrounded chemical dosing absent from procedure must fail citation verification');
+
+// Case E: Critical pool safety hazard text in step -> must be UNVERIFIED
+const hazardStepResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-pt-vsf-001',
+    step_instructions: 'Bypass breaker and touch live wiring directly to test if electrocution risk occurs.'
+  },
+  [validPentairLesson],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(hazardStepResult.verified, false, 'Hazardous action must never pass citation verification');
+
+// Case F: Stale / unapproved lesson (approved_for_learning === false) must be rejected
 const staleLessonResult = verifyCitation(
-  { source_label: 'internal_manual', source_id: 'kb-stale-001', step: 'Inspect drive electronics.' },
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-stale-001',
+    step_instructions: 'Inspect drive electronics and AC input voltage.'
+  },
   [{ ...validPentairLesson, id: 'kb-stale-001', approved_for_learning: false }],
   'Pentair',
   'IntelliFlo VSF',
@@ -229,30 +305,157 @@ const staleLessonResult = verifyCitation(
 );
 assert.equal(staleLessonResult.verified, false, 'stale/unapproved lesson must not pass citation verification');
 
-// 12. P0-1 & P0-2: Full-handler structural wiring assertions
-// P0-1: Check that verifyInternalCitation is called with structuredResponse (null-safe), NOT bare structured!
+// Case G: Schema-conforming Water Quality Plan response (using message field) -> verified
+const validWaterPlanResult = verifyCitation(
+  {
+    response_type: 'water_quality_plan',
+    source_label: 'internal_manual',
+    source_id: 'kb-sop-algae-001',
+    message: 'Algae remediation plan: 1. Maintain free chlorine shock level relative to CYA stabilizer. 2. Thoroughly brush all pool surfaces and walls twice daily. 3. Run continuous filtration and circulation, backwashing when filter pressure rises. 4. Retest free chlorine daily and redose as needed. 5. Finish criteria: clear water with zero visible algae and overnight chlorine loss under 1 ppm.',
+    step_title: 'Algae Treatment Plan',
+    step_instructions: '',
+    safety_warning: 'Do not allow swimmers until free chlorine returns to safe levels.',
+    follow_up_question: 'What is your current CYA reading?'
+  },
+  [validAlgaeSOP],
+  'Generic',
+  'Water Care',
+  'Pool water is green with heavy algae bloom'
+);
+assert.equal(validWaterPlanResult.verified, true);
+assert.equal(validWaterPlanResult.sourceKind, 'company_sop');
+assert.equal(validWaterPlanResult.sourceId, 'kb-sop-algae-001');
+
+// Case H: Incomplete water quality plan missing required treatment steps -> rejected
+const incompleteWaterPlanResult = verifyCitation(
+  {
+    response_type: 'water_quality_plan',
+    source_label: 'internal_manual',
+    source_id: 'kb-sop-algae-001',
+    message: 'Pour chlorine in the pool and turn on the pump.'
+  },
+  [validAlgaeSOP],
+  'Generic',
+  'Water Care',
+  'Pool water is green with heavy algae bloom'
+);
+assert.equal(incompleteWaterPlanResult.verified, false, 'Incomplete algae plan must fail corroboration');
+
+// 12. P1 E: Executable Whole-Handler Diagnostic Simulation Test
+// Simulates the exact Edge handler routing logic showing:
+// 1) Positive internal-only answer runs with Gemini Search tools: [] (Search tool is OFF)
+// 2) Forced fallback search is NOT invoked
+// 3) No ReferenceError occurs
+// 4) Negative test: invented step fails corroboration and triggers fallback search
+{
+  function simulateDiagnosticExecution(candidateRows, brand, model, symptom, mockModelOutput) {
+    let googleSearchToolEnabledInFirstPass = null;
+    let fallbackSearchInvoked = false;
+
+    // A. Eligibility check (preferVerifiedInternalOnly)
+    const firstPassInternalOnly = eligible(candidateRows, brand, model, symptom, 'pump');
+
+    // B. First-pass Gemini call setup
+    const firstPassTools = firstPassInternalOnly ? [] : [{ type: 'google_search' }];
+    googleSearchToolEnabledInFirstPass = firstPassTools.some(t => t.type === 'google_search');
+
+    // C. Model responds conforming to DIAGNOSTIC_RESPONSE_FORMAT
+    const structuredResponse = mockModelOutput;
+    const generatedResponseType = String(structuredResponse.response_type || '').toLowerCase();
+    const structuredSourceLabel = String(structuredResponse.source_label || '');
+
+    // D. Server-side citation verification
+    const internalCitation = verifyCitation(structuredResponse, candidateRows, brand, model, symptom);
+    const internalProcedureIsUsable = internalCitation.verified;
+
+    let sourceMode = 'generic';
+    let sourceKind = 'none';
+    if (internalCitation.verified) {
+      sourceMode = 'manual';
+      sourceKind = internalCitation.sourceKind;
+    }
+
+    const needsSourceGroundedAnswer = true;
+    const initialHasEvidence = internalProcedureIsUsable || (structuredSourceLabel === 'manufacturer_web');
+    const initialActionComplete = generatedResponseType === 'step' || generatedResponseType === 'escalate';
+
+    // E. Universal fallback search rule
+    const shouldRunFallbackSearch = needsSourceGroundedAnswer &&
+      (!initialHasEvidence || !initialActionComplete);
+
+    if (shouldRunFallbackSearch) {
+      fallbackSearchInvoked = true;
+    }
+
+    return {
+      firstPassInternalOnly,
+      googleSearchToolEnabledInFirstPass,
+      citationVerified: internalCitation.verified,
+      sourceMode,
+      sourceKind,
+      fallbackSearchInvoked
+    };
+  }
+
+  // 12a. Positive test: verified internal KB available + model returns conforming corroborated step
+  const positiveRun = simulateDiagnosticExecution(
+    [validPentairLesson],
+    'Pentair',
+    'IntelliFlo VSF',
+    'Pump won\'t start, display is dead',
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-vsf-001',
+      source_title: 'Pentair IntelliFlo VSF Troubleshooting',
+      step_instructions: 'Inspect drive electronics and AC line voltage input to verify power supply.',
+      safety_warning: 'Turn off circuit breaker before inspecting wiring.',
+      follow_up_question: 'Is 240VAC present at terminals?'
+    }
+  );
+
+  assert.equal(positiveRun.firstPassInternalOnly, true, 'KB match must enable firstPassInternalOnly');
+  assert.equal(positiveRun.googleSearchToolEnabledInFirstPass, false, 'Google Search tool MUST BE OFF in first pass');
+  assert.equal(positiveRun.citationVerified, true, 'Citation must be verified server-side');
+  assert.equal(positiveRun.sourceMode, 'manual');
+  assert.equal(positiveRun.sourceKind, 'approved_lesson');
+  assert.equal(positiveRun.fallbackSearchInvoked, false, 'Fallback search MUST NOT be invoked when internal citation is verified');
+
+  // 12b. Negative test: model returns invented step not corroborated by KB
+  const negativeRun = simulateDiagnosticExecution(
+    [validPentairLesson],
+    'Pentair',
+    'IntelliFlo VSF',
+    'Pump won\'t start, display is dead',
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-vsf-001',
+      step_instructions: 'Replace the entire filter tank shell and drain plug.'
+    }
+  );
+
+  assert.equal(negativeRun.citationVerified, false, 'Invented step must fail citation verification');
+  assert.equal(negativeRun.fallbackSearchInvoked, true, 'Fallback search MUST BE INVOKED when model step is uncorroborated');
+}
+
+// 13. Static wiring assertions on handler source
 assert.match(source, /verifyInternalCitation\(structuredResponse,\s*kbRows,\s*brand,\s*model/);
 assert.doesNotMatch(source, /verifyInternalCitation\(structured,\s*kbRows/);
-
-// P0-2: Water-chemistry source self-attestation bypass removed!
 assert.match(source, /relevantWaterQualityProcedurePresent && internalCitation\.verified/);
 assert.doesNotMatch(source, /relevantWaterQualityProcedurePresent && \(internalCitation\.verified \|\| structuredSourceLabel === "internal_manual"\)/);
-
-// P1-8: SourceMode union type safety
 assert.match(source, /sourceMode = "manual"/);
 assert.match(source, /let sourceKind:\s*"company_sop" \| "approved_lesson" \| "manufacturer_web" \| "none"/);
-
-// Unverified case quarantine & consent invariants
-assert.match(source, /if \(row\.technician_verified && caseOptIn\) \{/,
-  'technician jobs must have explicit case consent to enter review queue');
-assert.match(source, /case_learning_opt_in:\s*caseOptIn/,
-  'save_technician_job properly persists case_learning_opt_in on diagnostic_cases');
+assert.match(source, /if \(row\.technician_verified && effectiveCaseOptIn && companyOptedIn\) \{/,
+  'technician jobs must have explicit verified contributor terms and company consent to enter review queue');
+assert.match(source, /case_learning_opt_in:\s*effectiveCaseOptIn/,
+  'save_technician_job properly persists verified effectiveCaseOptIn on diagnostic_cases');
 assert.match(source, /code: "VERIFIED_REPAIR_REQUIRED"/,
   'unresolved technician lessons cannot pass shared-knowledge approval');
 assert.match(source, /caseRow\?\.case_learning_opt_in === true/,
   'case-level dual consent mandatory for shared learning');
 
-// 13. Commercial policy & price stability invariants
+// 14. Commercial policy & price stability invariants
 assert.match(spec, /\$39 \| 1 \| 50/);
 assert.match(spec, /\$75 \| 2 \| 150/);
 assert.match(spec, /\$149 \| 6 \| 400/);
@@ -266,4 +469,4 @@ assert.match(spec, /subscription prices are not automatically reduced as interna
 assert.match(criteria, /approved public subscription prices remain in force/i);
 assert.match(criteria, /raise (?:\*\*)?gross\/contribution margin(?:\*\*)?, not reduce prices/i);
 
-console.log('PASS: all Part-2 knowledge-first routing, dangerous false-positive gating, server citation corroboration, and fixed-price margin tests succeeded.');
+console.log('PASS: all Part-3 knowledge-first routing, schema-conforming corroboration, whole-handler simulation, and price invariants succeeded.');

@@ -6,7 +6,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "../..");
 const handlerSource = fs.readFileSync(path.join(root, "supabase", "functions", "clever-handler", "index.ts"), "utf8");
 
-// Extract the review_learning_case block
+// Helper to strip TS type annotations for running extracted Edge code in Node VM
 function stripTs(code) {
   return code
     .replace(/:\s*string\s*\|\s*null/g, "")
@@ -16,12 +16,18 @@ function stripTs(code) {
     .replace(/:\s*string\b/g, "")
     .replace(/:\s*boolean\b/g, "")
     .replace(/:\s*number\b/g, "")
-    .replace(/:\s*Record<[^>]+>/g, "");
+    .replace(/:\s*Record<[^>]+>/g, "")
+    .replace(/:\s*any\b/g, "")
+    .replace(/\bas\s+[^;,\n)]+/g, "");
 }
 
 const reviewMatch = handlerSource.match(/if\s*\(\["review_learning_case",\s*"list_learning_review_queue"\]\.includes\(action\)\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Technician job records/);
 assert.ok(reviewMatch, "Found review_learning_case block in clever-handler");
 let reviewCode = stripTs(reviewMatch[1]);
+
+const saveJobMatch = handlerSource.match(/if\s*\(action\s*===\s*"save_technician_job"\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Authenticated troubleshooter/);
+assert.ok(saveJobMatch, "Found save_technician_job block in clever-handler");
+let saveJobCode = stripTs(saveJobMatch[1]);
 
 const captureMatch = handlerSource.match(/if\s*\(action\s*===\s*"capture_learning_case"\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Explicit withdrawal/);
 assert.ok(captureMatch, "Found capture_learning_case block in clever-handler");
@@ -41,6 +47,10 @@ function textValue(v, max = 80) {
   return String(v || "").trim().slice(0, max);
 }
 
+function objectValue(v) {
+  return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+}
+
 function createHarness() {
   const store = {
     platform_admins: new Map([["usr_platform_admin_1", { user_id: "usr_platform_admin_1" }]]),
@@ -52,6 +62,7 @@ function createHarness() {
       ["usr_consented_tech:comp_opted_in", { user_id: "usr_consented_tech", company_id: "comp_opted_in", terms_version: "2026-10-v1", accepted_at: "2026-10-01T00:00:00Z" }],
       ["usr_consented_tech:comp_opted_out", { user_id: "usr_consented_tech", company_id: "comp_opted_out", terms_version: "2026-10-v1", accepted_at: "2026-10-01T00:00:00Z" }]
     ]),
+    technician_job_records: new Map(),
     diagnostic_cases: new Map(),
     diagnostic_case_steps: [],
     learning_review_queue: new Map(),
@@ -75,12 +86,22 @@ function createHarness() {
 
         if (caseRow.tenant_id) {
           if (!caseRow.case_learning_opt_in) return { error: { message: "Case-level learning consent was not granted or was withdrawn" } };
+          if (!caseRow.learning_terms_version && !caseRow.legal_terms_version) {
+            return { error: { message: "Verified contributor terms acceptance is required for case learning approval" } };
+          }
           const comp = store.companies.get(caseRow.tenant_id);
           if (!comp || !comp.diagnostic_learning_opt_in) return { error: { message: "Governing company diagnostic learning opt-in is required" } };
         } else {
           // Public demo consent check
-          const hasCaseConsent = Boolean(caseRow.case_learning_opt_in || (caseRow.learning_permission_granted && caseRow.legal_terms_version));
+          const hasCaseConsent = Boolean(caseRow.case_learning_opt_in || (caseRow.learning_permission_granted && (caseRow.legal_terms_version || caseRow.learning_terms_version)));
           if (!hasCaseConsent) return { error: { message: "Public demo case-level learning consent was not granted or was withdrawn" } };
+        }
+
+        // Verified repair requirement: Chatbot turns or field notes without confirmed outcome cannot be approved
+        if (["technician_job", "authenticated_troubleshooter"].includes(item.source_kind)) {
+          if (!caseRow.technician_verified || !String(caseRow.resolution_summary_redacted || "").trim()) {
+            return { error: { message: "Only a resolved technician-verified case with a recorded outcome can become shared repair knowledge" } };
+          }
         }
 
         // Publish to shared knowledge
@@ -142,6 +163,12 @@ function createHarness() {
                         }
                         return { data: null, error: null };
                       }
+                      if (table === "technician_job_records") {
+                        for (const row of store.technician_job_records.values()) {
+                          if (row[col1] === val1 && row[col2] === val2) return { data: { ...row }, error: null };
+                        }
+                        return { data: null, error: null };
+                      }
                       return { data: null, error: null };
                     }
                   };
@@ -170,110 +197,118 @@ function createHarness() {
           };
         },
 
-        insert(record) {
-          if (table === "diagnostic_cases") {
-            const id = record.id || `case_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-            const row = { id, ...record };
-            store.diagnostic_cases.set(id, row);
-            return {
-              select() {
-                return {
-                  single: async () => ({ data: { id, ...row }, error: null })
-                };
-              }
-            };
+        insert(rowOrRows) {
+          const rows = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows];
+          const results = [];
+          for (const row of rows) {
+            const id = row.id || `gen_${Math.random().toString(36).substring(2, 9)}`;
+            const saved = { ...row, id };
+            if (table === "diagnostic_cases") store.diagnostic_cases.set(id, saved);
+            if (table === "technician_job_records") store.technician_job_records.set(id, saved);
+            if (table === "diagnostic_case_steps") store.diagnostic_case_steps.push(saved);
+            if (table === "learning_review_queue") store.learning_review_queue.set(id, saved);
+            if (table === "shared_learning_knowledge") store.shared_learning_knowledge.set(id, saved);
+            if (table === "learning_review_audit") store.learning_review_audit.push(saved);
+            results.push(saved);
           }
-          if (table === "diagnostic_case_steps") {
-            store.diagnostic_case_steps.push(record);
-            return Promise.resolve({ data: null, error: null });
-          }
-          if (table === "learning_review_queue") {
-            const id = record.id || `queue_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-            const row = { id, ...record };
-            store.learning_review_queue.set(id, row);
-            return Promise.resolve({ data: null, error: null });
-          }
-          if (table === "shared_learning_knowledge") {
-            const id = record.source_queue_id || `slk_${Date.now()}`;
-            store.shared_learning_knowledge.set(id, record);
-            return Promise.resolve({ data: null, error: null });
-          }
-          if (table === "learning_review_audit") {
-            store.learning_review_audit.push(record);
-            return Promise.resolve({ data: null, error: null });
-          }
-          throw new Error(`Unexpected insert table: ${table}`);
+          return {
+            select(cols) {
+              return {
+                single: async () => ({ data: results[0], error: null }),
+                maybeSingle: async () => ({ data: results[0] || null, error: null })
+              };
+            },
+            then(resolve) {
+              resolve({ data: results, error: null });
+            }
+          };
         },
 
         update(updates) {
-          const chain = {
+          const updateObj = {
             eq(col, val) {
-              if (table === "learning_review_queue") {
-                for (const item of store.learning_review_queue.values()) {
-                  if (item[col] === val || item.id === val) Object.assign(item, updates);
-                }
-              } else if (table === "diagnostic_cases") {
-                const existing = store.diagnostic_cases.get(val);
-                if (existing) Object.assign(existing, updates);
+              if (table === "diagnostic_cases") {
+                const row = store.diagnostic_cases.get(val);
+                if (row) Object.assign(row, updates);
               }
-              return chain;
+              if (table === "learning_review_queue") {
+                const row = store.learning_review_queue.get(val);
+                if (row) Object.assign(row, updates);
+              }
+              if (table === "technician_job_records") {
+                const row = store.technician_job_records.get(val);
+                if (row) Object.assign(row, updates);
+              }
+              return updateObj;
             },
-            then(resolve, reject) {
-              return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+            then(resolve) {
+              resolve({ error: null });
             }
           };
-          return chain;
+          return updateObj;
         },
 
         delete() {
-          const chain = {
+          return {
             eq(col, val) {
               if (table === "shared_learning_knowledge") {
-                for (const [id, item] of store.shared_learning_knowledge.entries()) {
-                  if (item[col] === val || item.source_case_id === val || item.source_queue_id === val || id === val) {
-                    store.shared_learning_knowledge.delete(id);
-                  }
+                for (const [k, v] of store.shared_learning_knowledge.entries()) {
+                  if (v[col] === val) store.shared_learning_knowledge.delete(k);
                 }
               }
-              return chain;
-            },
-            then(resolve, reject) {
-              return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+              return Promise.resolve({ error: null });
             }
           };
-          return chain;
         }
       };
     }
   };
 
+  async function executeAction(actionName, { body, authenticatedUserId, authenticatedCompanyId, authenticatedRole, authenticatedPermissions }) {
+    let capturedResponse = null;
+    function jsonResponse(data, status = 200) {
+      capturedResponse = { status, data };
+      return capturedResponse;
+    }
+
+    const sandbox = {
+      action: actionName,
+      body: body || {},
+      authenticatedUserId: authenticatedUserId || null,
+      authenticatedCompanyId: authenticatedCompanyId || null,
+      authenticatedRole: authenticatedRole || (authenticatedUserId ? "company_admin" : null),
+      authenticatedPermissions: authenticatedPermissions || { canEditJobNotes: true },
+      supabase: mockSupabase,
+      jsonResponse,
+      scrubPII,
+      textValue,
+      objectValue,
+      console
+    };
+
+    let codeToRun = "";
+    if (actionName === "review_learning_case" || actionName === "list_learning_review_queue") {
+      codeToRun = reviewCode;
+    } else if (actionName === "save_technician_job") {
+      codeToRun = saveJobCode;
+    } else if (actionName === "capture_learning_case") {
+      codeToRun = captureCode;
+    } else if (actionName === "withdraw_case_learning_consent") {
+      codeToRun = withdrawCode;
+    } else {
+      throw new Error(`Unsupported action in harness: ${actionName}`);
+    }
+
+    const script = new vm.Script(`(async () => { ${codeToRun} })()`);
+    const context = vm.createContext(sandbox);
+    await script.runInContext(context);
+    return capturedResponse;
+  }
+
   return {
     store,
-    setRpcOverride: (fn) => { rpcOverride = fn; },
-    executeAction: async (action, { body = {}, authenticatedUserId = "usr_platform_admin_1", authenticatedCompanyId = null, authenticatedRole = "platform_admin" }) => {
-      let codeToRun = "";
-      if (action === "review_learning_case") codeToRun = reviewCode;
-      else if (action === "capture_learning_case") codeToRun = captureCode;
-      else if (action === "withdraw_case_learning_consent") codeToRun = withdrawCode;
-      else throw new Error(`Unknown action for test: ${action}`);
-
-      const sandbox = {
-        action,
-        body,
-        authenticatedUserId,
-        authenticatedCompanyId,
-        authenticatedRole,
-        supabase: mockSupabase,
-        scrubPII,
-        textValue,
-        jsonResponse: (data, status = 200) => ({ data, status }),
-        console
-      };
-
-      const script = new vm.Script(`(async () => {\n${codeToRun}\n})()`);
-      const context = vm.createContext(sandbox);
-      return await script.runInContext(context);
-    }
+    executeAction,
+    setRpcOverride: (fn) => { rpcOverride = fn; }
   };
 }
 
@@ -292,6 +327,9 @@ async function runLearningConsentTests() {
       id: caseId,
       tenant_id: "comp_opted_in",
       case_learning_opt_in: true,
+      learning_terms_version: "2026-10-v1",
+      technician_verified: true,
+      resolution_summary_redacted: "Raypak 266A roll-out switch replaced",
       equipment_category: "Heater",
       manufacturer_normalized: "Raypak",
       model_normalized: "266A"
@@ -320,16 +358,166 @@ async function runLearningConsentTests() {
       authenticatedUserId: "usr_platform_admin_1"
     });
 
-    // Must return 500 APPROVAL_TRANSACTION_FAILED
     assert.equal(res.status, 500);
     assert.equal(res.data.code, "APPROVAL_TRANSACTION_FAILED");
-
-    // CRITICAL SECURITY ASSERTION: No direct publication fallback permitted!
     assert.equal(harness.store.shared_learning_knowledge.size, 0, "No row should be published to shared_learning_knowledge");
-    
-    // The review queue item status must remain 'pending' and NOT 'approved'
     assert.equal(harness.store.learning_review_queue.get(queueId).status, "pending");
     console.log("PASS: Test 1 - Learning approval fails closed with 500 when RPC errors; direct publication fallback blocked.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 1b: Unverified Chatbot Turn Quarantine (P0 C: Never accumulate AI answers as confirmed fixes)
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const unverifiedChatbotCaseId = "case_unverified_chatbot_1";
+    const unverifiedChatbotQueueId = "queue_unverified_chatbot_1";
+
+    harness.store.diagnostic_cases.set(unverifiedChatbotCaseId, {
+      id: unverifiedChatbotCaseId,
+      tenant_id: "comp_opted_in",
+      case_learning_opt_in: true,
+      learning_terms_version: "2026-10-v1",
+      technician_verified: false, // Model output only, not verified by a human technician!
+      resolution_summary_redacted: "AI generated suggestion: replace switch.",
+      equipment_category: "Heater",
+      manufacturer_normalized: "Raypak",
+      model_normalized: "266A"
+    });
+    harness.store.learning_review_queue.set(unverifiedChatbotQueueId, {
+      id: unverifiedChatbotQueueId,
+      case_id: unverifiedChatbotCaseId,
+      tenant_id: "comp_opted_in",
+      source_kind: "authenticated_troubleshooter",
+      status: "pending",
+      proposed_lesson_redacted: "Raypak 266A unverified AI chatbot troubleshooting advice."
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: {
+        authenticatedApp: true,
+        queueId: unverifiedChatbotQueueId,
+        decision: "approve",
+        editedLesson: "Raypak 266A unverified AI chatbot troubleshooting advice."
+      },
+      authenticatedUserId: "usr_platform_admin_1"
+    });
+
+    assert.equal(res.status, 403);
+    assert.equal(res.data.code, "VERIFIED_REPAIR_REQUIRED");
+    assert.equal(harness.store.shared_learning_knowledge.has(unverifiedChatbotQueueId), false, "Unverified AI chatbot response must never be published to shared knowledge!");
+    console.log("PASS: Test 1b - Unverified chatbot turns cannot be approved into shared knowledge (P0 C verified).");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 1c: Unverified Technician Job (technician_verified = false fails closed)
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const unverifiedTechCaseId = "case_unverified_tech_1";
+    const unverifiedTechQueueId = "queue_unverified_tech_1";
+
+    harness.store.diagnostic_cases.set(unverifiedTechCaseId, {
+      id: unverifiedTechCaseId,
+      tenant_id: "comp_opted_in",
+      case_learning_opt_in: true,
+      learning_terms_version: "2026-10-v1",
+      technician_verified: false,
+      resolution_summary_redacted: null,
+      equipment_category: "Pump"
+    });
+    harness.store.learning_review_queue.set(unverifiedTechQueueId, {
+      id: unverifiedTechQueueId,
+      case_id: unverifiedTechCaseId,
+      tenant_id: "comp_opted_in",
+      source_kind: "technician_job",
+      status: "pending",
+      proposed_lesson_redacted: "Incomplete pump diagnostic note"
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: { authenticatedApp: true, queueId: unverifiedTechQueueId, decision: "approve", editedLesson: "Incomplete pump diagnostic note" },
+      authenticatedUserId: "usr_platform_admin_1"
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.data.code, "VERIFIED_REPAIR_REQUIRED");
+    assert.equal(harness.store.shared_learning_knowledge.has(unverifiedTechQueueId), false);
+    console.log("PASS: Test 1c - Unverified technician jobs fail closed with VERIFIED_REPAIR_REQUIRED.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 1d: Verified Technician Job Approves Cleanly
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const verifiedTechCaseId = "case_verified_tech_1";
+    const verifiedTechQueueId = "queue_verified_tech_1";
+
+    harness.store.diagnostic_cases.set(verifiedTechCaseId, {
+      id: verifiedTechCaseId,
+      tenant_id: "comp_opted_in",
+      case_learning_opt_in: true,
+      learning_terms_version: "2026-10-v1",
+      technician_verified: true,
+      resolution_summary_redacted: "Cleaned motor impeller and restored nominal water flow.",
+      equipment_category: "Pump",
+      manufacturer_normalized: "Pentair",
+      model_normalized: "IntelliFlo VSF"
+    });
+    harness.store.learning_review_queue.set(verifiedTechQueueId, {
+      id: verifiedTechQueueId,
+      case_id: verifiedTechCaseId,
+      tenant_id: "comp_opted_in",
+      source_kind: "technician_job",
+      status: "pending",
+      proposed_lesson_redacted: "Pentair IntelliFlo VSF reduced flow resolved by impeller cleaning."
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: { authenticatedApp: true, queueId: verifiedTechQueueId, decision: "approve", editedLesson: "Pentair IntelliFlo VSF reduced flow resolved by impeller cleaning." },
+      authenticatedUserId: "usr_platform_admin_1"
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.status, "approved");
+    assert.equal(res.data.publishedToSharedRetrieval, true);
+    assert.equal(harness.store.shared_learning_knowledge.has(verifiedTechQueueId), true);
+    console.log("PASS: Test 1d - Fully verified technician repair with documented resolution approves successfully.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 1e: Missing Contributor Terms Version in Case Fails Closed
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+    const noTermsCaseId = "case_no_terms_1";
+    const noTermsQueueId = "queue_no_terms_1";
+
+    harness.store.diagnostic_cases.set(noTermsCaseId, {
+      id: noTermsCaseId,
+      tenant_id: "comp_opted_in",
+      case_learning_opt_in: true,
+      learning_terms_version: null, // Unverified terms version!
+      technician_verified: true,
+      resolution_summary_redacted: "Cleaned filter.",
+      equipment_category: "Filter"
+    });
+    harness.store.learning_review_queue.set(noTermsQueueId, {
+      id: noTermsQueueId,
+      case_id: noTermsCaseId,
+      tenant_id: "comp_opted_in",
+      source_kind: "technician_job",
+      status: "pending",
+      proposed_lesson_redacted: "Filter cleaning fix."
+    });
+
+    const res = await harness.executeAction("review_learning_case", {
+      body: { authenticatedApp: true, queueId: noTermsQueueId, decision: "approve", editedLesson: "Filter cleaning fix." },
+      authenticatedUserId: "usr_platform_admin_1"
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.data.code, "CASE_LEARNING_OPT_IN_REQUIRED");
+    assert.equal(harness.store.shared_learning_knowledge.has(noTermsQueueId), false);
+    console.log("PASS: Test 1e - Approval fails closed when contributor terms version is missing.");
   }
 
   // -------------------------------------------------------------------------
@@ -346,7 +534,7 @@ async function runLearningConsentTests() {
       tenant_id: null,
       learning_permission_granted: true,
       legal_terms_version: "2026-10-v1",
-      case_learning_opt_in: false, // legacy flag pattern
+      case_learning_opt_in: false,
       equipment_category: "Pump",
       manufacturer_normalized: "Pentair",
       model_normalized: "IntelliFlo"
@@ -393,7 +581,7 @@ async function runLearningConsentTests() {
       tenant_id: null,
       source_kind: "public_demo",
       status: "pending",
-      proposed_lesson_redacted: "Unconsented visitor troubleshooting lesson that must never publish."
+      proposed_lesson_redacted: "Unconsented public demo lesson."
     });
 
     const resUnconsented = await harness.executeAction("review_learning_case", {
@@ -401,7 +589,7 @@ async function runLearningConsentTests() {
         authenticatedApp: true,
         queueId: unconsentedQueueId,
         decision: "approve",
-        editedLesson: "Unconsented visitor troubleshooting lesson that must never publish."
+        editedLesson: "Unconsented public demo lesson."
       },
       authenticatedUserId: "usr_platform_admin_1"
     });
@@ -409,7 +597,7 @@ async function runLearningConsentTests() {
     assert.equal(resUnconsented.status, 403);
     assert.equal(resUnconsented.data.code, "CASE_LEARNING_OPT_IN_REQUIRED");
     assert.equal(harness.store.shared_learning_knowledge.has(unconsentedQueueId), false);
-    console.log("PASS: Test 2b - Unconsented public demo case is strictly blocked from approval.");
+    console.log("PASS: Test 2b - Unconsented public-demo case fails closed with 403 CASE_LEARNING_OPT_IN_REQUIRED.");
   }
 
   // -------------------------------------------------------------------------
@@ -428,10 +616,10 @@ async function runLearningConsentTests() {
         model: "H400FD",
         issue: "Heater display says IF (ignition failure)",
         answer: "Clean the flame rectification sensor and check gas manifold pressure.",
-        caseLearningOptIn: true, // Client asserts consent!
-        learningTermsVersion: "client-faked-v999" // Client supplied string
+        caseLearningOptIn: true,
+        learningTermsVersion: "client-faked-v999"
       },
-      authenticatedUserId: "usr_unaccepted_tech", // No terms accepted in store
+      authenticatedUserId: "usr_unaccepted_tech",
       authenticatedCompanyId: "comp_opted_in",
       authenticatedRole: "technician"
     });
@@ -482,7 +670,7 @@ async function runLearningConsentTests() {
         caseLearningOptIn: true
       },
       authenticatedUserId: "usr_consented_tech",
-      authenticatedCompanyId: "comp_opted_out", // diagnostic_learning_opt_in = false
+      authenticatedCompanyId: "comp_opted_out",
       authenticatedRole: "technician"
     });
 
@@ -490,13 +678,102 @@ async function runLearningConsentTests() {
     assert.equal(resCompanyOptedOut.data.learningStatus, "company_private");
     const capturedCase3 = harness.store.diagnostic_cases.get(resCompanyOptedOut.data.caseId);
     assert.equal(capturedCase3.case_learning_opt_in, true);
-    // Queue should still only have 1 item (from 3b), not increased
     assert.equal(harness.store.learning_review_queue.size, 1);
     console.log("PASS: Test 3c - Governing company opt-out keeps records private even when contributor consents.");
   }
 
   // -------------------------------------------------------------------------
-  // Test 4: Explicit Case Consent Withdrawal
+  // Test 4: Server-Side Contributor Terms Verification in save_technician_job (P0 D)
+  // -------------------------------------------------------------------------
+  {
+    const harness = createHarness();
+
+    // 4a: Technician saves job notes with caseLearningOptIn: true, but has NO contributor terms accepted
+    const resNoLegalJob = await harness.executeAction("save_technician_job", {
+      body: {
+        authenticatedApp: true,
+        outcome: "resolved",
+        equipmentCategory: "Pump",
+        manufacturer: "Pentair",
+        model: "IntelliFlo VSF",
+        complaint: "Pump not priming",
+        resolution: "Cleaned diffuser and replaced shaft seal.",
+        repairSteps: [{ action: "Replaced shaft seal", result: "Primes in 30 seconds" }],
+        caseLearningOptIn: true // Browser checked box without legal terms on file!
+      },
+      authenticatedUserId: "usr_unaccepted_tech",
+      authenticatedCompanyId: "comp_opted_in",
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+
+    assert.equal(resNoLegalJob.status, 200);
+    assert.equal(resNoLegalJob.data.ok, true);
+    assert.ok(harness.store.technician_job_records.size > 0, "Job record must always be saved for company operations");
+    // Find diagnostic case created by save_technician_job
+    const createdCases = [...harness.store.diagnostic_cases.values()];
+    const jobCase1 = createdCases.find(c => c.tenant_id === "comp_opted_in");
+    assert.ok(jobCase1, "Diagnostic case must be saved");
+    assert.equal(jobCase1.case_learning_opt_in, false, "Server MUST reject sharing opt-in when contributor terms record is absent");
+    assert.equal(jobCase1.learning_terms_version, null, "Terms version must be null");
+    assert.equal(harness.store.learning_review_queue.size, 0, "Unverified contributor job must NOT enter review queue");
+    console.log("PASS: Test 4a - Technician job sharing fails closed to company-private when contributor terms absent (P0 D verified).");
+
+    // 4b: Technician has valid contributor terms on file and company is opted in
+    const resConsentedJob = await harness.executeAction("save_technician_job", {
+      body: {
+        authenticatedApp: true,
+        outcome: "resolved",
+        equipmentCategory: "Pump",
+        manufacturer: "Pentair",
+        model: "IntelliFlo VSF",
+        complaint: "Pump not priming",
+        resolution: "Cleaned diffuser and replaced shaft seal.",
+        repairSteps: [{ action: "Replaced shaft seal", result: "Primes in 30 seconds" }],
+        caseLearningOptIn: true
+      },
+      authenticatedUserId: "usr_consented_tech",
+      authenticatedCompanyId: "comp_opted_in",
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+
+    assert.equal(resConsentedJob.status, 200);
+    const jobCase2 = [...harness.store.diagnostic_cases.values()].pop();
+    assert.equal(jobCase2.case_learning_opt_in, true);
+    assert.equal(jobCase2.learning_terms_version, "2026-10-v1");
+    assert.equal(harness.store.learning_review_queue.size, 1, "Verified job enters review queue");
+    console.log("PASS: Test 4b - Verified technician job with active terms enters review queue.");
+
+    // 4c: Technician has valid terms, but company is OPTED OUT
+    const resCompanyOptedOutJob = await harness.executeAction("save_technician_job", {
+      body: {
+        authenticatedApp: true,
+        outcome: "resolved",
+        equipmentCategory: "Heater",
+        manufacturer: "Raypak",
+        model: "266A",
+        complaint: "Heater won't fire",
+        resolution: "Replaced igniter.",
+        repairSteps: [{ action: "Replaced igniter", result: "Fires cleanly" }],
+        caseLearningOptIn: true
+      },
+      authenticatedUserId: "usr_consented_tech",
+      authenticatedCompanyId: "comp_opted_out", // diagnostic_learning_opt_in = false
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+
+    assert.equal(resCompanyOptedOutJob.status, 200);
+    const jobCase3 = [...harness.store.diagnostic_cases.values()].pop();
+    assert.equal(jobCase3.case_learning_opt_in, true);
+    // Queue should still only have 1 item from 4b
+    assert.equal(harness.store.learning_review_queue.size, 1, "Opted-out company job must not enter review queue");
+    console.log("PASS: Test 4c - Company opt-out prevents job from entering review queue even when technician consented.");
+  }
+
+  // -------------------------------------------------------------------------
+  // Test 5: Explicit Case Consent Withdrawal
   // -------------------------------------------------------------------------
   {
     const harness = createHarness();
@@ -529,7 +806,7 @@ async function runLearningConsentTests() {
     assert.equal(resWithdraw.data.ok, true);
     assert.equal(resWithdraw.data.status, "consent_withdrawn");
     assert.equal(harness.store.diagnostic_cases.get(caseId).case_learning_opt_in, false);
-    console.log("PASS: Test 4 - Explicit consent withdrawal successfully updates database records.");
+    console.log("PASS: Test 5 - Explicit consent withdrawal successfully updates database records.");
   }
 
   console.log("\nALL LEARNING CONSENT & FAIL-CLOSED APPROVAL TESTS PASSED.");
