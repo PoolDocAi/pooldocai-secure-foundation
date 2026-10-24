@@ -719,16 +719,16 @@ DECLARE
   v_rec record;
   v_cnt integer := 0;
 BEGIN
+  -- Ensure 'pool' industry module is active
+  INSERT INTO public.industry_modules (industry_key, display_name, status)
+  VALUES ('pool', 'Pool Industry', 'active')
+  ON CONFLICT (industry_key) DO UPDATE SET status = 'active';
+
   -- Insert companies
   INSERT INTO public.companies (id, name, industry_key, status)
   VALUES
     (v_co_a, 'Tenant Alpha Part7', 'pool', 'active'),
     (v_co_b, 'Tenant Beta Part7', 'pool', 'active');
-
-  -- Ensure 'pool' industry module is active
-  INSERT INTO public.industry_modules (industry_key, name, status)
-  VALUES ('pool', 'Pool Industry', 'active')
-  ON CONFLICT (industry_key) DO UPDATE SET status = 'active';
 
   -- 1. Tenant A: Pentair IntelliFlo (enabled, ready)
   INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
