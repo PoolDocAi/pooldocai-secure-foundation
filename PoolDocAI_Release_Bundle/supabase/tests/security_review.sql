@@ -1232,13 +1232,22 @@ BEGIN
     RAISE EXCEPTION 'Durable trigger failed to create company_notification for service request, count=%', v_cnt;
   END IF;
 
-  -- Verify user notifications populated for active company members (Admin A and Tech A)
+  -- Verify user notifications populated for company admin
   SELECT count(*) INTO v_cnt FROM public.user_notifications
   WHERE company_id = v_co_a AND notification_id = (
     SELECT id FROM public.company_notifications WHERE company_id = v_co_a AND dedupe_key = 'sr-created-' || v_sr_id::text
   );
-  IF v_cnt <> 2 THEN
-    RAISE EXCEPTION 'Expected 2 user_notifications from service request trigger, got %', v_cnt;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Expected 1 user_notifications from service request trigger, got %', v_cnt;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.user_notifications
+    WHERE company_id = v_co_a AND user_id = v_user_a_admin AND notification_id = (
+      SELECT id FROM public.company_notifications WHERE company_id = v_co_a AND dedupe_key = 'sr-created-' || v_sr_id::text
+    )
+  ) THEN
+    RAISE EXCEPTION 'Admin A missing user_notification from service request trigger';
   END IF;
 
   -- 12. Test Service Request Notification Idempotency on Replay
@@ -1280,8 +1289,25 @@ BEGIN
     RAISE EXCEPTION 'Expected second reconcile run to return 0, got %', v_reconciled;
   END IF;
 
-  -- 14. Test Multi-Company Independent Marking (A vs B)
+  -- 14. Test Multi-Company Independent Marking (A vs B) and Fail-Closed Boundary
+  -- Add Admin A to Company B as well to simulate a multi-company user
+  INSERT INTO public.company_members (company_id, user_id, role, status, display_name)
+  VALUES (v_co_b, v_user_a_admin, 'company_admin', 'active', 'Admin A (Co B)');
+
+  -- Publish a notification in Company B so Admin A has unread notifications in both companies
+  PERFORM public.pooldocai_publish_company_notification(
+    p_company_id := v_co_b,
+    p_event_type := 'service_request_created',
+    p_title := 'New Co B Service Request',
+    p_body := 'Service requested for Co B',
+    p_data := '{"company": "B"}'::jsonb,
+    p_dedupe_key := 'sr-co-b-test-1',
+    p_target_role := 'admin',
+    p_target_user_id := NULL
+  );
+
   PERFORM set_config('request.jwt.claim.sub', v_user_a_admin::text, true);
+
   -- Mark all read for Company A only
   PERFORM public.pooldocai_mark_all_notifications_read(p_company_id := v_co_a);
 
@@ -1290,7 +1316,7 @@ BEGIN
     RAISE EXCEPTION 'Expected 0 unread notifications for Company A, got %', v_res_a->>'unread_count';
   END IF;
 
-  -- Company B must still have unread notifications
+  -- Company B must still have unread notifications for Admin A
   v_res_b := public.pooldocai_get_user_notifications(p_company_id := v_co_b);
   IF (v_res_b->>'unread_count')::integer = 0 THEN
     RAISE EXCEPTION 'Expected unread notifications to remain for Company B';
@@ -1302,6 +1328,17 @@ BEGIN
   IF (v_res_b->>'unread_count')::integer <> 0 THEN
     RAISE EXCEPTION 'Expected 0 unread notifications for Company B after marking, got %', v_res_b->>'unread_count';
   END IF;
+
+  -- Verify fail-closed behavior: Tech A is NOT in Company B and cannot read Company B notifications
+  PERFORM set_config('request.jwt.claim.sub', v_user_a_tech::text, true);
+  BEGIN
+    PERFORM public.pooldocai_get_user_notifications(p_company_id := v_co_b);
+    RAISE EXCEPTION 'Security violation: non-member was allowed to read company B notifications';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE '%NOT_A_MEMBER_OF_SPECIFIED_COMPANY%' THEN
+      RAISE EXCEPTION 'Unexpected error on unauthorized company read: %', SQLERRM;
+    END IF;
+  END;
 
   -- Teardown Section 10 test fixtures
   PERFORM set_config('request.jwt.claim.sub', '', true);
