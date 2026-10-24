@@ -1118,6 +1118,7 @@ BEGIN
   END IF;
 
   -- Teardown Section 10 test fixtures
+  PERFORM set_config('request.jwt.claim.sub', '', true);
   DELETE FROM public.notification_delivery_queue WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.user_notifications WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.company_notifications WHERE company_id IN (v_co_a, v_co_b);
