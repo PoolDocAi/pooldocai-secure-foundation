@@ -572,6 +572,7 @@ DECLARE
   v_co_b uuid := '22222222-2222-2222-2222-222222222222'::uuid;
   v_manual_a uuid := gen_random_uuid();
   v_manual_b uuid := gen_random_uuid();
+  v_manual_revoked uuid := gen_random_uuid();
   v_queue_public uuid := gen_random_uuid();
   v_queue_manual_a uuid := gen_random_uuid();
   v_queue_cross uuid := gen_random_uuid();
@@ -603,7 +604,8 @@ BEGIN
   )
   VALUES
     (v_manual_a, v_co_a, 'Pentair IntelliFlo Manual', 'test/path/a', true, 'pump', 'pentair', 'intelliflo_vsf', 'general_candidate', true, now(), v_admin_id),
-    (v_manual_b, v_co_b, 'Hayward SuperPump Manual', 'test/path/b', true, 'pump', 'hayward', 'super_pump', 'general_candidate', true, now(), v_admin_id)
+    (v_manual_b, v_co_b, 'Hayward SuperPump Manual', 'test/path/b', true, 'pump', 'hayward', 'super_pump', 'general_candidate', true, now(), v_admin_id),
+    (v_manual_revoked, v_co_a, 'Revoked Consent Manual', 'test/path/revoked', false, 'pump', 'pentair', 'intelliflo_vsf', 'company_private', false, now(), v_admin_id)
   ON CONFLICT (id) DO NOTHING;
 
   -- 2b. Setup a valid diagnostic case to satisfy foreign key on learning_review_queue
@@ -660,9 +662,8 @@ BEGIN
   END;
 
   -- 6. TEST P0-4: Manual consent withdrawal MUST reject approval
-  UPDATE public.company_manuals SET shared_learning_opt_in = false WHERE id = v_manual_a;
   INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
-  VALUES (v_queue_revoked, v_case_test, v_co_a, 'company_manual', 'Revoked consent manual lesson.', ARRAY[v_manual_a::text], 'pending');
+  VALUES (v_queue_revoked, v_case_test, v_co_a, 'company_manual', 'Revoked consent manual lesson.', ARRAY[v_manual_revoked::text], 'pending');
 
   BEGIN
     PERFORM public.pooldocai_approve_learning_case(v_queue_revoked, 'Revoked lesson', v_admin_id, 'Signoff');
@@ -695,7 +696,7 @@ BEGIN
   DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
   DELETE FROM public.learning_review_queue WHERE id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
   DELETE FROM public.diagnostic_cases WHERE id IN (v_case_test, v_case_unverified);
-  DELETE FROM public.company_manuals WHERE id IN (v_manual_a, v_manual_b);
+  DELETE FROM public.company_manuals WHERE id IN (v_manual_a, v_manual_b, v_manual_revoked);
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
   DELETE FROM auth.users WHERE id = v_admin_id;
 END $$;
