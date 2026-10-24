@@ -167,33 +167,113 @@ function createHarness() {
               processed: false,
               attempts: 0,
               claimed_at: null,
+              claim_token: null,
+              lease_generation: 0,
               processing_error: null
             };
             tables.pooldocai_stripe_webhook_events.set(eventId, row);
           }
 
           if (row.processed) {
-            return Promise.resolve({ data: { status: "already_processed", processed: true, duplicate: true }, error: null });
+            return Promise.resolve({ data: { status: "already_processed", processed: true, duplicate: true, lease_generation: row.lease_generation }, error: null });
           }
 
           if (row.claimed_at) {
             const elapsedSec = (nowMs - new Date(row.claimed_at).getTime()) / 1000;
             if (elapsedSec < timeoutSec) {
               const retryAfter = Math.max(1, Math.ceil(timeoutSec - elapsedSec));
-              return Promise.resolve({ data: { status: "in_progress", retry_after: retryAfter, attempts: row.attempts }, error: null });
+              return Promise.resolve({ data: { status: "in_progress", retry_after: retryAfter, attempts: row.attempts, lease_generation: row.lease_generation }, error: null });
             }
           }
 
           if (row.attempts >= maxAttempts) {
-            return Promise.resolve({ data: { status: "max_attempts_exceeded", attempts: row.attempts, processing_error: row.processing_error }, error: null });
+            return Promise.resolve({ data: { status: "max_attempts_exceeded", attempts: row.attempts, processing_error: row.processing_error, lease_generation: row.lease_generation }, error: null });
           }
 
+          const token = "claim_" + crypto.randomBytes(16).toString("hex");
           row.claimed_at = new Date(nowMs).toISOString();
+          row.claim_token = token;
+          row.lease_generation = (row.lease_generation || 0) + 1;
           row.attempts = (row.attempts || 0) + 1;
           row.event_type = eventType;
           row.processing_error = null;
 
-          return Promise.resolve({ data: { status: "claimed", attempts: row.attempts }, error: null });
+          return Promise.resolve({ data: { status: "claimed", claim_token: token, lease_generation: row.lease_generation, attempts: row.attempts }, error: null });
+        }
+
+        if (funcName === "pooldocai_apply_and_finalize_stripe_webhook") {
+          const eventId = params.p_event_id;
+          const claimToken = params.p_claim_token;
+          const companyId = params.p_company_id;
+          const companyUpdates = params.p_company_updates;
+          const usageEvent = params.p_usage_event;
+          const processingNote = params.p_processing_note;
+          const isIgnored = Boolean(params.p_ignored);
+
+          if (!claimToken || typeof claimToken !== "string" || !claimToken.trim()) {
+            return Promise.resolve({ data: { success: false, status: "invalid_claim_token", error: "A non-empty claim ownership token is required" }, error: null });
+          }
+
+          const row = tables.pooldocai_stripe_webhook_events.get(eventId);
+          if (!row) {
+            return Promise.resolve({ data: { success: false, status: "not_found", error: "Event not found" }, error: null });
+          }
+
+          if (row.processed) {
+            return Promise.resolve({ data: { success: false, status: "already_processed", fenced: true, error: "Already processed" }, error: null });
+          }
+
+          if (row.claim_token !== claimToken) {
+            return Promise.resolve({ data: { success: false, status: "fenced_out", fenced: true, error: "Stale claim token: lease expired or owned by newer worker" }, error: null });
+          }
+
+          if (!isIgnored && companyId && companyUpdates && typeof companyUpdates === "object") {
+            const company = tables.companies.get(companyId);
+            if (company) {
+              tables.companies.set(companyId, { ...company, ...companyUpdates, updated_at: new Date().toISOString() });
+            }
+          }
+
+          if (!isIgnored && usageEvent && typeof usageEvent === "object") {
+            tables.platform_usage_events.push(usageEvent);
+          }
+
+          row.processed = true;
+          row.processed_at = new Date().toISOString();
+          row.claimed_at = null;
+          row.claim_token = null;
+          row.processing_error = processingNote || null;
+
+          return Promise.resolve({ data: { success: true, status: isIgnored ? "ignored" : "applied", processed: true, lease_generation: row.lease_generation }, error: null });
+        }
+
+        if (funcName === "pooldocai_release_stripe_webhook_event") {
+          const eventId = params.p_event_id;
+          const claimToken = params.p_claim_token;
+          const errorMsg = params.p_error;
+
+          if (!claimToken || typeof claimToken !== "string" || !claimToken.trim()) {
+            return Promise.resolve({ data: { success: false, status: "invalid_claim_token", error: "A non-empty claim token is required" }, error: null });
+          }
+
+          const row = tables.pooldocai_stripe_webhook_events.get(eventId);
+          if (!row) {
+            return Promise.resolve({ data: { success: false, status: "not_found" }, error: null });
+          }
+
+          if (row.processed) {
+            return Promise.resolve({ data: { success: false, status: "already_processed", fenced: true }, error: null });
+          }
+
+          if (row.claim_token !== claimToken) {
+            return Promise.resolve({ data: { success: false, status: "fenced_out", fenced: true, error: "Cannot release: claim token does not match active lease" }, error: null });
+          }
+
+          row.claimed_at = null;
+          row.claim_token = null;
+          row.processing_error = errorMsg || null;
+
+          return Promise.resolve({ data: { success: true, status: "released", attempts: row.attempts, lease_generation: row.lease_generation }, error: null });
         }
         throw new Error(`Unexpected RPC in test harness: ${funcName}`);
       }
@@ -778,6 +858,167 @@ async function runExecutableWebhookTests() {
 
     assert.equal(resMax.status, 422);
     assert.equal(resMax.body.max_attempts_exceeded, true);
+  }
+
+  // Test 16: Claim Token Generation and Monotonic Lease Sequence
+  {
+    const eventId = "evt_token_sequence_test";
+    const db = harness.createMockDb();
+
+    // First claim
+    const claim1 = await db.rpc("pooldocai_claim_stripe_webhook_event", {
+      p_event_id: eventId,
+      p_event_type: "customer.subscription.updated",
+      p_lock_timeout_seconds: 60,
+      p_max_attempts: 5
+    });
+
+    assert.equal(claim1.data.status, "claimed");
+    assert.ok(claim1.data.claim_token && claim1.data.claim_token.startsWith("claim_"), "Must return valid claim token");
+    assert.equal(claim1.data.lease_generation, 1, "First lease generation must be 1");
+
+    // Advance time past lease timeout (simulate expiration)
+    const row = harness.tables.pooldocai_stripe_webhook_events.get(eventId);
+    row.claimed_at = new Date(Date.now() - 70_000).toISOString();
+
+    // Second claim by a new worker
+    const claim2 = await db.rpc("pooldocai_claim_stripe_webhook_event", {
+      p_event_id: eventId,
+      p_event_type: "customer.subscription.updated",
+      p_lock_timeout_seconds: 60,
+      p_max_attempts: 5
+    });
+
+    assert.equal(claim2.data.status, "claimed");
+    assert.ok(claim2.data.claim_token && claim2.data.claim_token.startsWith("claim_"));
+    assert.notEqual(claim2.data.claim_token, claim1.data.claim_token, "Subsequent lease must have distinct unpredictable token");
+    assert.equal(claim2.data.lease_generation, 2, "Lease generation must monotonically increment");
+  }
+
+  // Test 17: Fencing Out Stale Worker After Expired Lease Takeover (Prevents Stale DB Mutations)
+  {
+    const eventId = "evt_stale_worker_fenced_out";
+    const db = harness.createMockDb();
+
+    // 1. Worker A claims event
+    const claimA = await db.rpc("pooldocai_claim_stripe_webhook_event", {
+      p_event_id: eventId,
+      p_event_type: "customer.subscription.updated",
+      p_lock_timeout_seconds: 60,
+      p_max_attempts: 5
+    });
+    const tokenA = claimA.data.claim_token;
+
+    // 2. Worker A experiences long delay; lease expires
+    const row = harness.tables.pooldocai_stripe_webhook_events.get(eventId);
+    row.claimed_at = new Date(Date.now() - 70_000).toISOString();
+
+    // 3. Worker B claims event
+    const claimB = await db.rpc("pooldocai_claim_stripe_webhook_event", {
+      p_event_id: eventId,
+      p_event_type: "customer.subscription.updated",
+      p_lock_timeout_seconds: 60,
+      p_max_attempts: 5
+    });
+    const tokenB = claimB.data.claim_token;
+    assert.notEqual(tokenA, tokenB);
+
+    // 4. Stale Worker A wakes up and attempts to mutate company billing using stale tokenA
+    const staleApply = await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: eventId,
+      p_claim_token: tokenA,
+      p_company_id: companyId,
+      p_company_updates: { plan_name: "starter" },
+      p_usage_event: null,
+      p_processing_note: null,
+      p_ignored: false
+    });
+
+    assert.equal(staleApply.data.success, false, "Stale worker apply must fail");
+    assert.equal(staleApply.data.fenced, true, "Stale worker must be flagged as fenced");
+    assert.equal(staleApply.data.status, "fenced_out");
+
+    // Verify company was NOT modified by stale Worker A
+    const company = harness.tables.companies.get(companyId);
+    assert.notEqual(company.plan_name, "starter", "Company plan must not be corrupted by stale worker");
+
+    // 5. Active Worker B applies legitimate update
+    const validApply = await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: eventId,
+      p_claim_token: tokenB,
+      p_company_id: companyId,
+      p_company_updates: { plan_name: "pro_complete" },
+      p_usage_event: { company_id: companyId, event_type: "stripe_customer.subscription.updated" },
+      p_processing_note: null,
+      p_ignored: false
+    });
+
+    assert.equal(validApply.data.success, true);
+    assert.equal(validApply.data.processed, true);
+    assert.equal(harness.tables.companies.get(companyId).plan_name, "pro_complete");
+  }
+
+  // Test 18: Fencing Out Stale Worker Error/Release (Protects Active Worker's Lease)
+  {
+    const eventId = "evt_stale_release_fenced_out";
+    const db = harness.createMockDb();
+
+    // 1. Worker A claims
+    const claimA = await db.rpc("pooldocai_claim_stripe_webhook_event", {
+      p_event_id: eventId,
+      p_event_type: "invoice.payment_failed",
+      p_lock_timeout_seconds: 60,
+      p_max_attempts: 5
+    });
+    const tokenA = claimA.data.claim_token;
+
+    // 2. Lease expires
+    const row = harness.tables.pooldocai_stripe_webhook_events.get(eventId);
+    row.claimed_at = new Date(Date.now() - 70_000).toISOString();
+
+    // 3. Worker B claims
+    const claimB = await db.rpc("pooldocai_claim_stripe_webhook_event", {
+      p_event_id: eventId,
+      p_event_type: "invoice.payment_failed",
+      p_lock_timeout_seconds: 60,
+      p_max_attempts: 5
+    });
+    const tokenB = claimB.data.claim_token;
+
+    // 4. Stale Worker A errors and tries to release the claim with stale tokenA
+    const staleRelease = await db.rpc("pooldocai_release_stripe_webhook_event", {
+      p_event_id: eventId,
+      p_claim_token: tokenA,
+      p_error: "Stale worker crash message"
+    });
+
+    assert.equal(staleRelease.data.success, false);
+    assert.equal(staleRelease.data.fenced, true);
+
+    // Verify Worker B's active claim was NOT destroyed
+    const rowActive = harness.tables.pooldocai_stripe_webhook_events.get(eventId);
+    assert.equal(rowActive.claim_token, tokenB, "Worker B's claim token must remain active");
+    assert.ok(rowActive.claimed_at !== null, "Worker B's lease must remain held");
+  }
+
+  // Test 19: Strict Rejection of Empty/Unknown Claim Tokens
+  {
+    const db = harness.createMockDb();
+    const badApply = await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_some_event",
+      p_claim_token: "",
+      p_ignored: true
+    });
+    assert.equal(badApply.data.success, false);
+    assert.equal(badApply.data.status, "invalid_claim_token");
+
+    const badRelease = await db.rpc("pooldocai_release_stripe_webhook_event", {
+      p_event_id: "evt_some_event",
+      p_claim_token: "   ",
+      p_error: "err"
+    });
+    assert.equal(badRelease.data.success, false);
+    assert.equal(badRelease.data.status, "invalid_claim_token");
   }
 
   console.log("PASS: Executable Stripe webhook event ordering, idempotency, signature, and replay test suite passed.");

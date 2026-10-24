@@ -80,6 +80,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const claimStatus = claimData?.status;
+  const claimToken = String(claimData?.claim_token || "");
   if (claimStatus === "already_processed") {
     return json({ ok: true, duplicate: true });
   }
@@ -103,7 +104,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  if (claimStatus !== "claimed") {
+  if (claimStatus !== "claimed" || !claimToken) {
     return json({ error: "Unexpected event claim state." }, 500);
   }
 
@@ -126,7 +127,12 @@ Deno.serve(async (req: Request) => {
     }
     if (!companyId) {
       // Store and acknowledge unrelated Stripe events without modifying any tenant.
-      await db.from("pooldocai_stripe_webhook_events").update({ processed: true, processed_at: new Date().toISOString(), claimed_at: null, processing_error: "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation." }).eq("stripe_event_id", eventId);
+      await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+        p_event_id: eventId,
+        p_claim_token: claimToken,
+        p_ignored: true,
+        p_processing_note: "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation."
+      });
       return json({ ok: true, ignored: true, reason: "no_company_match" });
     }
     const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id,billing_period_start").eq("id", companyId).maybeSingle();
@@ -152,12 +158,12 @@ Deno.serve(async (req: Request) => {
       );
 
       if (isStalePeriod || isOldSubscription) {
-        await db.from("pooldocai_stripe_webhook_events").update({
-          processed: true,
-          processed_at: new Date().toISOString(),
-          claimed_at: null,
-          processing_error: isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active)."
-        }).eq("stripe_event_id", eventId);
+        await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+          p_event_id: eventId,
+          p_claim_token: claimToken,
+          p_ignored: true,
+          p_processing_note: isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active)."
+        });
         return json({ ok: true, ignored: true, reason: isOldSubscription ? "stale_old_subscription" : "stale_out_of_order_event" });
       }
 
@@ -199,12 +205,12 @@ Deno.serve(async (req: Request) => {
       const isStaleInvoicePeriod = Boolean(invoicePeriodStart && company.billing_period_start && new Date(invoicePeriodStart).getTime() < new Date(company.billing_period_start).getTime());
 
       if (isOldSubscriptionInvoice || isStaleInvoicePeriod) {
-        await db.from("pooldocai_stripe_webhook_events").update({
-          processed: true,
-          processed_at: new Date().toISOString(),
-          claimed_at: null,
-          processing_error: isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active)."
-        }).eq("stripe_event_id", eventId);
+        await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+          p_event_id: eventId,
+          p_claim_token: claimToken,
+          p_ignored: true,
+          p_processing_note: isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active)."
+        });
         return json({ ok: true, ignored: true, reason: isOldSubscriptionInvoice ? "stale_old_subscription_invoice" : "stale_out_of_order_invoice" });
       }
 
@@ -215,17 +221,44 @@ Deno.serve(async (req: Request) => {
     }
 
     const handled = ["checkout.session.completed","customer.subscription.created","customer.subscription.updated","customer.subscription.deleted","invoice.payment_failed","invoice.payment_succeeded","invoice.paid"];
-    if (handled.includes(eventType) && Object.keys(update).length) {
-      const { error: updateError } = await db.from("companies").update(update).eq("id", companyId);
-      if (updateError) throw new Error(`Verified webhook could not update company billing state (${updateError.code}).`);
+    const usagePayload = {
+      company_id: companyId,
+      event_type: `stripe_${eventType}`,
+      units: 1,
+      metric_type: "billing_event",
+      quantity: 1,
+      quantity_unit: "webhook_event",
+      source_event_key: eventId,
+      metadata: { stripe_event_id: eventId, stripe_event_type: eventType, handled: handled.includes(eventType) }
+    };
+
+    const { data: finalizeData, error: finalizeError } = await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: eventId,
+      p_claim_token: claimToken,
+      p_company_id: companyId,
+      p_company_updates: (handled.includes(eventType) && Object.keys(update).length) ? update : null,
+      p_usage_event: usagePayload,
+      p_processing_note: null,
+      p_ignored: false
+    });
+
+    if (finalizeError || !finalizeData?.success) {
+      if (finalizeData?.fenced) {
+        console.warn("Webhook finalization fenced out (stale claim or already processed)", { eventId, status: finalizeData?.status });
+        return json({ error: "Worker claim fence expired; event handled by another worker.", code: "STRIPE_WEBHOOK_FENCED_OUT" }, 409);
+      }
+      throw new Error(finalizeError?.message || finalizeData?.error || "Could not atomically apply billing state and finalize event.");
     }
-    await db.from("platform_usage_events").insert({ company_id: companyId, event_type: `stripe_${eventType}`, units: 1, metric_type: "billing_event", quantity: 1, quantity_unit: "webhook_event", source_event_key: eventId, metadata: { stripe_event_id: eventId, stripe_event_type: eventType, handled: handled.includes(eventType) } });
-    const { error: finishError } = await db.from("pooldocai_stripe_webhook_events").update({ processed: true, processed_at: new Date().toISOString(), claimed_at: null, processing_error: null }).eq("stripe_event_id", eventId);
-    if (finishError) throw new Error("Could not mark the Stripe webhook event as processed.");
     return json({ ok: true, processed: true });
   } catch (error) {
     const message = String((error as Error)?.message || "Webhook processing failed").slice(0, 500);
-    await db.from("pooldocai_stripe_webhook_events").update({ processing_error: message, claimed_at: null }).eq("stripe_event_id", eventId);
+    if (claimToken) {
+      await db.rpc("pooldocai_release_stripe_webhook_event", {
+        p_event_id: eventId,
+        p_claim_token: claimToken,
+        p_error: message
+      });
+    }
     console.error("Stripe webhook processing failed", { eventId, type: eventType, message });
     return json({ error: "Verified webhook could not be applied; Stripe may retry safely.", code: "STRIPE_WEBHOOK_APPLY_FAILED" }, 500);
   }

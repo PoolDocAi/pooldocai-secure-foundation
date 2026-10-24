@@ -75,6 +75,9 @@ jobs:
             --set ON_ERROR_STOP=1 \
             --file supabase/tests/security_review.sql
 
+      - name: Run true two-connection PostgreSQL webhook concurrency and claim-fencing test
+        run: node supabase/tests/stripe-concurrency.test.cjs
+
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
