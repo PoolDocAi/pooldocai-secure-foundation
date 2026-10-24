@@ -930,13 +930,48 @@ function preferVerifiedInternalOnly(
   });
 }
 
-function extractQuantitativeMeasures(text: string): Array<{ amount: number; unit: string }> {
-  const measures: Array<{ amount: number; unit: string }> = [];
-  const regex = /\b(\d+(?:\.\d+)?)\s*(fl\.?\s*oz|fluid\s*ounces?|ounces?|oz|pounds?|lbs?|gallons?|gal|quarts?|qts?|qt|cups?|pints?|pts?|pt|tablets?|tabs?|tab|ppm|mg\/l)\b/gi;
+function detectCompound(preceding: string, following: string): string {
+  const immediateFollowing = following.slice(0, 45).toLowerCase();
+  const immediatePreceding = preceding.slice(-45).toLowerCase();
+
+  const compounds: Array<[string, RegExp]> = [
+    ["muriatic_acid", /\b(?:muriatic acid|hydrochloric acid)\b/],
+    ["liquid_chlorine", /\b(?:liquid chlorine|sodium hypochlorite|bleach)\b/],
+    ["cal_hypo", /\b(?:cal-hypo|calcium hypochlorite)\b/],
+    ["trichlor", /\b(?:trichlor|trichloro)\b/],
+    ["dichlor", /\b(?:dichlor)\b/],
+    ["sodium_bisulfate", /\b(?:sodium bisulfate|dry acid)\b/],
+    ["soda_ash", /\b(?:soda ash|sodium carbonate)\b/],
+    ["sodium_bicarbonate", /\b(?:sodium bicarbonate|baking soda|bicarb)\b/],
+    ["calcium_chloride", /\b(?:calcium chloride)\b/],
+    ["cyanuric_acid", /\b(?:cyanuric acid|\bcya\b|stabilizer|conditioner)\b/],
+    ["algaecide", /\b(?:algaecide)\b/],
+    ["salt", /\b(?:pool salt|\bsalt\b)\b/],
+    ["shock", /\b(?:shock)\b/],
+    ["acid", /\b(?:acid)\b/],
+    ["chlorine", /\b(?:chlorine)\b/],
+    ["water", /\b(?:pool water|water|pool volume|pool)\b/]
+  ];
+
+  for (const [key, re] of compounds) {
+    if (re.test(immediateFollowing)) return key;
+  }
+  for (const [key, re] of compounds) {
+    if (re.test(immediatePreceding)) return key;
+  }
+  return "";
+}
+
+function extractQuantitativeMeasures(text: string): Array<AnyRecord> {
+  const measures: Array<AnyRecord> = [];
+  const regex = /\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(fl\.?\s*oz|fluid\s*ounces?|ounces?|oz|pounds?|lbs?|lb|gallons?|gal|quarts?|qts?|qt|cups?|pints?|pts?|pt|tablets?|tabs?|tab|ppm|mg\/l|milliliters?|ml|liters?|l|grams?|g|kilograms?|kg|%|percent(?:age)?)\b/gi;
   let match: RegExpExecArray | null;
+
   while ((match = regex.exec(text)) !== null) {
-    const rawAmount = parseFloat(match[1]);
+    const rawNumStr = match[1].replace(/,/g, "");
+    const rawAmount = parseFloat(rawNumStr);
     if (!Number.isFinite(rawAmount)) continue;
+
     let unit = match[2].toLowerCase().replace(/\./g, "").trim();
     if (["fl oz", "fluid ounce", "fluid ounces", "ounce", "ounces", "oz"].includes(unit)) unit = "oz";
     else if (["pound", "pounds", "lb", "lbs"].includes(unit)) unit = "lbs";
@@ -946,9 +981,65 @@ function extractQuantitativeMeasures(text: string): Array<{ amount: number; unit
     else if (["cup", "cups"].includes(unit)) unit = "cup";
     else if (["tablet", "tablets", "tab", "tabs"].includes(unit)) unit = "tab";
     else if (["ppm", "mg/l"].includes(unit)) unit = "ppm";
-    measures.push({ amount: rawAmount, unit });
+    else if (["milliliter", "milliliters", "ml"].includes(unit)) unit = "ml";
+    else if (["liter", "liters", "l"].includes(unit)) unit = "l";
+    else if (["gram", "grams", "g"].includes(unit)) unit = "g";
+    else if (["kilogram", "kilograms", "kg"].includes(unit)) unit = "kg";
+    else if (["%", "percent", "percentage"].includes(unit)) unit = "%";
+
+    const matchStart = match.index;
+    const matchEnd = match.index + match[0].length;
+    const preceding = text.slice(Math.max(0, matchStart - 80), matchStart).toLowerCase();
+    const following = text.slice(matchEnd, Math.min(text.length, matchEnd + 80)).toLowerCase();
+
+    // 1. Detect Negation
+    const negated = /\b(?:never|do not|don'?t|avoid|prohibit(?:ed)?|must not|cannot|should not|no more than)\b/i.test(preceding);
+
+    // 2. Identify Compound by immediate proximity
+    let compound = detectCompound(preceding, following);
+
+    // 3. Determine Role
+    let role = "unknown";
+    const hasAddVerb = /\b(?:add|dose|pour|broadcast|apply|dissolve|feed|put|introduce|shock with|shocking)\b/i.test(preceding);
+    const hasPoolContext = /\b(?:for|in|per)\s+(?:a\s+)?$/i.test(preceding.trimEnd() + " ") ||
+      /^\s*(?:of\s+)?(?:pool\s+)?(?:water|pool|capacity|volume)\b/i.test(following);
+
+    if (negated) {
+      role = "prohibited_dose";
+    } else if (["gal", "l"].includes(unit) && hasPoolContext) {
+      role = "pool_volume";
+      if (!compound || compound === "chlorine") compound = "water";
+    } else if (hasAddVerb) {
+      role = "dose_addition";
+    } else if (["ppm", "%"].includes(unit) || /\b(?:target|maintain|ideal|range|level|reading|tested|tested at)\b/i.test(preceding + " " + following)) {
+      role = "target_concentration";
+    }
+
+    measures.push({
+      amount: rawAmount,
+      unit,
+      role,
+      compound,
+      negated,
+      rawText: match[0]
+    });
   }
+
   return measures;
+}
+
+function areCompoundsCompatible(c1: string, c2: string): boolean {
+  if (!c1 || !c2) return true;
+  if (c1 === c2) return true;
+  const chlorineFamily = ["chlorine", "liquid_chlorine", "cal_hypo", "trichlor", "dichlor", "shock"];
+  if (chlorineFamily.includes(c1) && chlorineFamily.includes(c2)) {
+    if (c1 === "chlorine" || c2 === "chlorine" || c1 === "shock" || c2 === "shock") return true;
+  }
+  const acidFamily = ["acid", "muriatic_acid", "sodium_bisulfate"];
+  if (acidFamily.includes(c1) && acidFamily.includes(c2)) {
+    if (c1 === "acid" || c2 === "acid") return true;
+  }
+  return false;
 }
 
 function hasUngroundedChemicalDosing(instructionText: string, procText: string): boolean {
@@ -965,9 +1056,9 @@ function hasUngroundedChemicalDosing(instructionText: string, procText: string):
     }
   }
 
-  // P0-2: Quantitative Chemical Dose Corroboration
-  // If instruction contains chemical dosing, concentration targets, or pool treatment measurements,
-  // every numeric amount and unit must be corroborated by exact matching values in the source procedure.
+  // P0-1: Quantitative Chemical Dose Contextual Verification & Safety Model
+  // Prohibit uncorroborated doses, negated doses corroborating additions,
+  // pool volume misused as dose, swapped chemical amounts, and nonparsed metric units.
   const instructionMeasures = extractQuantitativeMeasures(lowerInstruction);
   const procMeasures = extractQuantitativeMeasures(lowerProc);
 
@@ -976,11 +1067,38 @@ function hasUngroundedChemicalDosing(instructionText: string, procText: string):
 
   if (hasChemicalContext && instructionMeasures.length > 0) {
     for (const im of instructionMeasures) {
-      const corroborated = procMeasures.some(
-        (pm) => pm.unit === im.unit && Math.abs(pm.amount - im.amount) < 0.001
-      );
-      if (!corroborated) {
-        return true; // Quantitative dose or concentration target is ungrounded
+      if (im.role === "dose_addition") {
+        const corroborated = procMeasures.some((pm: AnyRecord) => {
+          if (pm.negated || pm.role === "prohibited_dose") return false;
+          if (pm.role === "pool_volume") return false;
+          if (pm.unit !== im.unit) return false;
+          if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
+          if (!areCompoundsCompatible(String(im.compound || ""), String(pm.compound || ""))) return false;
+          return true;
+        });
+        if (!corroborated) return true;
+      } else if (im.role === "target_concentration") {
+        const corroborated = procMeasures.some((pm: AnyRecord) => {
+          if (pm.unit !== im.unit) return false;
+          if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
+          return true;
+        });
+        if (!corroborated) return true;
+      } else if (im.role === "pool_volume") {
+        const corroborated = procMeasures.some((pm: AnyRecord) => {
+          if (pm.unit !== im.unit) return false;
+          if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
+          return true;
+        });
+        if (!corroborated) return true;
+      } else {
+        const corroborated = procMeasures.some((pm: AnyRecord) => {
+          if (pm.unit !== im.unit) return false;
+          if (Math.abs(pm.amount - im.amount) >= 0.001) return false;
+          if (im.compound && pm.compound && !areCompoundsCompatible(String(im.compound || ""), String(pm.compound || ""))) return false;
+          return true;
+        });
+        if (!corroborated) return true;
       }
     }
   }
@@ -1047,7 +1165,7 @@ function verifyInternalCitation(
 
     // Active applicable tenant/source status check
     if (row.company_manual_source === true) {
-      if (row.active === false || row.status === "quarantined" || row.reference_enabled === false) return false;
+      if (row.active === false || row.status === "quarantined" || row.status === "revoked" || row.status === "disabled" || row.reference_enabled === false) return false;
     }
     if (row.shared_learning_source === true) {
       if (row.approved_for_learning === false || row.publication_status === "revoked") return false;
@@ -2023,7 +2141,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Company document ingestion uses the private worker. Upload and review are independently delegated.
-  if (["process_company_manual", "import_company_webpage", "set_manual_learning_consent"].includes(action)) {
+  if (["process_company_manual", "import_company_webpage", "set_manual_learning_consent", "update_manual_metadata"].includes(action)) {
     if (body.authenticatedApp !== true || !authenticatedUserId) return jsonResponse({ error: "Sign in with a company account first.", code: "AUTH_REQUIRED" }, 401);
     const { data: platformAdmin } = await supabase.from("platform_admins").select("user_id").eq("user_id", authenticatedUserId).maybeSingle();
     const isPlatformActor = Boolean(platformAdmin);
@@ -2074,13 +2192,32 @@ Deno.serve(async (req: Request) => {
       try {
         const parsedUrl = new URL(url);
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) return jsonResponse({ error: "Only public HTTP or HTTPS webpages can be imported.", code: "WEBPAGE_URL_INVALID" }, 400);
-        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({ company_id: targetCompanyId, uploaded_by: authenticatedUserId, title: textValue(body.title,250) || parsedUrl.hostname, storage_path: `${targetCompanyId}/web-${crypto.randomUUID()}.html`, content_type: "text/html", file_size: 0, document_type: textValue(body.documentType,30) || "other", source_url: parsedUrl.toString(), original_filename: parsedUrl.hostname, reference_enabled: true,
+        const manufacturerNormalized = textValue(body.manufacturerNormalized || body.manufacturer, 100);
+        const modelNormalized = textValue(body.modelNormalized || body.modelFamily || body.model, 100);
+        const equipmentCategory = textValue(body.equipmentCategory || body.category, 60);
+
+        const { data: registered, error: registerError } = await supabase.from("company_manuals").insert({
+          company_id: targetCompanyId,
+          uploaded_by: authenticatedUserId,
+          title: textValue(body.title, 250) || parsedUrl.hostname,
+          storage_path: `${targetCompanyId}/web-${crypto.randomUUID()}.html`,
+          content_type: "text/html",
+          file_size: 0,
+          document_type: textValue(body.documentType, 30) || "other",
+          source_url: parsedUrl.toString(),
+          original_filename: parsedUrl.hostname,
+          reference_enabled: true,
+          manufacturer_normalized: manufacturerNormalized || null,
+          model_normalized: modelNormalized || null,
+          equipment_category: equipmentCategory || null,
           shared_learning_opt_in: body.sharedLearningOptIn === true,
           learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null,
-          rights_attested_at: new Date().toISOString(), rights_attested_by: authenticatedUserId,
+          rights_attested_at: new Date().toISOString(),
+          rights_attested_by: authenticatedUserId,
           knowledge_scope: body.sharedLearningOptIn === true ? "general_candidate" : "company_private",
           general_learning_rights_attested: body.sharedLearningOptIn === true && body.generalLearningRightsAttested === true,
-          extraction_status: "queued" }).select("id,company_id").single();
+          extraction_status: "queued"
+        }).select("id,company_id").single();
         if (registerError || !registered) return jsonResponse({ error: "Could not register the webpage source.", code: "WEBPAGE_REGISTER_FAILED" }, 500);
         return jsonResponse(await queueManual(registered.id), 202);
       } catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : "Webpage import failed.", code: "DOCUMENT_IMPORT_FAILED" }, 502); }
@@ -2089,6 +2226,29 @@ Deno.serve(async (req: Request) => {
     if (!manualId) return jsonResponse({ error: "Document ID is required.", code: "MANUAL_ID_REQUIRED" }, 400);
     const { data: manual, error: manualError } = await supabase.from("company_manuals").select("id,company_id,shared_learning_opt_in,document_type,knowledge_scope,general_learning_rights_attested").eq("id", manualId).eq("company_id", targetCompanyId).maybeSingle();
     if (manualError || !manual) return jsonResponse({ error: "Document was not found in this company library.", code: "MANUAL_NOT_FOUND" }, 404);
+    if (action === "update_manual_metadata") {
+      const updateData: AnyRecord = {};
+      if (body.title !== undefined) updateData.title = textValue(body.title, 250);
+      if (body.documentType !== undefined) updateData.document_type = textValue(body.documentType, 30);
+      if (body.manufacturerNormalized !== undefined || body.manufacturer !== undefined) {
+        updateData.manufacturer_normalized = textValue(body.manufacturerNormalized || body.manufacturer, 100) || null;
+      }
+      if (body.modelNormalized !== undefined || body.model !== undefined) {
+        updateData.model_normalized = textValue(body.modelNormalized || body.model, 100) || null;
+      }
+      if (body.equipmentCategory !== undefined || body.category !== undefined) {
+        updateData.equipment_category = textValue(body.equipmentCategory || body.category, 60) || null;
+      }
+      if (body.referenceEnabled !== undefined) {
+        updateData.reference_enabled = Boolean(body.referenceEnabled);
+      }
+      if (body.status !== undefined && isPlatformActor) {
+        updateData.status = textValue(body.status, 40);
+      }
+      const { error: updateErr } = await supabase.from("company_manuals").update(updateData).eq("id", manualId).eq("company_id", targetCompanyId);
+      if (updateErr) return jsonResponse({ error: "Could not update document metadata.", code: "MANUAL_UPDATE_FAILED" }, 500);
+      return jsonResponse({ ok: true, manualId, updated: updateData }, 200);
+    }
     if (action === "set_manual_learning_consent") {
       const next = body.sharedLearningOptIn === true;
       if (next) {
@@ -2765,14 +2925,30 @@ Deno.serve(async (req: Request) => {
         const fallback=await supabase.rpc("search_company_manual_chunks",{p_company_id:authenticatedCompanyId,p_query:searchQuery,p_limit:6});data=fallback.data;error=fallback.error;
       }
       if(error)throw error;
-      companyManualRows = getRows(data).map((r: AnyRecord) => ({
-        id:r.id,title:r.title,document_title:r.title,source_url:r.source_url,file_name:r.title,
-        page_number:r.page_number,page_start:r.page_start,page_end:r.page_end,rank:r.rank,retrieval_method:r.retrieval_method,
-        industry_key:r.industry_key,category:r.equipment_category || "Company manual / SOP",
-        brand: r.manufacturer_normalized || r.brand || r.manufacturer || "",
-        model_family: r.model_normalized || r.model_family || r.model || "",
-        content_text:r.content_text,procedure_text:r.content_text,company_manual_source:true,
-      }));
+      companyManualRows = getRows(data)
+        .map((r: AnyRecord) => ({
+          id: r.id,
+          title: r.title,
+          document_title: r.title,
+          source_url: r.source_url,
+          file_name: r.title,
+          page_number: r.page_number,
+          page_start: r.page_start,
+          page_end: r.page_end,
+          rank: r.rank,
+          retrieval_method: r.retrieval_method,
+          industry_key: r.industry_key,
+          category: r.equipment_category || "Company manual / SOP",
+          brand: r.manufacturer_normalized || r.brand || r.manufacturer || "",
+          model_family: r.model_normalized || r.model_family || r.model || "",
+          content_text: r.content_text,
+          procedure_text: r.content_text,
+          company_manual_source: true,
+          active: r.active !== false && r.is_active !== false,
+          reference_enabled: r.reference_enabled !== false,
+          status: String(r.status || "ready").toLowerCase(),
+        }))
+        .filter((r: AnyRecord) => r.active && r.reference_enabled && r.status !== "quarantined" && r.status !== "revoked" && r.status !== "disabled");
       kbRows = [...companyManualRows, ...kbRows];
     } catch (error) { console.warn("Company document retrieval unavailable", { errorType: error instanceof Error ? error.name : "unknown" }); }
   }

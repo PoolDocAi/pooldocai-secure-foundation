@@ -434,6 +434,274 @@ const algaePlanWithInventedDose = verifyCitation(
 );
 assert.equal(algaePlanWithInventedDose.verified, false, 'P0-2: Consistent algae plan with invented large dose (50 lbs) must fail corroboration');
 
+// --- PART-5 CONTEXTUAL CHEMICAL GROUNDING & METRIC UNIT REGRESSION TESTS ---
+
+// Case N: Pool volume misused as chemical product dose -> MUST FAIL
+const poolVolumeMisused = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chlor-sop-001',
+    source_title: 'Liquid Chlorine Dosing SOP',
+    step_instructions: 'Add 10,000 gal liquid chlorine to treat the pool.'
+  },
+  [{
+    id: 'kb-chlor-sop-001',
+    company_manual_source: true,
+    title: 'Liquid Chlorine Dosing SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Low free chlorine in pool water',
+    procedure_text: 'For a 10,000 gal pool, dose only 1 oz of liquid chlorine per label directions. Verify water chemistry before adding additional sanitizer.'.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Low free chlorine in pool water'
+);
+assert.equal(poolVolumeMisused.verified, false, 'Case N: Pool volume (10,000 gal) misused as product dose must fail verification');
+
+// Case O: Prohibited dose repeated as recommendation -> MUST FAIL
+const prohibitedDoseRepeated = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chlor-sop-001',
+    source_title: 'Liquid Chlorine Dosing SOP',
+    step_instructions: 'Add 10,000 gal liquid chlorine.'
+  },
+  [{
+    id: 'kb-chlor-sop-001',
+    company_manual_source: true,
+    title: 'Liquid Chlorine Dosing SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Low free chlorine in pool water',
+    procedure_text: 'For a 10,000 gal pool, NEVER add 10,000 gal of chlorine; dose only 1 oz of liquid chlorine per the label. Ensure pump is circulating.'.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Low free chlorine in pool water'
+);
+assert.equal(prohibitedDoseRepeated.verified, false, 'Case O: Prohibited dose repeated as recommendation must fail verification');
+
+// Case P: Two chemicals same number unit swapped (2 oz acid vs 2 oz chlorine) -> MUST FAIL
+const chemicalsSwappedSameNumber = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-swap-sop-001',
+    source_title: 'Chemical SOP',
+    step_instructions: 'Add 2 oz of muriatic acid to balance the pool water.'
+  },
+  [{
+    id: 'kb-swap-sop-001',
+    company_manual_source: true,
+    title: 'Chemical SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Low free chlorine in pool water',
+    procedure_text: 'Add 1 oz of muriatic acid and 2 oz of liquid chlorine to properly balance the pool water and raise sanitizer. Test before redosing.'.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Low free chlorine in pool water'
+);
+assert.equal(chemicalsSwappedSameNumber.verified, false, 'Case P: Chemical amounts swapped between different compounds must fail verification');
+
+// Case Q: Two chemicals same amount swapped (1 oz chlorine to lower pH vs 1 oz acid) -> MUST FAIL
+const chemicalsSwappedSameAmount = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-swap-sop-002',
+    source_title: 'pH Adjustment SOP',
+    step_instructions: 'Add 1 oz of liquid chlorine to lower pH.'
+  },
+  [{
+    id: 'kb-swap-sop-002',
+    company_manual_source: true,
+    title: 'pH Adjustment SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'High pH in pool water',
+    procedure_text: 'Add 1 oz of muriatic acid to lower pH when alkalinity is within normal operating range. Broadcast evenly across the deep end.'.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'High pH in pool water'
+);
+assert.equal(chemicalsSwappedSameAmount.verified, false, 'Case Q: Chemical swapped for incompatible role must fail verification');
+
+// Case R: Properly corroborated chemical addition (1 oz chlorine per 1,000 gal) -> MUST PASS
+const properlyCorroboratedChemical = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-chlor-sop-003',
+    source_title: 'Liquid Chlorine Dosing SOP',
+    step_instructions: 'Add 1 oz of liquid chlorine per 1,000 gallons of pool water to raise free chlorine 1 ppm.'
+  },
+  [{
+    id: 'kb-chlor-sop-003',
+    company_manual_source: true,
+    title: 'Liquid Chlorine Dosing SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Low free chlorine in pool water',
+    procedure_text: 'For green algae, add 1 oz of liquid chlorine per 1,000 gallons of pool water to raise free chlorine 1 ppm. Circulate continuously.'.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Low free chlorine in pool water'
+);
+assert.equal(properlyCorroboratedChemical.verified, true, 'Case R: Correctly corroborated chemical dose must pass verification');
+
+// Case S: Properly supported no-dose observation -> MUST PASS
+const supportedNoDoseObservation = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-obs-sop-001',
+    source_title: 'Pre-Filter Inspection SOP',
+    step_instructions: 'Inspect pump basket and check water chemistry with test strips before adding any chemicals.'
+  },
+  [{
+    id: 'kb-obs-sop-001',
+    company_manual_source: true,
+    title: 'Pre-Filter Inspection SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Low water flow and hazy water',
+    procedure_text: 'Check pump strainer basket and inspect filter pressure gauge before backwashing. Record initial water chemistry with test strips before adding any chemicals.'.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Low water flow and hazy water'
+);
+assert.equal(supportedNoDoseObservation.verified, true, 'Case S: Supported no-dose observation step must pass verification');
+
+// Case T: Nonparsed / ungrounded metric units (ml, %) -> MUST FAIL
+const ungroundedMetricDose = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-algae-sop-004',
+    source_title: 'Algaecide Treatment SOP',
+    step_instructions: 'Dose 1000 ml of algaecide into the pool.'
+  },
+  [{
+    id: 'kb-algae-sop-004',
+    company_manual_source: true,
+    title: 'Algaecide Treatment SOP',
+    brand: 'Generic',
+    model_family: 'Water Care',
+    category: 'water_quality',
+    symptom: 'Algae bloom in pool water',
+    procedure_text: 'Dose 500 ml of algaecide and maintain 6% concentration for mustard algae remediation. Ensure circulation runs for 24 hours.'.repeat(2)
+  }],
+  'Generic',
+  'Water Care',
+  'Algae bloom in pool water'
+);
+assert.equal(ungroundedMetricDose.verified, false, 'Case T: Ungrounded metric chemical dose (1000 ml vs 500 ml) must fail verification');
+
+// Case U: Revoked or disabled company manual -> MUST FAIL
+const validCompanyManualFixture = {
+  id: 'kb-pt-man-001',
+  company_manual_source: true,
+  title: 'Pentair IntelliFlo VSF Manual',
+  brand: 'Pentair',
+  model_family: 'IntelliFlo VSF',
+  category: 'pump',
+  symptom: 'Pump won\'t start, display is dead',
+  procedure_text: 'Inspect drive electronics and AC line voltage input to verify power supply. Check that line voltage is 230V AC across L1 and L2.'.repeat(2),
+  active: true,
+  reference_enabled: true,
+  status: 'ready'
+};
+
+const revokedManualResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-revoked-001',
+    source_title: 'Revoked Pentair SOP',
+    step_instructions: 'Inspect drive electronics and AC line voltage input to verify power supply.'
+  },
+  [{
+    ...validCompanyManualFixture,
+    id: 'kb-revoked-001',
+    status: 'revoked'
+  }],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(revokedManualResult.verified, false, 'Case U-1: Revoked manual must fail citation verification');
+
+const disabledManualResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-disabled-001',
+    source_title: 'Disabled Pentair SOP',
+    step_instructions: 'Inspect drive electronics and AC line voltage input to verify power supply.'
+  },
+  [{
+    ...validCompanyManualFixture,
+    id: 'kb-disabled-001',
+    reference_enabled: false
+  }],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(disabledManualResult.verified, false, 'Case U-2: Reference-disabled manual must fail citation verification');
+
+const quarantinedManualResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-quarantined-001',
+    source_title: 'Quarantined Pentair SOP',
+    step_instructions: 'Inspect drive electronics and AC line voltage input to verify power supply.'
+  },
+  [{
+    ...validCompanyManualFixture,
+    id: 'kb-quarantined-001',
+    status: 'quarantined'
+  }],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(quarantinedManualResult.verified, false, 'Case U-3: Quarantined manual must fail citation verification');
+
+const sharedRevokedResult = verifyCitation(
+  {
+    response_type: 'step',
+    source_label: 'internal_manual',
+    source_id: 'kb-shared-revoked-001',
+    source_title: 'Shared Revoked Pentair Lesson',
+    step_instructions: 'Inspect drive electronics and AC line voltage input to verify power supply.'
+  },
+  [{
+    ...validPentairLesson,
+    id: 'kb-shared-revoked-001',
+    publication_status: 'revoked'
+  }],
+  'Pentair',
+  'IntelliFlo VSF',
+  'Pump won\'t start, display is dead'
+);
+assert.equal(sharedRevokedResult.verified, false, 'Case U-4: Shared lesson with publication_status=revoked must fail citation verification');
+
 // 12. Helper + synthetic routing simulation (diagnostic routing flow)
 // Exercises production routing helpers in a synthetic diagnostic routing sequence showing:
 // 1) Positive internal-only answer runs with Gemini Search tools: [] (Search tool is OFF)

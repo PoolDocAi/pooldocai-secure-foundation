@@ -62,4 +62,47 @@ assert.match(
   'storage path must reject directory traversal'
 );
 
+// --- PART-5 MODEL METADATA EXTRACTION & PERSISTENCE CHECKS ---
+assert.ok(
+  worker.includes('function extractModel(title, text, brand, category)'),
+  'document-worker must implement model extraction'
+);
+assert.ok(
+  worker.includes('model_normalized: manual.model_normalized || equipmentTags.model'),
+  'processManual must persist model_normalized to company_manuals'
+);
+assert.ok(
+  worker.includes('model_normalized: manual.model_normalized || null'),
+  'queueManualForLearning must persist model_normalized to diagnostic_cases'
+);
+
+// Verify extractModel and classifyEquipment behavior directly using eval
+const extractModelSection = section('function extractModel(', 'async function queueManualForLearning(');
+const evalCode = extractModelSection + '\nreturn { classifyEquipment, extractModel };';
+const { classifyEquipment, extractModel } = (new Function(evalCode))();
+
+// Test A: Pentair IntelliFlo VSF
+const pentairClass = classifyEquipment('Pentair IntelliFlo VSF Installation Guide', 'Variable speed and flow pump operation manual.');
+assert.equal(pentairClass.manufacturer, 'pentair');
+assert.equal(pentairClass.category, 'pump');
+assert.equal(pentairClass.model, 'intelliflo_vsf');
+
+// Test B: Hayward Universal H-Series
+const haywardClass = classifyEquipment('Hayward Universal H-Series Gas Heater', 'Universal H-Series H400FDN pool heater service manual.');
+assert.equal(haywardClass.manufacturer, 'hayward');
+assert.equal(haywardClass.category, 'heater');
+assert.equal(haywardClass.model, 'h_series');
+
+// Test C: Jandy JXi Heater
+const jandyClass = classifyEquipment('Jandy JXi Pool & Spa Heater', 'JXi 400 natural gas ignition lockout troubleshooting.');
+assert.equal(jandyClass.manufacturer, 'jandy/fluidra');
+assert.equal(jandyClass.category, 'heater');
+assert.equal(jandyClass.model, 'jxi');
+
+// Test D: Alphanumeric Nameplate Model
+const nameplateClass = classifyEquipment('Commercial Filter Manual', 'Model: HP-2000-X high rate sand filter.');
+assert.equal(nameplateClass.category, 'filter');
+assert.equal(nameplateClass.model, 'hp-2000-x');
+
+console.log('Worker model extraction and nameplate normalization checks passed.');
 console.log('Worker outbound-network and signed-webhook boundary checks passed.');

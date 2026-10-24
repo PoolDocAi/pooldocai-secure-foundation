@@ -1,4 +1,4 @@
-// True Edge Function HTTP Handler Integration Test (E2E)
+// HTTP handler integration with mocked providers (E2E)
 // Executes the production clever-handler entrypoint with mocked Supabase and Gemini backends.
 // Verifies full request/response plumbing, two-company isolation, search tool suppression,
 // citation verification, ungrounded dosing rejection, and fallback search activation.
@@ -149,6 +149,9 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
               equipment_category: "pump",
               manufacturer_normalized: "pentair",
               model_normalized: "intelliflo_vsf",
+              active: true,
+              reference_enabled: true,
+              status: "ready",
               content_text: "Pentair IntelliFlo VSF Pump Display Inactive: If the pump will not start and the keypad display is blank or dead, inspect drive electronics and AC line voltage input to verify 240VAC power supply. Check the main circuit breaker. Ensure all wiring terminals are secure."
             }],
             error: null
@@ -457,6 +460,106 @@ async function runIntegrationTests() {
     assert.ok(callBody.tools.some((t: any) => t.google_search || t.type === "google_search"), "Tenant B has no internal manual, so search tool MUST be enabled");
 
     console.log("PASS: Test 4 - Strict multi-tenant isolation: Tenant B cannot access Tenant A's private manual.");
+  }
+
+  // TEST 5: Real Model Metadata Ingestion (model_normalized matching)
+  {
+    geminiCalls.length = 0;
+    mockGeminiResponses = [
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "internal_manual",
+          source_id: "chunk_pentair_a_1",
+          source_title: "Pentair IntelliFlo VSF Troubleshooting",
+          page_number: 14,
+          step_instructions: "Inspect drive electronics and AC line voltage input to verify 240VAC power supply.",
+          safety_warning: "Turn off main circuit breaker before opening drive cover."
+        })
+      })
+    ];
+
+    const req = new Request("http://localhost:54321/functions/v1/clever-handler", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer tech_token_a"
+      },
+      body: JSON.stringify({
+        authenticatedApp: true,
+        diagnosticSessionId: "session_test_diag_5",
+        action: "diagnostic_query",
+        query: "Pump won't start, keypad display is dead",
+        category: "pump",
+        brand: "Pentair",
+        model: "intelliflo_vsf",
+        symptom: "Pump won't start, keypad display is dead"
+      })
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+
+    const json = await res.json();
+    assert.equal(json.sourceMode, "manual", "Model-normalized match must verify answer from internal manual");
+    assert.equal(json.knowledgeDiagnostics.sourceVerifiedAnswer, true);
+    assert.deepEqual(geminiCalls[0].body.tools, [], "Matched model_normalized must suppress search tool");
+
+    console.log("PASS: Test 5 - Ingested model_normalized successfully matches query and suppresses Search tool.");
+  }
+
+  // TEST 6: Revoked or Disabled Manual Projection & Rejection
+  {
+    geminiCalls.length = 0;
+    mockGeminiResponses = [
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          source_label: "internal_manual",
+          source_id: "chunk_revoked_manual_01",
+          step_instructions: "Inspect drive electronics."
+        })
+      }),
+      (req) => ({
+        output_text: JSON.stringify({
+          response_type: "step",
+          step_instructions: "From a safe position, observe whether the heater status light illuminates."
+        }),
+        steps: [
+          {
+            type: "google_search_result",
+            result: [{ title: "Hayward Gas Heater Guide", url: "https://www.hayward.com/support" }]
+          }
+        ]
+      })
+    ];
+
+    const req = new Request("http://localhost:54321/functions/v1/clever-handler", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer tech_token_a"
+      },
+      body: JSON.stringify({
+        authenticatedApp: true,
+        diagnosticSessionId: "session_test_diag_6",
+        action: "diagnostic_query",
+        query: "Heater won't ignite, IF code displayed",
+        category: "heater",
+        brand: "Hayward",
+        model: "h_series",
+        symptom: "Heater won't ignite"
+      })
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+
+    const json = await res.json();
+    assert.notEqual(json.sourceId, "chunk_revoked_manual_01", "Revoked manual must never be cited as verified source");
+    assert.equal(json.knowledgeDiagnostics.sourceVerifiedAnswer, false, "Revoked manual must fail verification");
+
+    console.log("PASS: Test 6 - Revoked/disabled manual is properly projected, rejected, and cannot verify citations.");
   }
 
   console.log("\\nALL TRUE HANDLER INTEGRATION TESTS PASSED SUCCESSFULLY.");

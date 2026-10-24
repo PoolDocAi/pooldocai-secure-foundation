@@ -282,13 +282,68 @@ async function extractFile(buffer, filename, contentType) {
   throw new Error('Unsupported file type. Upload JPEG, PNG, HEIC/HEIF, WebP, TIFF, BMP, GIF, PDF, DOC, DOCX, TXT, Markdown, CSV, JSON, XML, or HTML.');
 }
 
+function extractModel(title, text, brand, category) {
+  const sample = `${title || ''} ${String(text || '').slice(0, 16000)}`.toLowerCase();
+
+  const knownFamilies = [
+    // Pumps
+    ['intelliflo_vsf', /\bintelliflo\s*(?:vsf|vs|2\s*vst|3\s*vfg)?\b/],
+    ['whisperflo', /\bwhisperflo(?:\s*vs)?\b/],
+    ['superflo', /\bsuperflo(?:\s*vs)?\b/],
+    ['super_pump', /\bsuper\s*pump(?:\s*vs)?\b/],
+    ['tri_star', /\btri[- ]?star(?:\s*vs)?\b/],
+    ['maxflo', /\bmax[- ]?flo(?:\s*vs)?\b/],
+    ['flo_pro', /\bflo[- ]?pro(?:\s*vs)?\b/],
+    ['epump', /\be[- ]?pump\b/],
+    ['stealth', /\bstealth(?:\s*pump)?\b/],
+    // Heaters
+    ['mastertemp', /\bmastertemp(?:\s*(?:125|250|300|400))?\b/],
+    ['max_e_therm', /\bmax[- ]?e[- ]?therm\b/],
+    ['h_series', /\b(?:universal\s+)?h[- ]series(?:\s*h?\d{3}[a-z]*)?\b/],
+    ['jxi', /\bjxi(?:\s*(?:200|260|400))?\b/],
+    ['crosswind', /\bcrosswind\b/],
+    // Salt / chlorinators
+    ['aquarite', /\baquarite(?:\s*(?:900|s3))?\b/],
+    ['intellichlor', /\bintellichlor(?:\s*(?:ic20|ic40|ic60))?\b/],
+    ['truclear', /\btruclear\b/],
+    ['aquapure', /\baquapure\b/],
+    // Filters
+    ['clean_and_clear', /\bclean\s*(?:&|and)\s*clear\b/],
+    ['swimclear', /\bswimclear\b/],
+    // Automation
+    ['intellicenter', /\bintellicenter\b/],
+    ['easytouch', /\beasytouch\b/],
+    ['omnilogic', /\bomnilogic\b/],
+    ['iaqualink', /\biaqualink\b/]
+  ];
+
+  for (const [canonical, regex] of knownFamilies) {
+    if (regex.test(sample)) {
+      return canonical;
+    }
+  }
+
+  const nameplateMatch = sample.match(/\b(?:model|mod\.?|model\s*number|series)\s*[:#\-\s]\s*([a-z0-9]{2,15}(?:[-_][a-z0-9]{1,10})*)\b/i);
+  if (nameplateMatch && nameplateMatch[1]) {
+    const raw = nameplateMatch[1].trim().toLowerCase();
+    if (!['number', 'no', 'information', 'guide', 'manual', 'overview', 'summary', 'specification'].includes(raw)) {
+      return raw.replace(/[^a-z0-9_-]/g, '_');
+    }
+  }
+
+  return null;
+}
+
 function classifyEquipment(title, text) {
   const sample = `${title || ''} ${String(text || '').slice(0, 12000)}`.toLowerCase();
   const brands = [['pentair', /\bpentair\b/], ['hayward', /\bhayward\b/], ['jandy/fluidra', /\bjandy\b|\bfluidra\b/], ['raypak', /\braypak\b/]];
   const categories = [['heater', /\bheater\b|\bheat pump\b|\bignition lockout\b/], ['pump', /\bpump\b|\bpriming\b|\bvariable[- ]speed\b/], ['filter', /\bfilter\b|\bbackwash\b/], ['salt system', /\bsalt cell\b|\bsalt system\b|\baquarite\b/], ['automation', /\bautomation\b|\bcontroller\b/], ['cleaner', /\bpool cleaner\b|\brobotic cleaner\b/], ['water chemistry', /\balkalinity\b|\bcalcium hardness\b|\bchlorine\b|\bcya\b|\bsaturation index\b/]];
   const expanded = [...categories, ['HVAC / furnace', /\bfurnace\b|\bair handler\b|\bcompressor\b|\bthermostat\b|\bevaporator\b|\bcondenser\b/], ['plumbing', /\bwater heater\b|\bdrain\b|\btoilet\b|\bwater pressure\b|\bpipe\b|\bsewer\b|\bbackflow\b|\bsump\b/]];
   const genericBrands = ['trane','carrier','lennox','rheem','goodman','navien','rinnai','moen','kohler','zurn'];
-  return { manufacturer: brands.find(([,re])=>re.test(sample))?.[0] || genericBrands.find(b=>new RegExp('\\b'+b+'\\b','i').test(sample)) || null, category: expanded.find(([,re])=>re.test(sample))?.[0] || null };
+  const manufacturer = brands.find(([,re])=>re.test(sample))?.[0] || genericBrands.find(b=>new RegExp('\\b'+b+'\\b','i').test(sample)) || null;
+  const category = expanded.find(([,re])=>re.test(sample))?.[0] || null;
+  const model = extractModel(title, text, manufacturer, category);
+  return { manufacturer, category, model };
 }
 
 async function queueManualForLearning(manual, chunks) {
@@ -305,7 +360,17 @@ async function queueManualForLearning(manual, chunks) {
   let queued = 0;
   for (let offset=0; offset<prepared.length; offset+=100) {
     const batch = prepared.slice(offset, offset+100);
-    const cases = batch.map(item => ({ tenant_id: manual.company_id, case_status: 'resolved', equipment_category: manual.document_type || 'manual', symptom_redacted: `Extracted reference from opted-in company document: ${scrub(manual.title).slice(0,160)}`, source_ids: item.source_ids, technician_verified: false, approved_for_learning: false }));
+    const cases = batch.map(item => ({
+      tenant_id: manual.company_id,
+      case_status: 'resolved',
+      equipment_category: manual.equipment_category || manual.document_type || 'manual',
+      manufacturer_normalized: manual.manufacturer_normalized || null,
+      model_normalized: manual.model_normalized || null,
+      symptom_redacted: `Extracted reference from opted-in company document: ${scrub(manual.title).slice(0,160)}`,
+      source_ids: item.source_ids,
+      technician_verified: false,
+      approved_for_learning: false
+    }));
     const { data: created, error: ce } = await db.from('diagnostic_cases').insert(cases).select('id,source_ids');
     if (ce || !created) { console.error('learning case batch insert failed', ce?.code); continue; }
     const queueRows = created.map(row => ({ case_id: row.id, tenant_id: manual.company_id, source_kind: 'company_manual', proposed_lesson_redacted: batch.find(item => item.marker === (row.source_ids || []).find(x => x.includes('#chunk-')))?.lesson || '', supporting_source_ids: row.source_ids, status: 'pending' })).filter(row => row.proposed_lesson_redacted.length >= 40);
@@ -349,7 +414,18 @@ async function processManual(manualId, processingJobId = null) {
     await db.from('company_manual_chunks').delete().eq('manual_id', manual.id).eq('company_id', manual.company_id);
     const rows = chunks.map((chunk, i) => ({ company_id: manual.company_id, manual_id: manual.id, industry_key: industryKey, chunk_index: i, title: String(extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: chunk.pageNumber, page_start: chunk.pageStart, page_end: chunk.pageEnd, content_text: chunk.content, content_redacted: scrub(chunk.content).slice(0, 1200), embedding: embeddings[i] ? `[${embeddings[i].join(',')}]` : null, embedding_model: embeddings[i] ? embeddingModel : null, embedded_at: embeddings[i] ? new Date().toISOString() : null }));
     for (let i=0; i<rows.length; i+=20) { const { error: chunkError } = await db.from('company_manual_chunks').insert(rows.slice(i,i+20)); if (chunkError) throw new Error(`Could not index document chunks (${chunkError.code}).`); }
-    const { error: updateError } = await db.from('company_manuals').update({ title: manual.title || extracted.title || 'Company document', industry_key: industryKey, manufacturer_normalized: equipmentTags.manufacturer, equipment_category: equipmentTags.category, extracted_char_count: raw.length, chunk_count: rows.length, extraction_status: 'ready', extraction_error: null, processed_at: new Date().toISOString() }).eq('id', manual.id);
+    const { error: updateError } = await db.from('company_manuals').update({
+      title: manual.title || extracted.title || 'Company document',
+      industry_key: industryKey,
+      manufacturer_normalized: manual.manufacturer_normalized || equipmentTags.manufacturer,
+      model_normalized: manual.model_normalized || equipmentTags.model,
+      equipment_category: manual.equipment_category || equipmentTags.category,
+      extracted_char_count: raw.length,
+      chunk_count: rows.length,
+      extraction_status: 'ready',
+      extraction_error: null,
+      processed_at: new Date().toISOString()
+    }).eq('id', manual.id);
     if (updateError) throw new Error('Document was extracted but its status could not be saved.');
     const queued = await queueManualForLearning({ ...manual, shared_learning_opt_in: Boolean(manual.shared_learning_opt_in) }, rows.map(r=>r.content_text));
     const metricKey = processingJobId ? `document-job:${processingJobId}` : `document:${manual.id}:${crypto.randomUUID()}`;
@@ -365,7 +441,20 @@ async function processManual(manualId, processingJobId = null) {
       const embeddingCost = await estimateProviderCost(GEMINI_EMBEDDING_MODEL, estimatedEmbeddingInputTokens, 0);
       await recordUsageOnce({ company_id: manual.company_id, user_id: manual.uploaded_by || null, event_type: 'document_embedding', units: embeddings.length, metric_type: 'embedding_chunks', quantity: embeddings.length, quantity_unit: 'embedded_chunk', provider: 'google_gemini', model: GEMINI_EMBEDDING_MODEL, input_tokens: estimatedEmbeddingInputTokens, output_tokens: null, estimated_cost_usd: embeddingCost.estimatedCostUsd, cost_source: embeddingCost.estimatedCostUsd === null ? 'not_priced' : 'rate_card_estimate', source_event_key: `${metricKey}:embeddings`, period_start: utcMonthStartDate(), metadata: { manual_id: manual.id, queue_job_id: processingJobId, embedded_chunks: embeddings.length, dimension: EMBEDDING_DIMENSIONS, input_token_count_is_estimate: true } });
     }
-    return { manualId: manual.id, status: 'ready', chunks: rows.length, embeddedChunks: embeddings.length, manufacturer: equipmentTags.manufacturer, equipmentCategory: equipmentTags.category, industryKey, extractedCharacters: raw.length, queuedForLearningReview: queued, referenceEnabled: manual.reference_enabled !== false, sharedLearningOptIn: Boolean(manual.shared_learning_opt_in) };
+    return {
+      manualId: manual.id,
+      status: 'ready',
+      chunks: rows.length,
+      embeddedChunks: embeddings.length,
+      manufacturer: manual.manufacturer_normalized || equipmentTags.manufacturer,
+      modelNormalized: manual.model_normalized || equipmentTags.model,
+      equipmentCategory: manual.equipment_category || equipmentTags.category,
+      industryKey,
+      extractedCharacters: raw.length,
+      queuedForLearningReview: queued,
+      referenceEnabled: manual.reference_enabled !== false,
+      sharedLearningOptIn: Boolean(manual.shared_learning_opt_in)
+    };
   } catch (error) {
     const message = String(error?.message || 'Document processing failed').slice(0,500);
     await db.from('company_manuals').update({ extraction_status: 'failed', extraction_error: message }).eq('id', manual.id);
@@ -378,7 +467,25 @@ async function createWebManual(body) {
   const safe = await safeUrl(rawUrl);
   const title = String(body.title || safe.url.hostname).slice(0,250);
   const { data: companyRow } = await db.from('companies').select('industry_key').eq('id', companyId).maybeSingle();
-  const { data, error } = await db.from('company_manuals').insert({ company_id: companyId, industry_key: companyRow?.industry_key || 'pool', uploaded_by: body.userId || null, title, storage_path: `${companyId}/web-${crypto.randomUUID()}.html`, content_type: 'text/html', file_size: 0, document_type: body.documentType || 'other', source_url: safe.url.toString(), original_filename: safe.url.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: 'queued' }).select('*').single();
+  const { data, error } = await db.from('company_manuals').insert({
+    company_id: companyId,
+    industry_key: companyRow?.industry_key || 'pool',
+    uploaded_by: body.userId || null,
+    title,
+    storage_path: `${companyId}/web-${crypto.randomUUID()}.html`,
+    content_type: 'text/html',
+    file_size: 0,
+    document_type: body.documentType || 'other',
+    manufacturer_normalized: body.manufacturerNormalized || null,
+    model_normalized: body.modelNormalized || null,
+    equipment_category: body.equipmentCategory || null,
+    source_url: safe.url.toString(),
+    original_filename: safe.url.hostname,
+    reference_enabled: true,
+    shared_learning_opt_in: body.sharedLearningOptIn === true,
+    learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null,
+    extraction_status: 'queued'
+  }).select('*').single();
   if (error) throw new Error(`Could not register webpage (${error.code}).`);
   const { data: job, error: queueError } = await db.rpc('pooldocai_enqueue_document_job', { p_manual_id: data.id, p_requested_by: body.userId || null, p_force: false });
   if (queueError || !job) throw new Error('Webpage was registered but could not be queued for extraction.');
