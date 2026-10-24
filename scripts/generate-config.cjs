@@ -40,7 +40,7 @@ if (isPreview) {
     }
     const prodUrl = String(process.env.PROD_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
     if (stagingUrl.includes('owfeebydlyacssqpnmkq') || (prodUrl && stagingUrl.replace(/[/]$/, '') === prodUrl.replace(/[/]$/, ''))) {
-      throw new Error('[generate-config] FATAL SECURITY VIOLATION: Preview may not connect to the production Supabase project.');
+      throw new Error('[generate-config] FATAL SECURITY VIOLATION: Preview may not connect to production Supabase project owfeebydlyacssqpnmkq.');
     }
     supabaseUrl = stagingUrl;
     publicAnonKey = stagingKey;
