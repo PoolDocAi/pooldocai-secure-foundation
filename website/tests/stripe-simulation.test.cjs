@@ -25,7 +25,9 @@ function stripTypeScript(ts) {
     .replace(/:\s*Promise<[^>]+>/g, "")
     .replace(/as\s+Record<string,\s*any>/g, "")
     .replace(/as\s+any/g, "")
-    .replace(/as\s+Error/g, "");
+    .replace(/as\s+Error/g, "")
+    .replace(/:\s*any\b/g, "")
+    .replace(/:\s*void\b/g, "");
 }
 
 // Extract the handler logic from Deno.serve(async (req: Request) => { ... })
@@ -52,7 +54,8 @@ function signPayload(payloadString, secret = WEBHOOK_SECRET, timestamp = Math.fl
   };
 }
 
-function createHarness() {
+function createHarness(options = {}) {
+  let rpcInterceptor = options.rpcInterceptor || null;
   const tables = {
     pooldocai_stripe_webhook_events: new Map(),
     companies: new Map(),
@@ -152,6 +155,10 @@ function createHarness() {
       },
 
       rpc(funcName, params) {
+        if (typeof rpcInterceptor === "function") {
+          const intercepted = rpcInterceptor(funcName, params);
+          if (intercepted !== undefined) return Promise.resolve(intercepted);
+        }
         if (funcName === "pooldocai_claim_stripe_webhook_event") {
           const eventId = params.p_event_id;
           const eventType = params.p_event_type;
@@ -229,9 +236,54 @@ function createHarness() {
 
           if (!isIgnored && companyId && companyUpdates && typeof companyUpdates === "object") {
             const company = tables.companies.get(companyId);
-            if (company) {
-              tables.companies.set(companyId, { ...company, ...companyUpdates, updated_at: new Date().toISOString() });
+            if (!company) {
+              return Promise.resolve({ data: { success: false, status: "company_not_found", error: "Company not found" }, error: null });
             }
+
+            // Migration 035 database-side conditional ordering guard under company lock
+            const incomingPeriod = companyUpdates.billing_period_start;
+            const currentPeriod = company.billing_period_start;
+            const isStalePeriod = Boolean(incomingPeriod && currentPeriod && new Date(incomingPeriod).getTime() < new Date(currentPeriod).getTime());
+
+            const incomingSubId = companyUpdates.stripe_subscription_id;
+            const currentSubId = company.stripe_subscription_id;
+            const isOldSub = Boolean(
+              currentSubId && incomingSubId && incomingSubId !== currentSubId &&
+              (
+                row.event_type === "customer.subscription.deleted" ||
+                row.event_type.startsWith("invoice.") ||
+                companyUpdates.status === "cancelled" ||
+                companyUpdates.billing_status === "cancelled" ||
+                !incomingPeriod || !currentPeriod ||
+                new Date(incomingPeriod).getTime() <= new Date(currentPeriod).getTime()
+              )
+            );
+
+            if (isStalePeriod || isOldSub) {
+              const staleReason = isOldSub
+                ? (row.event_type.startsWith("invoice.") ? "stale_old_subscription_invoice" : "stale_old_subscription")
+                : "stale_out_of_order_event";
+              row.processed = true;
+              row.processed_at = new Date().toISOString();
+              row.claimed_at = null;
+              row.claim_token = null;
+              row.processing_error = isOldSub
+                ? "Stale event from superseded subscription skipped (newer subscription active in database)."
+                : "Stale out-of-order event skipped (newer period already active in database).";
+
+              return Promise.resolve({
+                data: {
+                  success: true,
+                  status: "ignored",
+                  reason: staleReason,
+                  processed: true,
+                  lease_generation: row.lease_generation
+                },
+                error: null
+              });
+            }
+
+            tables.companies.set(companyId, { ...company, ...companyUpdates, updated_at: new Date().toISOString() });
           }
 
           if (!isIgnored && usageEvent && typeof usageEvent === "object") {
@@ -325,7 +377,8 @@ function createHarness() {
     };
   };
 
-  return { tables, executeWebhook, createMockDb };
+  const setRpcInterceptor = (fn) => { rpcInterceptor = fn; };
+  return { tables, executeWebhook, createMockDb, setRpcInterceptor };
 }
 
 async function runExecutableWebhookTests() {
@@ -1019,6 +1072,171 @@ async function runExecutableWebhookTests() {
     });
     assert.equal(badRelease.data.success, false);
     assert.equal(badRelease.data.status, "invalid_claim_token");
+  }
+
+    // Test 20: Injected RPC Failure Handling During Ignore Finalization
+  {
+    // 20a: Transport failure when finalizing ignored event throws error and returns 500
+    {
+      const harness20 = createHarness();
+      harness20.setRpcInterceptor((funcName, params) => {
+        if (funcName === "pooldocai_apply_and_finalize_stripe_webhook" && params.p_ignored) {
+          return { data: null, error: { message: "Simulated RPC transport failure during ignore" } };
+        }
+        return undefined;
+      });
+
+      const payload = JSON.stringify({
+        id: "evt_ignore_transport_fail_1",
+        type: "customer.subscription.updated",
+        data: { object: { id: "sub_unknown", customer: "cus_unknown_co" } }
+      });
+      const sig = signPayload(payload);
+      const req = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+        method: "POST",
+        headers: { "stripe-signature": sig.header },
+        body: payload
+      });
+      const res = await harness20.executeWebhook(req);
+      assert.equal(res.status, 500, "Transport error on ignore must return HTTP 500 so Stripe can retry");
+      assert.equal(res.body.code, "STRIPE_WEBHOOK_APPLY_FAILED");
+    }
+
+    // 20b: Fenced out when finalizing ignored event returns HTTP 409
+    {
+      const harness20b = createHarness();
+      harness20b.setRpcInterceptor((funcName, params) => {
+        if (funcName === "pooldocai_apply_and_finalize_stripe_webhook" && params.p_ignored) {
+          return { data: { success: false, status: "fenced_out", fenced: true, error: "Stale claim" }, error: null };
+        }
+        return undefined;
+      });
+
+      const payload = JSON.stringify({
+        id: "evt_ignore_fenced_fail_1",
+        type: "customer.subscription.updated",
+        data: { object: { id: "sub_unknown", customer: "cus_unknown_co" } }
+      });
+      const sig = signPayload(payload);
+      const req = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+        method: "POST",
+        headers: { "stripe-signature": sig.header },
+        body: payload
+      });
+      const res = await harness20b.executeWebhook(req);
+      assert.equal(res.status, 409, "Fenced out ignore must return HTTP 409");
+      assert.equal(res.body.code, "STRIPE_WEBHOOK_FENCED_OUT");
+    }
+
+    // 20c: Successful ignore finalization returns HTTP 200 with ok: true, ignored: true
+    {
+      const harness20c = createHarness();
+      const payload = JSON.stringify({
+        id: "evt_ignore_success_1",
+        type: "customer.subscription.updated",
+        data: { object: { id: "sub_unknown", customer: "cus_unknown_co" } }
+      });
+      const sig = signPayload(payload);
+      const req = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+        method: "POST",
+        headers: { "stripe-signature": sig.header },
+        body: payload
+      });
+      const res = await harness20c.executeWebhook(req);
+      assert.equal(res.status, 200, "Successful ignore must return HTTP 200");
+      assert.equal(res.body.ok, true);
+      assert.equal(res.body.ignored, true);
+      assert.equal(res.body.reason, "no_company_match");
+    }
+  }
+
+  // Test 21: Cross-Event Ordering Guard on Same Company (Migration 035 Conditional Check)
+  {
+    const harness21 = createHarness();
+    const testCoId = "comp_ordering_test_21";
+    harness21.tables.companies.set(testCoId, {
+      id: testCoId,
+      name: "Ordering Test Pool Co",
+      status: "active",
+      billing_status: "active",
+      plan_name: "pro_complete",
+      seat_limit: 5,
+      stripe_customer_id: "cus_order_21",
+      billing_customer_ref: "cus_order_21",
+      stripe_subscription_id: "sub_order_21",
+      billing_period_start: "2026-03-01T00:00:00.000Z"
+    });
+
+    // 21a: Stale February event arrives for company already at March -> DB ignores under company row lock
+    const febEpoch = Math.floor(new Date("2026-02-01T00:00:00Z").getTime() / 1000);
+    const febPayloadExact = JSON.stringify({
+      id: "evt_order_feb_21",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_order_21",
+          customer: "cus_order_21",
+          status: "active",
+          current_period_start: febEpoch,
+          current_period_end: febEpoch + 2592000,
+          items: {
+            data: [{ price: "price_solo_tech_123", quantity: 1 }]
+          },
+          metadata: { pooldocai_company_id: testCoId }
+        }
+      }
+    });
+
+    const sigFeb = signPayload(febPayloadExact);
+    const reqFeb = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigFeb.header },
+      body: febPayloadExact
+    });
+    const resFeb = await harness21.executeWebhook(reqFeb);
+    assert.equal(resFeb.status, 200);
+    assert.equal(resFeb.body.ok, true);
+    assert.equal(resFeb.body.ignored, true);
+    assert.equal(resFeb.body.reason, "stale_out_of_order_event");
+
+    // Verify company state remains March pro_complete
+    const coAfterFeb = harness21.tables.companies.get(testCoId);
+    assert.equal(coAfterFeb.plan_name, "pro_complete");
+    assert.equal(coAfterFeb.billing_period_start, "2026-03-01T00:00:00.000Z");
+
+    // 21b: Newer April event arrives -> applies cleanly
+    const aprEpoch = Math.floor(new Date("2026-04-01T00:00:00Z").getTime() / 1000);
+    const aprPayload = JSON.stringify({
+      id: "evt_order_apr_21",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_order_21",
+          customer: "cus_order_21",
+          status: "active",
+          current_period_start: aprEpoch,
+          current_period_end: aprEpoch + 2592000,
+          items: {
+            data: [{ price: "price_enterprise_123", quantity: 1 }]
+          },
+          metadata: { pooldocai_company_id: testCoId }
+        }
+      }
+    });
+    const sigApr = signPayload(aprPayload);
+    const reqApr = new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigApr.header },
+      body: aprPayload
+    });
+    const resApr = await harness21.executeWebhook(reqApr);
+    assert.equal(resApr.status, 200);
+    assert.equal(resApr.body.ok, true);
+    assert.equal(resApr.body.processed, true);
+
+    const coAfterApr = harness21.tables.companies.get(testCoId);
+    assert.equal(coAfterApr.plan_name, "enterprise");
+    assert.equal(new Date(coAfterApr.billing_period_start).getTime(), new Date("2026-04-01T00:00:00Z").getTime());
   }
 
   console.log("PASS: Executable Stripe webhook event ordering, idempotency, signature, and replay test suite passed.");

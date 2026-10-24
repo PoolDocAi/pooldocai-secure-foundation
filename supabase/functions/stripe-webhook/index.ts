@@ -45,6 +45,31 @@ function planFromPrice(priceId: string): string | null {
 }
 function mappedBillingStatus(status: string): string { if (status === "active") return "active"; if (status === "trialing") return "trialing"; if (["past_due", "unpaid", "paused"].includes(status)) return "past_due"; if (["canceled", "incomplete_expired"].includes(status)) return "cancelled"; return "manual_review"; }
 
+async function finalizeIgnoredEvent(
+  db: any,
+  eventId: string,
+  claimToken: string,
+  reason: string,
+  note: string
+): Promise<Response> {
+  const { data, error } = await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+    p_event_id: eventId,
+    p_claim_token: claimToken,
+    p_ignored: true,
+    p_processing_note: note
+  });
+
+  if (error || !data?.success) {
+    if (data?.fenced) {
+      console.warn("Fenced out during ignore finalization", { eventId, status: data?.status });
+      return json({ error: "Worker claim fence expired; event handled by another worker.", code: "STRIPE_WEBHOOK_FENCED_OUT" }, 409);
+    }
+    throw new Error(error?.message || data?.error || "Could not finalize ignored Stripe webhook event.");
+  }
+
+  return json({ ok: true, ignored: true, reason });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
   const stripeSecret = env("STRIPE_WEBHOOK_SECRET");
@@ -127,13 +152,13 @@ Deno.serve(async (req: Request) => {
     }
     if (!companyId) {
       // Store and acknowledge unrelated Stripe events without modifying any tenant.
-      await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
-        p_event_id: eventId,
-        p_claim_token: claimToken,
-        p_ignored: true,
-        p_processing_note: "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation."
-      });
-      return json({ ok: true, ignored: true, reason: "no_company_match" });
+      return await finalizeIgnoredEvent(
+        db,
+        eventId,
+        claimToken,
+        "no_company_match",
+        "No matching PoolDocAI company metadata/customer; acknowledged without tenant mutation."
+      );
     }
     const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id,billing_period_start").eq("id", companyId).maybeSingle();
     if (companyError || !company) throw new Error("No matching PoolDocAI company exists for this verified Stripe event.");
@@ -158,13 +183,13 @@ Deno.serve(async (req: Request) => {
       );
 
       if (isStalePeriod || isOldSubscription) {
-        await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
-          p_event_id: eventId,
-          p_claim_token: claimToken,
-          p_ignored: true,
-          p_processing_note: isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active)."
-        });
-        return json({ ok: true, ignored: true, reason: isOldSubscription ? "stale_old_subscription" : "stale_out_of_order_event" });
+        return await finalizeIgnoredEvent(
+          db,
+          eventId,
+          claimToken,
+          isOldSubscription ? "stale_old_subscription" : "stale_out_of_order_event",
+          isOldSubscription ? "Stale event from superseded subscription skipped." : "Stale out-of-order event skipped (newer period already active)."
+        );
       }
 
       if (subscriptionId) { update.stripe_subscription_id = subscriptionId; update.billing_subscription_ref = subscriptionId; }
@@ -205,13 +230,13 @@ Deno.serve(async (req: Request) => {
       const isStaleInvoicePeriod = Boolean(invoicePeriodStart && company.billing_period_start && new Date(invoicePeriodStart).getTime() < new Date(company.billing_period_start).getTime());
 
       if (isOldSubscriptionInvoice || isStaleInvoicePeriod) {
-        await db.rpc("pooldocai_apply_and_finalize_stripe_webhook", {
-          p_event_id: eventId,
-          p_claim_token: claimToken,
-          p_ignored: true,
-          p_processing_note: isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active)."
-        });
-        return json({ ok: true, ignored: true, reason: isOldSubscriptionInvoice ? "stale_old_subscription_invoice" : "stale_out_of_order_invoice" });
+        return await finalizeIgnoredEvent(
+          db,
+          eventId,
+          claimToken,
+          isOldSubscriptionInvoice ? "stale_old_subscription_invoice" : "stale_out_of_order_invoice",
+          isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active)."
+        );
       }
 
       if (eventType === "invoice.payment_failed") update.billing_status = "past_due";
@@ -248,6 +273,9 @@ Deno.serve(async (req: Request) => {
         return json({ error: "Worker claim fence expired; event handled by another worker.", code: "STRIPE_WEBHOOK_FENCED_OUT" }, 409);
       }
       throw new Error(finalizeError?.message || finalizeData?.error || "Could not atomically apply billing state and finalize event.");
+    }
+    if (finalizeData?.status === "ignored") {
+      return json({ ok: true, ignored: true, reason: finalizeData.reason });
     }
     return json({ ok: true, processed: true });
   } catch (error) {

@@ -214,6 +214,11 @@ DECLARE
   v_stale_release jsonb;
   v_valid_apply jsonb;
   v_bad_apply jsonb;
+  v_test_company_id uuid := gen_random_uuid();
+  v_test_event_stale text := 'evt_ci_stale_' || md5(clock_timestamp()::text || random()::text);
+  v_claim_stale jsonb;
+  v_res_stale jsonb;
+  v_company_rec record;
 BEGIN
   -- 1. Routine existence checks
   IF to_regprocedure('public.pooldocai_claim_stripe_webhook_event(text,text,integer,integer)') IS NULL THEN
@@ -332,6 +337,38 @@ BEGIN
     RAISE EXCEPTION 'Max attempts exceeded was not enforced: %', v_claim5;
   END IF;
 
-  -- Clean up test events
+  -- 15. Migration 035: Company row lock and conditional ordering guard
+  INSERT INTO public.companies (id, name, status, plan_name, seat_limit, billing_status, billing_period_start)
+  VALUES (v_test_company_id, 'SQL Security Guard Test Co', 'active', 'pro_complete', 5, 'active', '2026-03-01T00:00:00Z');
+
+  v_claim_stale := public.pooldocai_claim_stripe_webhook_event(v_test_event_stale, 'customer.subscription.updated', 60, 5);
+  IF (v_claim_stale->>'status') <> 'claimed' THEN
+    RAISE EXCEPTION 'Claim for stale ordering test event failed: %', v_claim_stale;
+  END IF;
+
+  -- Attempt to apply older February update to company with March period start
+  v_res_stale := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_stale,
+    v_claim_stale->>'claim_token',
+    v_test_company_id,
+    '{"plan_name": "solo_tech", "billing_status": "active", "billing_period_start": "2026-02-01T00:00:00Z"}'::jsonb,
+    NULL,
+    NULL,
+    false
+  );
+
+  IF (v_res_stale->>'success')::boolean <> true
+     OR (v_res_stale->>'status') <> 'ignored'
+     OR (v_res_stale->>'reason') <> 'stale_out_of_order_event' THEN
+    RAISE EXCEPTION 'Database-side ordering guard failed to ignore stale event: %', v_res_stale;
+  END IF;
+
+  SELECT plan_name, billing_period_start INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.plan_name <> 'pro_complete' OR v_company_rec.billing_period_start <> '2026-03-01 00:00:00+00'::timestamptz THEN
+    RAISE EXCEPTION 'Company state was corrupted by stale out-of-order event: %', v_company_rec;
+  END IF;
+
+  -- Clean up test company and test events
+  DELETE FROM public.companies WHERE id = v_test_company_id;
   DELETE FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id LIKE 'evt_ci_%';
 END $$;

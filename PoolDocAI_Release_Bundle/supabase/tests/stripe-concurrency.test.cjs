@@ -1,7 +1,13 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { spawn, execSync } = require("node:child_process");
 
 const PG_URL = process.env.PG_URL || process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+// Fail-closed guard against running concurrency tests against production
+if (PG_URL.includes("owfeebydlyacssqpnmkq")) {
+  throw new Error("Safety violation: refusing to run concurrency test against production database owfeebydlyacssqpnmkq.");
+}
 
 // Helper to execute a single SQL command via psql
 function query(sql, pgUrl = PG_URL) {
@@ -84,17 +90,26 @@ async function runConcurrencyTest() {
       throw new Error("Unexpected response from DB ping");
     }
   } catch (err) {
+    if (process.env.CI || process.env.GITHUB_ACTIONS) {
+      console.error(`[stripe-concurrency] FATAL: PostgreSQL is unreachable at ${PG_URL} in CI environment.`);
+      console.error(err);
+      process.exit(1);
+    }
     console.log(`[stripe-concurrency] PostgreSQL is not reachable at ${PG_URL} (${err.message.trim()}).`);
     console.log("[stripe-concurrency] Skipping live database concurrency test in environments without running Supabase container.");
     console.log("[stripe-concurrency] (This test executes fully in CI with live Supabase).\n");
     return;
   }
 
-  const testEventId = `evt_concurrency_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-  const testCompanyId = "00000000-0000-0000-0000-000000000099";
+  // Cryptographically unique IDs for isolated test execution
+  const testCompanyId = crypto.randomUUID();
+  const testEventId = `evt_concurrency_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventMarch = `evt_concurrency_march_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventFeb = `evt_concurrency_feb_${crypto.randomUUID().replace(/-/g, "")}`;
+  const createdEventIds = [testEventId, testEventMarch, testEventFeb];
 
-  console.log(`[stripe-concurrency] Test Event ID: ${testEventId}`);
   console.log(`[stripe-concurrency] Test Company ID: ${testCompanyId}`);
+  console.log(`[stripe-concurrency] Test Event IDs: ${createdEventIds.join(", ")}`);
 
   // Create temporary test company
   query(`
@@ -255,15 +270,95 @@ async function runConcurrencyTest() {
     assert.equal(dup.duplicate, true);
     console.log("PASS: Step 6 - Replay of processed event idempotently acknowledges duplicate.");
 
+    // ---------------------------------------------------------------------------
+    // Step 7: Cross-Event Ordering Concurrency for Same Company (Migration 035)
+    // Two distinct event IDs (March and February) target the same company.
+    // When March is applied first, February must be safely ignored under the company row lock
+    // and must not overwrite the newer plan or billing period.
+    // ---------------------------------------------------------------------------
+    console.log("Step 7: Testing cross-event ordering concurrency on the same company...");
+
+    // Claim Event March on Connection 1
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventMarch}', 'customer.subscription.updated', 60, 5);`);
+    const claimMarchRaw = await session1.waitForOutput();
+    const claimMarch = JSON.parse(claimMarchRaw);
+    assert.equal(claimMarch.status, "claimed");
+    const tokenMarch = claimMarch.claim_token;
+
+    // Claim Event February on Connection 2
+    session2.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventFeb}', 'customer.subscription.updated', 60, 5);`);
+    const claimFebRaw = await session2.waitForOutput();
+    const claimFeb = JSON.parse(claimFebRaw);
+    assert.equal(claimFeb.status, "claimed");
+    const tokenFeb = claimFeb.claim_token;
+
+    // Connection 1 applies March update: plan pro_complete, billing_period_start: 2026-03-01T00:00:00Z
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventMarch}',
+        '${tokenMarch}',
+        '${testCompanyId}'::uuid,
+        '{"plan_name": "pro_complete", "billing_status": "active", "billing_period_start": "2026-03-01T00:00:00Z"}'::jsonb,
+        '{"event_type": "stripe_customer.subscription.updated", "units": 1}'::jsonb,
+        NULL,
+        false
+      );
+    `);
+    const applyMarchRaw = await session1.waitForOutput();
+    const applyMarch = JSON.parse(applyMarchRaw);
+    assert.equal(applyMarch.success, true);
+    assert.equal(applyMarch.status, "applied");
+
+    // Verify company is now pro_complete with March period start
+    const marchPlan = query(`SELECT plan_name FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.equal(marchPlan, "pro_complete");
+
+    // Connection 2 now attempts to apply February update: plan solo_tech, billing_period_start: 2026-02-01T00:00:00Z
+    // Under company row lock, pooldocai_apply_and_finalize_stripe_webhook compares 2026-02-01 against current 2026-03-01.
+    // It must detect stale period, finalize the event as ignored without mutating the company, and return status 'ignored'.
+    session2.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventFeb}',
+        '${tokenFeb}',
+        '${testCompanyId}'::uuid,
+        '{"plan_name": "solo_tech", "billing_status": "active", "billing_period_start": "2026-02-01T00:00:00Z"}'::jsonb,
+        '{"event_type": "stripe_customer.subscription.updated", "units": 1}'::jsonb,
+        NULL,
+        false
+      );
+    `);
+    const applyFebRaw = await session2.waitForOutput();
+    const applyFeb = JSON.parse(applyFebRaw);
+
+    assert.equal(applyFeb.success, true, "February finalization must succeed so Stripe does not loop");
+    assert.equal(applyFeb.status, "ignored", "February must be ignored due to stale period start");
+    assert.equal(applyFeb.reason, "stale_out_of_order_event", "Reason must be stale_out_of_order_event");
+
+    // Verify company row remains untouched by February event
+    const companyAfterFeb = query(`SELECT plan_name, billing_period_start FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(companyAfterFeb.includes("pro_complete"), "Company plan must remain pro_complete");
+    assert.ok(companyAfterFeb.includes("2026-03-01"), "Company billing period must remain March");
+
+    // Verify February event is marked processed in webhook ledger
+    const febProcessed = query(`SELECT processed FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id = '${testEventFeb}';`);
+    assert.equal(febProcessed, "t", "February event must be marked processed in ledger");
+
+    console.log("PASS: Step 7 - Cross-event ordering guard correctly ignored stale February event and preserved March billing state.");
+
     console.log("\nALL REAL TWO-CONNECTION POSTGRESQL CONCURRENCY TESTS PASSED SUCCESSFULLY.");
   } finally {
     if (session1) session1.close();
     if (session2) session2.close();
 
-    // Tear down test fixtures
-    query(`DELETE FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id LIKE 'evt_concurrency_%';`);
-    query(`DELETE FROM public.platform_usage_events WHERE source_event_key LIKE 'evt_concurrency_%';`);
-    query(`DELETE FROM public.companies WHERE id = '${testCompanyId}';`);
+    // Tear down test fixtures explicitly without wildcards
+    try {
+      const eventList = createdEventIds.map(id => `'${id}'`).join(",");
+      query(`DELETE FROM public.pooldocai_stripe_webhook_events WHERE stripe_event_id IN (${eventList});`);
+      query(`DELETE FROM public.platform_usage_events WHERE source_event_key IN (${eventList});`);
+      query(`DELETE FROM public.companies WHERE id = '${testCompanyId}';`);
+    } catch (cleanupErr) {
+      console.warn("Cleanup warning:", cleanupErr.message);
+    }
   }
 }
 
