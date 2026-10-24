@@ -16,7 +16,9 @@ assert.ok(begin > 0 && end > begin, 'knowledge routing helpers must exist in the
 const helperSource = source.slice(begin, end)
   .replace('(value: unknown)', '(value)')
   .replace('(row: AnyRecord, brand: string, model: string)', '(row, brand, model)')
-  .replace('(rows: AnyRecord[], brand: string, model: string)', '(rows, brand, model)');
+  .replace('(rows: AnyRecord[], brand: string, model: string)', '(rows, brand, model)')
+  .replace(/\): string \{/g, ') {')
+  .replace(/\): boolean \{/g, ') {');
 const context = {
   getProcedureText: row => String(row.procedure_text ?? row.content_text ?? ''),
 };
@@ -74,6 +76,6 @@ assert.match(source, /pooldocai_approve_learning_case/,
 assert.match(spec, /\$39 \| 1 \| 50/);
 assert.match(spec, /\$75 \| 2 \| 150/);
 assert.match(spec, /\+25/);
-assert.match(spec, /+$19 per added active seat per month/m);
+assert.ok(spec.includes('+$19 per added active seat per month'));
 assert.match(spec, /subscription prices are not automatically reduced as internal diagnostic costs fall/i);
 console.log('PASS: verified exact-source, web-fallback, consent, telemetry, and retained-pricing invariants.');
