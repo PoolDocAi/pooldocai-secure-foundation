@@ -987,10 +987,10 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
 
   -- Create companies A and B
-  INSERT INTO public.companies (id, name, industry_key, status)
+  INSERT INTO public.companies (id, name, industry_key, status, seat_limit)
   VALUES
-    (v_co_a, 'Company A Notifications Test', 'pool', 'active'),
-    (v_co_b, 'Company B Notifications Test', 'pool', 'active');
+    (v_co_a, 'Company A Notifications Test', 'pool', 'active', 10),
+    (v_co_b, 'Company B Notifications Test', 'pool', 'active', 10);
 
   -- Add company members
   INSERT INTO public.company_members (company_id, user_id, role, status, display_name)
