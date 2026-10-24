@@ -731,36 +731,76 @@ BEGIN
     (v_co_b, 'Tenant Beta Part7', 'pool', 'active');
 
   -- 1. Tenant A: Pentair IntelliFlo (enabled, ready)
-  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
-  VALUES (v_man_a1, v_co_a, 'Pentair IntelliFlo VSF Manual', 'path/a1', 'manual', true, 'ready', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+  INSERT INTO public.company_manuals (
+    id, company_id, title, storage_path, document_type, reference_enabled, extraction_status,
+    manufacturer_normalized, model_normalized, equipment_category, industry_key,
+    rights_attested_at, rights_attested_by, knowledge_scope
+  )
+  VALUES (
+    v_man_a1, v_co_a, 'Pentair IntelliFlo VSF Manual', 'path/a1', 'manual', true, 'ready',
+    'pentair', 'intelliflo_vsf', 'pump', 'pool',
+    now(), gen_random_uuid(), 'company_private'
+  );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
   VALUES (v_chk_a1, v_co_a, v_man_a1, 0, 'IntelliFlo Troubleshooting', 'Pentair IntelliFlo VSF variable speed pump drive electronics and motor keypad display blank troubleshooting.', 'pool');
 
   -- 2. Tenant A: Hayward H-Series (enabled, ready, different equipment family)
-  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
-  VALUES (v_man_a2, v_co_a, 'Hayward Universal H-Series Heater Manual', 'path/a2', 'manual', true, 'ready', 'hayward', 'h_series', 'heater', 'pool');
+  INSERT INTO public.company_manuals (
+    id, company_id, title, storage_path, document_type, reference_enabled, extraction_status,
+    manufacturer_normalized, model_normalized, equipment_category, industry_key,
+    rights_attested_at, rights_attested_by, knowledge_scope
+  )
+  VALUES (
+    v_man_a2, v_co_a, 'Hayward Universal H-Series Heater Manual', 'path/a2', 'manual', true, 'ready',
+    'hayward', 'h_series', 'heater', 'pool',
+    now(), gen_random_uuid(), 'company_private'
+  );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
   VALUES (v_chk_a2, v_co_a, v_man_a2, 0, 'H-Series Heater Lockout', 'Hayward Universal H-Series gas heater ignition lockout IF code displayed and blower vacuum switch.', 'pool');
 
   -- 3. Tenant A: Disabled reference manual (reference_enabled = false)
-  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
-  VALUES (v_man_disabled, v_co_a, 'Disabled IntelliFlo Reference', 'path/dis', 'manual', false, 'ready', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+  INSERT INTO public.company_manuals (
+    id, company_id, title, storage_path, document_type, reference_enabled, extraction_status,
+    manufacturer_normalized, model_normalized, equipment_category, industry_key,
+    rights_attested_at, rights_attested_by, knowledge_scope
+  )
+  VALUES (
+    v_man_disabled, v_co_a, 'Disabled IntelliFlo Reference', 'path/dis', 'manual', false, 'ready',
+    'pentair', 'intelliflo_vsf', 'pump', 'pool',
+    now(), gen_random_uuid(), 'company_private'
+  );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
   VALUES (v_chk_disabled, v_co_a, v_man_disabled, 0, 'Disabled Chunk', 'Pentair IntelliFlo VSF disabled reference chunk should never appear in search results.', 'pool');
 
   -- 4. Tenant A: Pending extraction status (extraction_status = 'queued')
-  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
-  VALUES (v_man_pending, v_co_a, 'Pending IntelliFlo Reference', 'path/pend', 'manual', true, 'queued', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+  INSERT INTO public.company_manuals (
+    id, company_id, title, storage_path, document_type, reference_enabled, extraction_status,
+    manufacturer_normalized, model_normalized, equipment_category, industry_key,
+    rights_attested_at, rights_attested_by, knowledge_scope
+  )
+  VALUES (
+    v_man_pending, v_co_a, 'Pending IntelliFlo Reference', 'path/pend', 'manual', true, 'queued',
+    'pentair', 'intelliflo_vsf', 'pump', 'pool',
+    now(), gen_random_uuid(), 'company_private'
+  );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
   VALUES (v_chk_pending, v_co_a, v_man_pending, 0, 'Pending Chunk', 'Pentair IntelliFlo VSF pending extraction chunk should never appear in search results.', 'pool');
 
   -- 5. Tenant B: Private Pentair Manual (Tenant B only)
-  INSERT INTO public.company_manuals (id, company_id, title, storage_path, document_type, reference_enabled, extraction_status, manufacturer_normalized, model_normalized, equipment_category, industry_key)
-  VALUES (v_man_b, v_co_b, 'Tenant B Pentair IntelliFlo Manual', 'path/b', 'manual', true, 'ready', 'pentair', 'intelliflo_vsf', 'pump', 'pool');
+  INSERT INTO public.company_manuals (
+    id, company_id, title, storage_path, document_type, reference_enabled, extraction_status,
+    manufacturer_normalized, model_normalized, equipment_category, industry_key,
+    rights_attested_at, rights_attested_by, knowledge_scope
+  )
+  VALUES (
+    v_man_b, v_co_b, 'Tenant B Pentair IntelliFlo Manual', 'path/b', 'manual', true, 'ready',
+    'pentair', 'intelliflo_vsf', 'pump', 'pool',
+    now(), gen_random_uuid(), 'company_private'
+  );
 
   INSERT INTO public.company_manual_chunks (id, company_id, manual_id, chunk_index, title, content_text, industry_key)
   VALUES (v_chk_b, v_co_b, v_man_b, 0, 'Tenant B Chunk', 'Pentair IntelliFlo VSF private manual belonging strictly to Tenant B.', 'pool');
