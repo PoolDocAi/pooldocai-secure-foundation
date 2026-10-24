@@ -1221,4 +1221,4 @@ BEGIN
   DELETE FROM public.company_members WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
   DELETE FROM auth.users WHERE id IN (v_user_a_admin, v_user_a_tech, v_user_a_susp, v_user_b_admin);
-END $;
+END $$;
