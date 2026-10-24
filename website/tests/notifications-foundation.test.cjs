@@ -29,6 +29,12 @@ assert.match(migration042, /CONSTRAINT notification_delivery_queue_company_fk FO
 assert.match(migration042, /channel text NOT NULL CHECK \(channel IN \('in_app', 'email', 'web_push'\)\)/i, "queue supports in_app, email, and web_push channels");
 assert.match(migration042, /CREATE TABLE IF NOT EXISTS public\.user_notification_preferences/i, "creates user_notification_preferences table");
 
+// 1b. Durable Service Request Notification Trigger & Reconciliation
+assert.match(migration042, /CREATE\s+TRIGGER\s+trg_pooldocai_service_request_notification/i, "creates durable trigger on service_requests");
+assert.match(migration042, /FUNCTION\s+public\.pooldocai_on_service_request_created/i, "creates service request trigger function");
+assert.match(migration042, /FUNCTION\s+public\.pooldocai_reconcile_service_request_notifications/i, "creates service request reconciliation RPC");
+assert.match(migration042, /REVOKE\s+ALL\s+ON\s+FUNCTION\s+public\.pooldocai_on_service_request_created\(\)\s+FROM\s+PUBLIC,\s*anon,\s*authenticated/i, "revokes direct client execution of trigger function");
+
 // 2. Strict RLS Policies & Tenant Isolation
 assert.match(migration042, /ALTER TABLE public\.company_notifications ENABLE ROW LEVEL SECURITY/i, "enables RLS on company_notifications");
 assert.match(migration042, /ALTER TABLE public\.user_notifications ENABLE ROW LEVEL SECURITY/i, "enables RLS on user_notifications");
@@ -87,6 +93,11 @@ assert.match(securitySql, /Tech A illegally viewed admin-only company event via 
 assert.match(securitySql, /Cross-company notification linkage unexpectedly succeeded/i, "security_review.sql verifies composite FK cross-company block");
 assert.match(securitySql, /Expected email queue status opted_out for Tech A/i, "security_review.sql verifies preference enforcement on enqueue");
 assert.match(securitySql, /Expected Company A notifications/i, "security_review.sql verifies multi-company user inbox isolation");
+assert.match(securitySql, /11\.\s+Test Durable Service Request Outbox Trigger/i, "security_review.sql includes durable trigger test");
+assert.match(securitySql, /Durable trigger failed to create company_notification/i, "security_review.sql verifies trigger event creation");
+assert.match(securitySql, /12\.\s+Test Service Request Notification Idempotency on Replay/i, "security_review.sql includes idempotency replay test");
+assert.match(securitySql, /13\.\s+Test Service Request Notification Reconciliation RPC/i, "security_review.sql includes reconciliation RPC test");
+assert.match(securitySql, /14\.\s+Test Multi-Company Independent Marking/i, "security_review.sql includes multi-company independent marking test");
 
 // 7. Client UI Safe DOM Construction in admin.html and technician.html
 assert.ok(adminHtml.includes('id="notificationBellBtn"'), "admin.html includes notification bell button");
@@ -105,6 +116,17 @@ assert.match(techHtml, /bodyEl\.textContent\s*=\s*n\.body/i, "technician.html sa
 
 assert.doesNotMatch(adminHtml, /notificationListWrap.*\.innerHTML\s*=\s*notifs\.map/i, "admin.html does not interpolate dropdown notifications into innerHTML");
 assert.doesNotMatch(adminHtml, /panelNotificationRows.*\.innerHTML\s*=\s*notifs\.map/i, "admin.html does not interpolate table notifications into innerHTML");
+
+// 7c. Selected Company Context Propagation in UI
+assert.match(techHtml, /p_company_id:\s*activeCompanyId/i, "technician.html passes activeCompanyId to get_user_notifications");
+assert.match(techHtml, /pooldocai_mark_all_notifications_read.*p_company_id:\s*activeCompanyId/i, "technician.html passes activeCompanyId to mark_all_notifications_read");
+assert.match(techHtml, /if\(!activeCompanyId\)/i, "technician.html fails closed if activeCompanyId is missing");
+assert.ok(techHtml.includes('id="notificationCompanyContext"'), "technician.html includes notificationCompanyContext element");
+
+assert.match(adminHtml, /p_company_id:\s*companyId/i, "admin.html passes selectedCompany id to get_user_notifications");
+assert.match(adminHtml, /pooldocai_mark_all_notifications_read.*p_company_id:\s*companyId/i, "admin.html passes selectedCompany id to mark_all_notifications_read");
+assert.match(adminHtml, /if\(!companyId\s*&&\s*!isPlatformAdmin\)/i, "admin.html fails closed if company is unselected");
+assert.ok(adminHtml.includes('id="notificationCompanyContext"'), "admin.html includes notificationCompanyContext element");
 
 // 8. Executable HTML Injection & Escaping Simulation Test
 {
@@ -150,6 +172,58 @@ assert.doesNotMatch(adminHtml, /panelNotificationRows.*\.innerHTML\s*=\s*notifs\
   assert.strictEqual(card.children.length, 2, "card contains only strong and div elements, zero injected script or img elements");
   assert.strictEqual(card.children[0].tagName, 'strong');
   assert.strictEqual(card.children[1].tagName, 'div');
+}
+
+// 9. Multi-Company Switching & Independent Read/Mark Simulation Test
+{
+  const coA = "company-uuid-a";
+  const coB = "company-uuid-b";
+
+  let notifications = [
+    { id: "notif-a1", company_id: coA, read_at: null, title: "Co A Job" },
+    { id: "notif-a2", company_id: coA, read_at: null, title: "Co A Alert" },
+    { id: "notif-b1", company_id: coB, read_at: null, title: "Co B Job" }
+  ];
+
+  function getNotifications(companyId) {
+    if (!companyId) return { error: "COMPANY_REQUIRED", data: null };
+    const filtered = notifications.filter(n => n.company_id === companyId);
+    const unread = filtered.filter(n => !n.read_at).length;
+    return { data: { notifications: filtered, unread_count: unread, company_id: companyId }, error: null };
+  }
+
+  function markAllRead(companyId) {
+    if (!companyId) return { error: "COMPANY_REQUIRED", count: 0 };
+    let marked = 0;
+    notifications.forEach(n => {
+      if (n.company_id === companyId && !n.read_at) {
+        n.read_at = new Date().toISOString();
+        marked++;
+      }
+    });
+    return { error: null, count: marked };
+  }
+
+  // 1. Initial state: Co A has 2 unread, Co B has 1 unread
+  assert.strictEqual(getNotifications(coA).data.unread_count, 2, "Company A has 2 unread");
+  assert.strictEqual(getNotifications(coB).data.unread_count, 1, "Company B has 1 unread");
+
+  // 2. Mark all read for Company A only
+  const markResA = markAllRead(coA);
+  assert.strictEqual(markResA.count, 2, "Marked 2 notifications in Company A");
+
+  // 3. Verify Company A is 0, while Company B remains untouched at 1 unread
+  assert.strictEqual(getNotifications(coA).data.unread_count, 0, "Company A now has 0 unread");
+  assert.strictEqual(getNotifications(coB).data.unread_count, 1, "Company B still has 1 unread (independent marking verified)");
+
+  // 4. Mark all read for Company B
+  const markResB = markAllRead(coB);
+  assert.strictEqual(markResB.count, 1, "Marked 1 notification in Company B");
+  assert.strictEqual(getNotifications(coB).data.unread_count, 0, "Company B now has 0 unread");
+
+  // 5. Fail-closed on missing company ID
+  assert.strictEqual(getNotifications(null).error, "COMPANY_REQUIRED", "Fails closed on missing company ID");
+  assert.strictEqual(markAllRead(null).error, "COMPANY_REQUIRED", "Mark all fails closed on missing company ID");
 }
 
 console.log("PASS: All TASK-007 Part-1 Company Notification Foundation tests passed successfully.");

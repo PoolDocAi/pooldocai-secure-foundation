@@ -980,6 +980,8 @@ DECLARE
   v_ok boolean;
   v_res_a jsonb;
   v_res_b jsonb;
+  v_sr_id uuid := gen_random_uuid();
+  v_reconciled integer := 0;
 BEGIN
   -- Setup test users
   INSERT INTO auth.users (id, email, aud, role)
@@ -1218,8 +1220,92 @@ BEGIN
     END IF;
   END;
 
+  -- 11. Test Durable Service Request Outbox Trigger
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  INSERT INTO public.service_requests (id, company_id, request_summary, source_type, priority)
+  VALUES (v_sr_id, v_co_a, 'Heater temperature sensor error', 'customer_widget', 'high');
+
+  -- Verify notification was created automatically and durably by trigger
+  SELECT count(*) INTO v_cnt FROM public.company_notifications
+  WHERE company_id = v_co_a AND dedupe_key = 'sr-created-' || v_sr_id::text;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Durable trigger failed to create company_notification for service request, count=%', v_cnt;
+  END IF;
+
+  -- Verify user notifications populated for active company members (Admin A and Tech A)
+  SELECT count(*) INTO v_cnt FROM public.user_notifications
+  WHERE company_id = v_co_a AND notification_id = (
+    SELECT id FROM public.company_notifications WHERE company_id = v_co_a AND dedupe_key = 'sr-created-' || v_sr_id::text
+  );
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION 'Expected 2 user_notifications from service request trigger, got %', v_cnt;
+  END IF;
+
+  -- 12. Test Service Request Notification Idempotency on Replay
+  PERFORM public.pooldocai_publish_company_notification(
+    p_company_id := v_co_a,
+    p_event_type := 'service_request_created',
+    p_title := 'New Customer Service Request',
+    p_body := 'Service requested: Heater temperature sensor error',
+    p_data := '{"replayed": true}'::jsonb,
+    p_dedupe_key := 'sr-created-' || v_sr_id::text,
+    p_target_role := 'admin',
+    p_target_user_id := NULL
+  );
+
+  SELECT count(*) INTO v_cnt FROM public.company_notifications
+  WHERE company_id = v_co_a AND dedupe_key = 'sr-created-' || v_sr_id::text;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Idempotency violation: duplicate company_notification created on replay, count=%', v_cnt;
+  END IF;
+
+  -- 13. Test Service Request Notification Reconciliation RPC
+  -- Delete notification to simulate a missing alert
+  DELETE FROM public.company_notifications WHERE company_id = v_co_a AND dedupe_key = 'sr-created-' || v_sr_id::text;
+
+  v_reconciled := public.pooldocai_reconcile_service_request_notifications(v_co_a, 24);
+  IF v_reconciled <> 1 THEN
+    RAISE EXCEPTION 'Expected reconcile function to heal 1 missing notification, got %', v_reconciled;
+  END IF;
+
+  SELECT count(*) INTO v_cnt FROM public.company_notifications
+  WHERE company_id = v_co_a AND dedupe_key = 'sr-created-' || v_sr_id::text;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Expected reconciled notification to exist, got %', v_cnt;
+  END IF;
+
+  -- Second run should be 0 (no-op idempotency)
+  v_reconciled := public.pooldocai_reconcile_service_request_notifications(v_co_a, 24);
+  IF v_reconciled <> 0 THEN
+    RAISE EXCEPTION 'Expected second reconcile run to return 0, got %', v_reconciled;
+  END IF;
+
+  -- 14. Test Multi-Company Independent Marking (A vs B)
+  PERFORM set_config('request.jwt.claim.sub', v_user_a_admin::text, true);
+  -- Mark all read for Company A only
+  PERFORM public.pooldocai_mark_all_notifications_read(p_company_id := v_co_a);
+
+  v_res_a := public.pooldocai_get_user_notifications(p_company_id := v_co_a);
+  IF (v_res_a->>'unread_count')::integer <> 0 THEN
+    RAISE EXCEPTION 'Expected 0 unread notifications for Company A, got %', v_res_a->>'unread_count';
+  END IF;
+
+  -- Company B must still have unread notifications
+  v_res_b := public.pooldocai_get_user_notifications(p_company_id := v_co_b);
+  IF (v_res_b->>'unread_count')::integer = 0 THEN
+    RAISE EXCEPTION 'Expected unread notifications to remain for Company B';
+  END IF;
+
+  -- Now mark all read for Company B
+  PERFORM public.pooldocai_mark_all_notifications_read(p_company_id := v_co_b);
+  v_res_b := public.pooldocai_get_user_notifications(p_company_id := v_co_b);
+  IF (v_res_b->>'unread_count')::integer <> 0 THEN
+    RAISE EXCEPTION 'Expected 0 unread notifications for Company B after marking, got %', v_res_b->>'unread_count';
+  END IF;
+
   -- Teardown Section 10 test fixtures
   PERFORM set_config('request.jwt.claim.sub', '', true);
+  DELETE FROM public.service_requests WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.user_notification_preferences WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.notification_delivery_queue WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.user_notifications WHERE company_id IN (v_co_a, v_co_b);

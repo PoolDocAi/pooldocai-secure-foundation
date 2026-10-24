@@ -1624,6 +1624,9 @@ Deno.serve(async (req: Request) => {
       conversation_redacted:conversation,widget_config_id:widget.config.id,public_idempotency_key:idempotencyKey
     }).select("id,status,created_at").single();
     if(createError||!created){console.error("Customer widget service request insert failed",{code:createError?.code});return jsonResponse({error:"We could not save the service request. Please try again or contact the company directly.",code:"SERVICE_REQUEST_CREATE_FAILED"},500);}
+    // Transactional DB trigger 'trg_pooldocai_service_request_notification' atomically and durably creates
+    // the company_notifications event and inboxes/delivery queue in the same transaction as the insert.
+    // The idempotent RPC call below verifies event registration and captures Edge-level logging:
     try {
       const { data: notifId, error: notifErr } = await supabase.rpc("pooldocai_publish_company_notification", {
         p_company_id: widget.company.id,
@@ -1636,10 +1639,10 @@ Deno.serve(async (req: Request) => {
         p_target_user_id: null
       });
       if (notifErr) {
-        console.error("Durable notification publishing failed for service request", { serviceRequestId: created.id, error: notifErr.message });
+        console.warn("Durable notification publishing failed for service request (trigger ensures DB durability)", { serviceRequestId: created.id, error: notifErr.message });
       }
-    } catch (notifErr) {
-      console.error("Notification publish unexpected error:", notifErr);
+    } catch (notifErr: any) {
+      console.warn("Idempotent notification RPC thrown; DB trigger ensures transactional persistence", { serviceRequestId: created.id, error: notifErr?.message });
     }
     return jsonResponse({ok:true,serviceRequestId:created.id,status:created.status,createdAt:created.created_at,message:"Your request was sent to the company service queue. This does not book an appointment; the company will need to contact you."},201);
   }

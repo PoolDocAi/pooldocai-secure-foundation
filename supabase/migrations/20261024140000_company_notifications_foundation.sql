@@ -484,3 +484,111 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.pooldocai_mark_all_notifications_read(uuid) TO authenticated, service_role;
+
+-- 6. Durable Service Request Notification Outbox Trigger & Reconciliation
+-- Atomically publishes company notifications and stages recipient deliveries whenever a service request is inserted.
+CREATE OR REPLACE FUNCTION public.pooldocai_on_service_request_created()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_summary text;
+  v_body text;
+BEGIN
+  -- Build notification body safely without customer PII
+  v_summary := coalesce(NEW.request_summary, NEW.equipment_summary, 'Customer service requested');
+  v_body := ('Service requested: ' || v_summary);
+  IF length(v_body) > 160 THEN
+    v_body := substring(v_body from 1 for 157) || '...';
+  END IF;
+
+  -- Atomically publish durable notification event and populate inboxes/delivery queue
+  PERFORM public.pooldocai_publish_company_notification(
+    p_company_id := NEW.company_id,
+    p_event_type := 'service_request_created',
+    p_title := 'New Customer Service Request',
+    p_body := v_body,
+    p_data := jsonb_build_object(
+      'serviceRequestId', NEW.id,
+      'sourceType', coalesce(NEW.source_type, 'customer_widget'),
+      'priority', coalesce(NEW.priority, 'normal')
+    ),
+    p_dedupe_key := 'sr-created-' || NEW.id::text,
+    p_target_role := 'admin',
+    p_target_user_id := NULL
+  );
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_pooldocai_service_request_notification ON public.service_requests;
+CREATE TRIGGER trg_pooldocai_service_request_notification
+  AFTER INSERT ON public.service_requests
+  FOR EACH ROW
+  EXECUTE FUNCTION public.pooldocai_on_service_request_created();
+
+-- Prevent direct API execution of trigger function
+REVOKE ALL ON FUNCTION public.pooldocai_on_service_request_created() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pooldocai_on_service_request_created() TO service_role;
+
+-- Scheduled or manual reconciliation function for service request notifications
+CREATE OR REPLACE FUNCTION public.pooldocai_reconcile_service_request_notifications(
+  p_company_id uuid DEFAULT NULL,
+  p_lookback_hours integer DEFAULT 24
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_rec record;
+  v_count integer := 0;
+  v_summary text;
+  v_body text;
+BEGIN
+  FOR v_rec IN
+    SELECT sr.id, sr.company_id, sr.request_summary, sr.equipment_summary, sr.source_type, sr.priority
+    FROM public.service_requests sr
+    JOIN public.companies c ON c.id = sr.company_id
+    WHERE (p_company_id IS NULL OR sr.company_id = p_company_id)
+      AND c.status = 'active'
+      AND sr.created_at >= (now() - make_interval(hours := p_lookback_hours))
+      AND NOT EXISTS (
+        SELECT 1 FROM public.company_notifications cn
+        WHERE cn.company_id = sr.company_id
+          AND cn.dedupe_key = 'sr-created-' || sr.id::text
+      )
+  LOOP
+    v_summary := coalesce(v_rec.request_summary, v_rec.equipment_summary, 'Customer service requested');
+    v_body := ('Service requested: ' || v_summary);
+    IF length(v_body) > 160 THEN
+      v_body := substring(v_body from 1 for 157) || '...';
+    END IF;
+
+    PERFORM public.pooldocai_publish_company_notification(
+      p_company_id := v_rec.company_id,
+      p_event_type := 'service_request_created',
+      p_title := 'New Customer Service Request',
+      p_body := v_body,
+      p_data := jsonb_build_object(
+        'serviceRequestId', v_rec.id,
+        'sourceType', coalesce(v_rec.source_type, 'customer_widget'),
+        'priority', coalesce(v_rec.priority, 'normal')
+      ),
+      p_dedupe_key := 'sr-created-' || v_rec.id::text,
+      p_target_role := 'admin',
+      p_target_user_id := NULL
+    );
+    v_count := v_count + 1;
+  END LOOP;
+
+  RETURN v_count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.pooldocai_reconcile_service_request_notifications(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pooldocai_reconcile_service_request_notifications(uuid, integer) TO service_role;
