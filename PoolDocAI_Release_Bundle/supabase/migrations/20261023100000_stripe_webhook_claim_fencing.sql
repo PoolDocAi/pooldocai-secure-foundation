@@ -125,6 +125,9 @@ DECLARE
   v_period_end timestamptz;
   v_trial_ends_at timestamptz;
 BEGIN
+  -- Set transaction-local claim role to service_role so downstream security triggers recognize trusted billing service
+  PERFORM set_config('request.jwt.claim.role', 'service_role', true);
+
   -- Strict validation of claim token: empty/unknown tokens are rejected
   IF p_claim_token IS NULL OR trim(p_claim_token) = '' THEN
     RETURN jsonb_build_object(

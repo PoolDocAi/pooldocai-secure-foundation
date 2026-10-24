@@ -24,29 +24,39 @@ function createPsqlSession(pgUrl = PG_URL) {
     env: process.env
   });
 
-  let buffer = "";
+  let stdoutBuffer = "";
+  let stderrBuffer = "";
   proc.stdout.on("data", (data) => {
-    buffer += data.toString("utf8");
+    stdoutBuffer += data.toString("utf8");
+  });
+  proc.stderr.on("data", (data) => {
+    stderrBuffer += data.toString("utf8");
   });
 
   return {
     proc,
     execute: (command) => {
-      buffer = "";
+      stdoutBuffer = "";
+      stderrBuffer = "";
       proc.stdin.write(command + "\n");
     },
     waitForOutput: (timeoutMs = 5000) => {
       return new Promise((resolve, reject) => {
         const start = Date.now();
         const interval = setInterval(() => {
-          if (buffer.trim().length > 0) {
+          if (stderrBuffer.trim().includes("ERROR:")) {
             clearInterval(interval);
-            const res = buffer.trim();
-            buffer = "";
+            const err = stderrBuffer.trim();
+            stderrBuffer = "";
+            reject(new Error(`psql error: ${err}`));
+          } else if (stdoutBuffer.trim().length > 0) {
+            clearInterval(interval);
+            const res = stdoutBuffer.trim();
+            stdoutBuffer = "";
             resolve(res);
           } else if (Date.now() - start > timeoutMs) {
             clearInterval(interval);
-            reject(new Error(`psql timeout waiting for output (${timeoutMs}ms)`));
+            reject(new Error(`psql timeout waiting for output (${timeoutMs}ms) - stderr: ${stderrBuffer.trim()}`));
           }
         }, 50);
       });
@@ -164,7 +174,7 @@ async function runConcurrencyTest() {
       SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
         '${testEventId}',
         '${token1}',
-        '${testCompanyId}',
+        '${testCompanyId}'::uuid,
         '{"plan_name": "starter"}'::jsonb,
         NULL,
         NULL,
@@ -214,8 +224,8 @@ async function runConcurrencyTest() {
       SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
         '${testEventId}',
         '${token2}',
-        '${testCompanyId}',
-        '{"plan_name": "pro_complete", "billing_status": "active"}'::jsonb,
+        '${testCompanyId}'::uuid,
+        '{"plan_name": "fleet_complete", "billing_status": "active"}'::jsonb,
         '{"event_type": "stripe_customer.subscription.updated", "units": 1}'::jsonb,
         NULL,
         false
@@ -229,7 +239,7 @@ async function runConcurrencyTest() {
     assert.equal(validApply.status, "applied");
 
     const updatedPlan = query(`SELECT plan_name FROM public.companies WHERE id = '${testCompanyId}';`);
-    assert.equal(updatedPlan, "pro_complete", "Company plan must be updated to pro_complete");
+    assert.equal(updatedPlan, "fleet_complete", "Company plan must be updated to fleet_complete");
     console.log("PASS: Step 5 - Active Connection 2 applied company billing updates and finalized event.");
 
     // ---------------------------------------------------------------------------
