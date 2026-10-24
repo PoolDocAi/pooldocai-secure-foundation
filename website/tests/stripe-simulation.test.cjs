@@ -240,24 +240,40 @@ function createHarness(options = {}) {
               return Promise.resolve({ data: { success: false, status: "company_not_found", error: "Company not found" }, error: null });
             }
 
-            // Migration 036 event provenance and authoritative company row-lock validation
+            // Migration 037 event provenance and authoritative company row-lock validation
             const prov = params.p_event_provenance || {};
             const provSubId = prov.subscription_id || companyUpdates.stripe_subscription_id;
             const provPeriod = prov.period_start || companyUpdates.billing_period_start;
+            const provEventCreated = prov.event_created;
             const provEventType = prov.event_type || row.event_type;
             const currentPeriod = company.billing_period_start;
             const currentSubId = company.stripe_subscription_id;
 
-            // Fail-closed provenance check: invoice mutations on tenants with active subscriptions MUST include provenance
-            if (provEventType.startsWith("invoice.") && companyUpdates.billing_status && currentSubId && !provSubId && !provPeriod) {
-              return Promise.resolve({
-                data: {
-                  success: false,
-                  status: "missing_invoice_provenance",
-                  error: "Invoice event lacks subscription and period provenance required for tenant billing mutation"
-                },
-                error: null
-              });
+            // Fail-closed provenance check: invoice mutations on tenants with active subscriptions MUST include subscription provenance
+            if (provEventType.startsWith("invoice.") && companyUpdates.billing_status && currentSubId) {
+              if (!provSubId) {
+                return Promise.resolve({
+                  data: {
+                    success: false,
+                    status: "missing_invoice_provenance",
+                    error: "Invoice event lacks subscription provenance required to verify tenant subscription binding"
+                  },
+                  error: null
+                });
+              }
+
+              if (provSubId === currentSubId && !provPeriod) {
+                if (!provEventCreated && currentPeriod) {
+                  return Promise.resolve({
+                    data: {
+                      success: false,
+                      status: "missing_invoice_provenance",
+                      error: "Invoice event lacks period and event timestamp provenance required to verify freshness"
+                    },
+                    error: null
+                  });
+                }
+              }
             }
 
             const isStalePeriod = Boolean(provPeriod && currentPeriod && new Date(provPeriod).getTime() < new Date(currentPeriod).getTime());
@@ -274,17 +290,28 @@ function createHarness(options = {}) {
               )
             );
 
-            if (isStalePeriod || isOldSub) {
+            let isStaleEventTime = false;
+            if (!isStalePeriod && !isOldSub && provEventCreated && company.last_billing_event_created) {
+              const provTime = new Date(provEventCreated).getTime();
+              const lastTime = new Date(company.last_billing_event_created).getTime();
+              if (provTime < lastTime) {
+                isStaleEventTime = true;
+              } else if (provTime === lastTime && companyUpdates.billing_status === "past_due" && company.billing_status === "active") {
+                isStaleEventTime = true;
+              }
+            }
+
+            if (isStalePeriod || isOldSub || isStaleEventTime) {
               const staleReason = isOldSub
                 ? (row.event_type.startsWith("invoice.") ? "stale_old_subscription_invoice" : "stale_old_subscription")
-                : "stale_out_of_order_event";
+                : (row.event_type.startsWith("invoice.") ? "stale_out_of_order_invoice" : "stale_out_of_order_event");
               row.processed = true;
               row.processed_at = new Date().toISOString();
               row.claimed_at = null;
               row.claim_token = null;
               row.processing_error = isOldSub
                 ? "Stale event from superseded subscription skipped (newer subscription active in database)."
-                : "Stale out-of-order event skipped (newer period already active in database).";
+                : "Stale out-of-order event skipped (newer period or event already active in database).";
 
               return Promise.resolve({
                 data: {
@@ -298,7 +325,12 @@ function createHarness(options = {}) {
               });
             }
 
-            tables.companies.set(companyId, { ...company, ...companyUpdates, updated_at: new Date().toISOString() });
+            tables.companies.set(companyId, {
+              ...company,
+              ...companyUpdates,
+              last_billing_event_created: provEventCreated || company.last_billing_event_created || null,
+              updated_at: new Date().toISOString()
+            });
           }
 
           if (!isIgnored && usageEvent && typeof usageEvent === "object") {
@@ -614,8 +646,14 @@ async function runExecutableWebhookTests() {
 
   // Test 7: Payment Failure and Recovery
   {
+    const epochNow = Math.floor(Date.now() / 1000);
     // Payment failure -> past_due
-    const failPayload = JSON.stringify({ id: "evt_pay_failed", type: "invoice.payment_failed", data: { object: { customer: "cus_sim_123", subscription: "sub_resub_fleet" } } });
+    const failPayload = JSON.stringify({
+      id: "evt_pay_failed",
+      type: "invoice.payment_failed",
+      created: epochNow,
+      data: { object: { customer: "cus_sim_123", subscription: "sub_resub_fleet", period_start: epochNow, period_end: epochNow + 2592000 } }
+    });
     const sigFail = signPayload(failPayload, WEBHOOK_SECRET);
     await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
       method: "POST", headers: { "stripe-signature": sigFail.header }, body: failPayload
@@ -623,7 +661,12 @@ async function runExecutableWebhookTests() {
     assert.equal(harness.tables.companies.get(companyId).billing_status, "past_due");
 
     // Payment recovery -> active
-    const recPayload = JSON.stringify({ id: "evt_pay_recovered", type: "invoice.payment_succeeded", data: { object: { customer: "cus_sim_123", subscription: "sub_resub_fleet" } } });
+    const recPayload = JSON.stringify({
+      id: "evt_pay_recovered",
+      type: "invoice.payment_succeeded",
+      created: epochNow + 60,
+      data: { object: { customer: "cus_sim_123", subscription: "sub_resub_fleet", period_start: epochNow, period_end: epochNow + 2592000 } }
+    });
     const sigRec = signPayload(recPayload, WEBHOOK_SECRET);
     await harness.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
       method: "POST", headers: { "stripe-signature": sigRec.header }, body: recPayload
@@ -1368,30 +1411,247 @@ async function runExecutableWebhookTests() {
     assert.equal(resInvB.body.processed, true);
     assert.equal(harness22.tables.companies.get(testCoId).billing_status, "active");
 
-    // 22d: Missing provenance on invoice for tenant with active subscription fails closed
-    const badInv = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
-      p_event_id: "evt_missing_prov",
-      p_claim_token: "claim_test_123",
-      p_company_id: testCoId,
-      p_company_updates: { billing_status: "past_due" },
-      p_event_provenance: { event_type: "invoice.payment_failed" } // lacks subscription_id and period_start
-    });
-    // Claim row first so fencing passes
-    harness22.tables.pooldocai_stripe_webhook_events.set("evt_missing_prov", {
-      stripe_event_id: "evt_missing_prov",
+    // 22d: Missing subscription ID with present period fails closed
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_missing_sub_id", {
+      stripe_event_id: "evt_missing_sub_id",
       event_type: "invoice.payment_failed",
       processed: false,
-      claim_token: "claim_test_123"
+      claim_token: "claim_test_sub_1"
     });
-    const badInvRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
-      p_event_id: "evt_missing_prov",
-      p_claim_token: "claim_test_123",
+    const missingSubRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_missing_sub_id",
+      p_claim_token: "claim_test_sub_1",
       p_company_id: testCoId,
       p_company_updates: { billing_status: "past_due" },
-      p_event_provenance: { event_type: "invoice.payment_failed" } // lacks subscription_id and period_start
+      p_event_provenance: { event_type: "invoice.payment_failed", period_start: "2026-03-15T00:00:00Z" } // has period, missing subscription_id
     });
-    assert.equal(badInvRes.data.success, false);
-    assert.equal(badInvRes.data.status, "missing_invoice_provenance");
+    assert.equal(missingSubRes.data.success, false);
+    assert.equal(missingSubRes.data.status, "missing_invoice_provenance");
+
+    // 22e: Missing period with present subscription ID and NO event timestamp fails closed
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_missing_period", {
+      stripe_event_id: "evt_missing_period",
+      event_type: "invoice.payment_failed",
+      processed: false,
+      claim_token: "claim_test_period_1"
+    });
+    const missingPeriodRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_missing_period",
+      p_claim_token: "claim_test_period_1",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "past_due" },
+      p_event_provenance: { event_type: "invoice.payment_failed", subscription_id: "sub_replacement_b" } // has sub, missing period and event_created
+    });
+    assert.equal(missingPeriodRes.data.success, false);
+    assert.equal(missingPeriodRes.data.status, "missing_invoice_provenance");
+
+    // 22f: Missing both subscription ID and period fails closed
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_missing_both", {
+      stripe_event_id: "evt_missing_both",
+      event_type: "invoice.payment_failed",
+      processed: false,
+      claim_token: "claim_test_both_1"
+    });
+    const missingBothRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_missing_both",
+      p_claim_token: "claim_test_both_1",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "past_due" },
+      p_event_provenance: { event_type: "invoice.payment_failed" } // missing both
+    });
+    assert.equal(missingBothRes.data.success, false);
+    assert.equal(missingBothRes.data.status, "missing_invoice_provenance");
+
+    // 22g: Wrong subscription with equal/newer period is safely ignored as stale_old_subscription_invoice
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_wrong_sub_newer_period", {
+      stripe_event_id: "evt_wrong_sub_newer_period",
+      event_type: "invoice.payment_failed",
+      processed: false,
+      claim_token: "claim_test_wrong_1"
+    });
+    const wrongSubRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_wrong_sub_newer_period",
+      p_claim_token: "claim_test_wrong_1",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "past_due" },
+      p_event_provenance: {
+        event_type: "invoice.payment_failed",
+        subscription_id: "sub_other_different",
+        period_start: "2026-03-20T00:00:00Z" // newer than current 2026-03-15
+      }
+    });
+    assert.equal(wrongSubRes.data.success, true);
+    assert.equal(wrongSubRes.data.status, "ignored");
+    assert.equal(wrongSubRes.data.reason, "stale_old_subscription_invoice");
+
+    // 22h: Same-subscription same-period invoice ordering:
+    // First, invoice.payment_succeeded at 12:05:00 sets active
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_same_period_paid", {
+      stripe_event_id: "evt_same_period_paid",
+      event_type: "invoice.payment_succeeded",
+      processed: false,
+      claim_token: "claim_test_paid_1"
+    });
+    const paidRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_same_period_paid",
+      p_claim_token: "claim_test_paid_1",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "active" },
+      p_event_provenance: {
+        event_type: "invoice.payment_succeeded",
+        subscription_id: "sub_replacement_b",
+        period_start: "2026-03-15T00:00:00Z",
+        event_created: "2026-03-15T12:05:00Z"
+      }
+    });
+    assert.equal(paidRes.data.success, true);
+    assert.equal(paidRes.data.status, "applied");
+    assert.equal(harness22.tables.companies.get(testCoId).billing_status, "active");
+
+    // Delayed invoice.payment_failed with earlier timestamp (12:00:00) arrives for same sub & period
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_same_period_fail_delayed", {
+      stripe_event_id: "evt_same_period_fail_delayed",
+      event_type: "invoice.payment_failed",
+      processed: false,
+      claim_token: "claim_test_fail_1"
+    });
+    const delayedFailRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_same_period_fail_delayed",
+      p_claim_token: "claim_test_fail_1",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "past_due" },
+      p_event_provenance: {
+        event_type: "invoice.payment_failed",
+        subscription_id: "sub_replacement_b",
+        period_start: "2026-03-15T00:00:00Z",
+        event_created: "2026-03-15T12:00:00Z"
+      }
+    });
+    assert.equal(delayedFailRes.data.success, true);
+    assert.equal(delayedFailRes.data.status, "ignored");
+    assert.equal(delayedFailRes.data.reason, "stale_out_of_order_invoice");
+    assert.equal(harness22.tables.companies.get(testCoId).billing_status, "active", "Company must remain active");
+
+    // Reverse order: a genuine subsequent failure at 12:10:00 applies
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_same_period_fail_newer", {
+      stripe_event_id: "evt_same_period_fail_newer",
+      event_type: "invoice.payment_failed",
+      processed: false,
+      claim_token: "claim_test_fail_2"
+    });
+    const newerFailRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_same_period_fail_newer",
+      p_claim_token: "claim_test_fail_2",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "past_due" },
+      p_event_provenance: {
+        event_type: "invoice.payment_failed",
+        subscription_id: "sub_replacement_b",
+        period_start: "2026-03-15T00:00:00Z",
+        event_created: "2026-03-15T12:10:00Z"
+      }
+    });
+    assert.equal(newerFailRes.data.success, true);
+    assert.equal(newerFailRes.data.status, "applied");
+    assert.equal(harness22.tables.companies.get(testCoId).billing_status, "past_due", "Company updated to past_due");
+
+    // And recovery payment succeeded at 12:15:00 cleanly restores active
+    harness22.tables.pooldocai_stripe_webhook_events.set("evt_same_period_recovery", {
+      stripe_event_id: "evt_same_period_recovery",
+      event_type: "invoice.payment_succeeded",
+      processed: false,
+      claim_token: "claim_test_rec_1"
+    });
+    const recoveryRes = await harness22.createMockDb().rpc("pooldocai_apply_and_finalize_stripe_webhook", {
+      p_event_id: "evt_same_period_recovery",
+      p_claim_token: "claim_test_rec_1",
+      p_company_id: testCoId,
+      p_company_updates: { billing_status: "active" },
+      p_event_provenance: {
+        event_type: "invoice.payment_succeeded",
+        subscription_id: "sub_replacement_b",
+        period_start: "2026-03-15T00:00:00Z",
+        event_created: "2026-03-15T12:15:00Z"
+      }
+    });
+    assert.equal(recoveryRes.data.success, true);
+    assert.equal(recoveryRes.data.status, "applied");
+    assert.equal(harness22.tables.companies.get(testCoId).billing_status, "active", "Company restored to active");
+
+    // 22i: Nested subscription extraction tests in Edge Function webhook execution
+    // Nested format 1: expanded object subscription: { id: "sub_replacement_b" }
+    const nested1Payload = JSON.stringify({
+      id: "evt_nested_sub_expanded",
+      type: "invoice.payment_succeeded",
+      created: 1773577000,
+      data: {
+        object: {
+          id: "in_nested_1",
+          customer: "cus_prov_22",
+          subscription: { id: "sub_replacement_b" },
+          period_start: invBEpoch,
+          period_end: invBEpoch + 2592000
+        }
+      }
+    });
+    const sigNested1 = signPayload(nested1Payload);
+    const resNested1 = await harness22.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigNested1.header },
+      body: nested1Payload
+    }));
+    assert.equal(resNested1.status, 200);
+    assert.equal(resNested1.body.processed, true);
+
+    // Nested format 2: subscription_details: { subscription: "sub_replacement_b" }
+    const nested2Payload = JSON.stringify({
+      id: "evt_nested_sub_details",
+      type: "invoice.payment_succeeded",
+      created: 1773577100,
+      data: {
+        object: {
+          id: "in_nested_2",
+          customer: "cus_prov_22",
+          subscription_details: { subscription: "sub_replacement_b" },
+          lines: { data: [{ period: { start: invBEpoch, end: invBEpoch + 2592000 } }] }
+        }
+      }
+    });
+    const sigNested2 = signPayload(nested2Payload);
+    const resNested2 = await harness22.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigNested2.header },
+      body: nested2Payload
+    }));
+    assert.equal(resNested2.status, 200);
+    assert.equal(resNested2.body.processed, true);
+
+    // Nested format 3: lines.data[0].subscription: "sub_replacement_b"
+    const nested3Payload = JSON.stringify({
+      id: "evt_nested_sub_lines",
+      type: "invoice.payment_succeeded",
+      created: 1773577200,
+      data: {
+        object: {
+          id: "in_nested_3",
+          customer: "cus_prov_22",
+          lines: {
+            data: [{
+              subscription: "sub_replacement_b",
+              period: { start: invBEpoch, end: invBEpoch + 2592000 }
+            }]
+          }
+        }
+      }
+    });
+    const sigNested3 = signPayload(nested3Payload);
+    const resNested3 = await harness22.executeWebhook(new Request("https://mock.supabase.co/functions/v1/stripe-webhook", {
+      method: "POST",
+      headers: { "stripe-signature": sigNested3.header },
+      body: nested3Payload
+    }));
+    assert.equal(resNested3.status, 200);
+    assert.equal(resNested3.body.processed, true);
   }
 
   console.log("PASS: Executable Stripe webhook event ordering, idempotency, signature, and replay test suite passed.");

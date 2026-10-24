@@ -17,10 +17,11 @@ function getValidatedPgConfig() {
 
   const hostname = (parsed.hostname || "").toLowerCase();
   const isLoopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
-  const allowStaging = process.env.ALLOW_STAGING_TEST_DB === "true";
 
-  if (!isLoopback && !allowStaging) {
-    throw new Error(`Safety violation: Integration test fixture mutations are strictly restricted to local disposable test database (loopback 127.0.0.1/localhost). Found host: ${hostname}`);
+  // Strict safety gate: Destructive test fixtures are strictly restricted to loopback disposable instances
+  // Remote staging bypass is prohibited until an approved staging allowlist is configured
+  if (!isLoopback) {
+    throw new Error(`Safety violation: Integration test fixture mutations are strictly restricted to local disposable test database (loopback 127.0.0.1/localhost). Remote hosts prohibited. Found host: ${hostname}`);
   }
 
   const sanitized = raw.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
@@ -137,6 +138,14 @@ async function runConcurrencyTest() {
   const testEventInvFailFirst = `evt_inv_fail_first_${crypto.randomUUID().replace(/-/g, "")}`;
   const testEventSubRecover = `evt_recover_${crypto.randomUUID().replace(/-/g, "")}`;
   const testEventInvPaid = `evt_concurrency_inv_paid_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventSamePeriodPaid = `evt_same_paid_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventSamePeriodDelayedFail = `evt_same_fail_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventSamePeriodFailNewer = `evt_same_fail_new_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventSamePeriodRecovery = `evt_same_rec_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventMissingSub = `evt_missing_sub_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventMissingPeriod = `evt_missing_period_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventMissingBoth = `evt_missing_both_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventWrongSubNewer = `evt_wrong_sub_new_${crypto.randomUUID().replace(/-/g, "")}`;
 
   const createdEventIds = [
     testEventId,
@@ -146,7 +155,15 @@ async function runConcurrencyTest() {
     testEventInvA,
     testEventInvFailFirst,
     testEventSubRecover,
-    testEventInvPaid
+    testEventInvPaid,
+    testEventSamePeriodPaid,
+    testEventSamePeriodDelayedFail,
+    testEventSamePeriodFailNewer,
+    testEventSamePeriodRecovery,
+    testEventMissingSub,
+    testEventMissingPeriod,
+    testEventMissingBoth,
+    testEventWrongSubNewer
   ];
 
   console.log(`[stripe-concurrency] Test Company ID: ${testCompanyId}`);
@@ -543,6 +560,216 @@ async function runConcurrencyTest() {
     assert.equal(applyPaid.success, true);
     assert.equal(applyPaid.status, "applied");
     console.log("PASS: Step 7d - Paid invoice on current active subscription applied cleanly.");
+
+    // ---------------------------------------------------------------------------
+    // Step 7e: Same-Subscription Same-Period Two-Connection Contention (P1 Blocker 2)
+    // Connection 1 begins transaction with invoice.payment_succeeded (event_created: 12:05:00)
+    // and holds the company row lock.
+    // Connection 2 simultaneously attempts to apply a delayed invoice.payment_failed (event_created: 12:00:00)
+    // from the SAME subscription and period, and BLOCKS on the company row lock.
+    // Connection 1 commits -> Connection 2 unblocks: Migration 037 compares event_created against
+    // last_billing_event_created under row lock, safely ignoring the delayed failure.
+    // ---------------------------------------------------------------------------
+    console.log("Step 7e: Testing same-subscription same-period contention and freshness guard...");
+
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventSamePeriodPaid}', 'invoice.payment_succeeded', 60, 5);`);
+    const claimSamePaid = JSON.parse(await session1.waitForOutput());
+    assert.equal(claimSamePaid.status, "claimed");
+
+    session2.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventSamePeriodDelayedFail}', 'invoice.payment_failed', 60, 5);`);
+    const claimDelayedFail = JSON.parse(await session2.waitForOutput());
+    assert.equal(claimDelayedFail.status, "claimed");
+
+    // Connection 1 begins transaction, applies newer payment_succeeded, holds company row lock
+    session1.execute(`BEGIN;`);
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventSamePeriodPaid}',
+        '${claimSamePaid.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "active"}'::jsonb,
+        '{"event_type": "stripe_invoice.payment_succeeded", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdC}", "period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_succeeded", "event_created": "2026-04-05T12:05:00Z"}'::jsonb
+      );
+    `);
+    const applySamePaid = JSON.parse(await session1.waitForOutput());
+    assert.equal(applySamePaid.success, true);
+
+    // Connection 2 attempts to apply delayed failure for same sub & period and BLOCKS on company row lock
+    session2.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventSamePeriodDelayedFail}',
+        '${claimDelayedFail.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        '{"event_type": "stripe_invoice.payment_failed", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdC}", "period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_failed", "event_created": "2026-04-05T12:00:00Z"}'::jsonb
+      );
+    `);
+
+    // Prove Connection 2 is blocked waiting on Connection 1's company row lock
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(session2.hasOutput(), false, "Connection 2 must block on company row lock during same-period invoice contention");
+
+    // Connection 1 commits
+    session1.execute(`COMMIT;`);
+
+    // Connection 2 unblocks immediately upon commit
+    const applyDelayedFailRaw = await session2.waitForOutput();
+    const applyDelayedFail = JSON.parse(applyDelayedFailRaw);
+
+    assert.equal(applyDelayedFail.success, true);
+    assert.equal(applyDelayedFail.status, "ignored", "Delayed invoice must be safely marked ignored");
+    assert.equal(applyDelayedFail.reason, "stale_out_of_order_invoice");
+
+    // Verify company billing status remains active and event timestamp recorded
+    const coState7e = query(`SELECT billing_status, last_billing_event_created FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(coState7e.includes("active"), "Company MUST remain active and not be downgraded by delayed failure");
+    assert.ok(coState7e.includes("2026-04-05"), "last_billing_event_created must be recorded");
+    console.log("PASS: Step 7e - Same-period row lock contention verified; older failure blocked and was safely ignored.");
+
+    // ---------------------------------------------------------------------------
+    // Step 7f: Reverse Ordering & Recovery in Same Period
+    // Newer failure applies -> transitions past_due -> subsequent recovery payment restores active.
+    // ---------------------------------------------------------------------------
+    console.log("Step 7f: Testing same-period reverse order failure and payment recovery...");
+
+    // 1. Newer payment failure at 12:10:00 applies
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventSamePeriodFailNewer}', 'invoice.payment_failed', 60, 5);`);
+    const claimFailNewer = JSON.parse(await session1.waitForOutput());
+    assert.equal(claimFailNewer.status, "claimed");
+
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventSamePeriodFailNewer}',
+        '${claimFailNewer.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        '{"event_type": "stripe_invoice.payment_failed", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdC}", "period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_failed", "event_created": "2026-04-05T12:10:00Z"}'::jsonb
+      );
+    `);
+    const applyFailNewer = JSON.parse(await session1.waitForOutput());
+    assert.equal(applyFailNewer.success, true);
+    assert.equal(applyFailNewer.status, "applied");
+
+    const coState7fFail = query(`SELECT billing_status FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(coState7fFail.includes("past_due"), "Company updated to past_due by newer failure");
+
+    // 2. Recovery payment at 12:15:00 cleanly restores active
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventSamePeriodRecovery}', 'invoice.payment_succeeded', 60, 5);`);
+    const claimRecovery = JSON.parse(await session1.waitForOutput());
+    assert.equal(claimRecovery.status, "claimed");
+
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventSamePeriodRecovery}',
+        '${claimRecovery.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "active"}'::jsonb,
+        '{"event_type": "stripe_invoice.payment_succeeded", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdC}", "period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_succeeded", "event_created": "2026-04-05T12:15:00Z"}'::jsonb
+      );
+    `);
+    const applyRecovery = JSON.parse(await session1.waitForOutput());
+    assert.equal(applyRecovery.success, true);
+    assert.equal(applyRecovery.status, "applied");
+
+    const coState7fRecover = query(`SELECT billing_status FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(coState7fRecover.includes("active"), "Company cleanly restored to active status");
+    console.log("PASS: Step 7f - Same-period newer failure transitioned to past_due, recovery restored active.");
+
+    // ---------------------------------------------------------------------------
+    // Step 7g: Strict Invoice Provenance Permutations (P1 Blocker 1)
+    // ---------------------------------------------------------------------------
+    console.log("Step 7g: Testing invoice provenance failure permutations (fail-closed)...");
+
+    // Permutation 1: Missing subscription ID with present period fails closed
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventMissingSub}', 'invoice.payment_failed', 60, 5);`);
+    const claimMissingSub = JSON.parse(await session1.waitForOutput());
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventMissingSub}',
+        '${claimMissingSub.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        NULL,
+        NULL,
+        false,
+        '{"period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+      );
+    `);
+    const resMissingSub = JSON.parse(await session1.waitForOutput());
+    assert.equal(resMissingSub.success, false);
+    assert.equal(resMissingSub.status, "missing_invoice_provenance");
+
+    // Permutation 2: Missing period with present subscription ID and NO event timestamp fails closed
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventMissingPeriod}', 'invoice.payment_failed', 60, 5);`);
+    const claimMissingPeriod = JSON.parse(await session1.waitForOutput());
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventMissingPeriod}',
+        '${claimMissingPeriod.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        NULL,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdC}", "event_type": "invoice.payment_failed"}'::jsonb
+      );
+    `);
+    const resMissingPeriod = JSON.parse(await session1.waitForOutput());
+    assert.equal(resMissingPeriod.success, false);
+    assert.equal(resMissingPeriod.status, "missing_invoice_provenance");
+
+    // Permutation 3: Missing both subscription ID and period fails closed
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventMissingBoth}', 'invoice.payment_failed', 60, 5);`);
+    const claimMissingBoth = JSON.parse(await session1.waitForOutput());
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventMissingBoth}',
+        '${claimMissingBoth.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        NULL,
+        NULL,
+        false,
+        '{"event_type": "invoice.payment_failed"}'::jsonb
+      );
+    `);
+    const resMissingBoth = JSON.parse(await session1.waitForOutput());
+    assert.equal(resMissingBoth.success, false);
+    assert.equal(resMissingBoth.status, "missing_invoice_provenance");
+
+    // Permutation 4: Wrong subscription with newer period is safely ignored as stale_old_subscription_invoice
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventWrongSubNewer}', 'invoice.payment_failed', 60, 5);`);
+    const claimWrongSubNewer = JSON.parse(await session1.waitForOutput());
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventWrongSubNewer}',
+        '${claimWrongSubNewer.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        NULL,
+        NULL,
+        false,
+        '{"subscription_id": "sub_different_other", "period_start": "2026-05-01T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+      );
+    `);
+    const resWrongSubNewer = JSON.parse(await session1.waitForOutput());
+    assert.equal(resWrongSubNewer.success, true);
+    assert.equal(resWrongSubNewer.status, "ignored");
+    assert.equal(resWrongSubNewer.reason, "stale_old_subscription_invoice");
+
+    console.log("PASS: Step 7g - Invoice provenance failure permutations correctly enforce fail-closed behavior.");
 
     console.log("\nALL REAL TWO-CONNECTION POSTGRESQL CONCURRENCY TESTS PASSED SUCCESSFULLY.");
   } finally {

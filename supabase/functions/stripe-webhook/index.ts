@@ -19,6 +19,39 @@ function safeEquals(a: string, b: string): boolean { if (a.length !== b.length) 
 function asObject(v: unknown): Record<string, any> { return v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, any> : {}; }
 function asString(v: unknown): string { if (typeof v === "string") return v; if (v && typeof v === "object" && typeof (v as any).id === "string") return (v as any).id; return ""; }
 function isoSeconds(v: unknown): string | null { const n = Number(v); return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString() : null; }
+
+function extractSubscriptionId(eventType: string, obj: Record<string, any>): string {
+  if (eventType.startsWith("customer.subscription.")) return asString(obj.id);
+  const direct = asString(obj.subscription);
+  if (direct) return direct;
+  const details = asObject(obj.subscription_details);
+  const detailsSub = asString(details.subscription);
+  if (detailsSub) return detailsSub;
+  const lines = Array.isArray(asObject(obj.lines).data) ? asObject(obj.lines).data : [];
+  for (const item of lines) {
+    const line = asObject(item);
+    const sub = asString(line.subscription) || asString(asObject(line.subscription_item).subscription) || asString(asObject(asObject(line.parent).subscription_item).subscription);
+    if (sub) return sub;
+  }
+  const parentSub = asString(asObject(obj.parent).subscription);
+  if (parentSub) return parentSub;
+  return "";
+}
+
+function extractInvoicePeriod(obj: Record<string, any>) {
+  let start = isoSeconds(obj.period_start);
+  let end = isoSeconds(obj.period_end);
+  if (!start || !end) {
+    const lines = Array.isArray(asObject(obj.lines).data) ? asObject(obj.lines).data : [];
+    for (const item of lines) {
+      const p = asObject(asObject(item).period);
+      if (!start && p.start) start = isoSeconds(p.start);
+      if (!end && p.end) end = isoSeconds(p.end);
+      if (start && end) break;
+    }
+  }
+  return { start, end };
+}
 const CANONICAL_PLANS: Record<string, string> = {
   solo_tech: "STRIPE_PRICE_SOLO_TECH",
   solo_complete: "STRIPE_PRICE_SOLO_COMPLETE",
@@ -139,7 +172,7 @@ Deno.serve(async (req: Request) => {
     const metadata = asObject(obj.metadata);
     let companyId = String(metadata.pooldocai_company_id || obj.client_reference_id || "");
     const customerId = asString(obj.customer);
-    const subscriptionId = asString(obj.subscription) || (String(eventType).startsWith("customer.subscription.") ? asString(obj.id) : "");
+    const subscriptionId = extractSubscriptionId(eventType, obj);
     const subscriptionObject = eventType.startsWith("customer.subscription.") ? obj : null;
     let priceId = ""; let seatQuantity: number | null = null;
     if (subscriptionObject) {
@@ -153,18 +186,22 @@ Deno.serve(async (req: Request) => {
       companyId = String(customerCompany?.id || "");
     }
 
+    const invoicePeriod = extractInvoicePeriod(obj);
     const eventPeriodStart = subscriptionObject
       ? isoSeconds(subscriptionObject.current_period_start)
-      : isoSeconds(obj.period_start || asObject((asObject(obj.lines).data || [])[0]?.period).start);
+      : invoicePeriod.start;
     const eventPeriodEnd = subscriptionObject
       ? isoSeconds(subscriptionObject.current_period_end)
-      : isoSeconds(obj.period_end || asObject((asObject(obj.lines).data || [])[0]?.period).end);
+      : invoicePeriod.end;
+    const eventCreated = isoSeconds(event.created) || (event.created ? new Date(Number(event.created) * 1000).toISOString() : null);
 
     const eventProvenance: Record<string, any> = {
       event_type: eventType,
       subscription_id: subscriptionId || null,
       period_start: eventPeriodStart || null,
-      period_end: eventPeriodEnd || null
+      period_end: eventPeriodEnd || null,
+      event_created: eventCreated || null,
+      invoice_id: eventType.startsWith("invoice.") ? asString(obj.id) || null : null
     };
 
     if (!companyId) {
@@ -178,7 +215,7 @@ Deno.serve(async (req: Request) => {
         eventProvenance
       );
     }
-    const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id,billing_period_start").eq("id", companyId).maybeSingle();
+    const { data: company, error: companyError } = await db.from("companies").select("id,status,billing_status,plan_name,seat_limit,stripe_customer_id,stripe_subscription_id,billing_period_start,last_billing_event_created").eq("id", companyId).maybeSingle();
     if (companyError || !company) throw new Error("No matching PoolDocAI company exists for this verified Stripe event.");
 
     const update: Record<string, unknown> = {};
@@ -244,17 +281,20 @@ Deno.serve(async (req: Request) => {
       const plan = String(metadata.plan_name || ""); if (["starter","professional","enterprise","pilot"].includes(plan)) update.plan_name = plan;
       const seats = Number(metadata.seat_limit); if (Number.isInteger(seats) && seats >= 1 && seats <= 500) update.seat_limit = seats;
     } else if (eventType.startsWith("invoice.")) {
-      const invoicePeriodStart = isoSeconds(obj.period_start || asObject((asObject(obj.lines).data || [])[0]?.period).start);
+      const invoicePeriodStart = eventPeriodStart;
       const isOldSubscriptionInvoice = Boolean(company.stripe_subscription_id && subscriptionId && subscriptionId !== company.stripe_subscription_id);
       const isStaleInvoicePeriod = Boolean(invoicePeriodStart && company.billing_period_start && new Date(invoicePeriodStart).getTime() < new Date(company.billing_period_start).getTime());
+      const isStaleInvoiceTime = Boolean(company.last_billing_event_created && eventCreated && new Date(eventCreated).getTime() < new Date(company.last_billing_event_created).getTime());
 
-      if (isOldSubscriptionInvoice || isStaleInvoicePeriod) {
+      if (isOldSubscriptionInvoice || isStaleInvoicePeriod || isStaleInvoiceTime) {
         return await finalizeIgnoredEvent(
           db,
           eventId,
           claimToken,
           isOldSubscriptionInvoice ? "stale_old_subscription_invoice" : "stale_out_of_order_invoice",
-          isOldSubscriptionInvoice ? "Stale invoice from superseded subscription skipped." : "Stale out-of-order invoice skipped (newer period already active).",
+          isOldSubscriptionInvoice
+            ? "Stale invoice from superseded subscription skipped."
+            : (isStaleInvoicePeriod ? "Stale out-of-order invoice skipped (newer period already active)." : "Stale out-of-order invoice skipped (newer billing event already active)."),
           eventProvenance
         );
       }

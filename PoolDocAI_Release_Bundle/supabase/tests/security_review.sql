@@ -220,10 +220,25 @@ DECLARE
   v_res_stale jsonb;
   v_test_event_inv_a text := 'evt_ci_inv_a_' || md5(clock_timestamp()::text || random()::text);
   v_test_event_inv_bad text := 'evt_ci_inv_bad_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_inv_nosub text := 'evt_ci_inv_nosub_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_paid text := 'evt_ci_same_paid_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_fail text := 'evt_ci_same_fail_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_newer text := 'evt_ci_same_newer_' || md5(clock_timestamp()::text || random()::text);
+  v_test_event_same_rec text := 'evt_ci_same_rec_' || md5(clock_timestamp()::text || random()::text);
   v_claim_inv_a jsonb;
   v_claim_inv_bad jsonb;
+  v_claim_inv_nosub jsonb;
+  v_claim_same_paid jsonb;
+  v_claim_same_fail jsonb;
+  v_claim_same_newer jsonb;
+  v_claim_same_rec jsonb;
   v_res_inv_a jsonb;
   v_res_inv_bad jsonb;
+  v_res_inv_nosub jsonb;
+  v_res_same_paid jsonb;
+  v_res_same_fail jsonb;
+  v_res_same_newer jsonb;
+  v_res_same_rec jsonb;
   v_company_rec record;
 BEGIN
   -- 1. Routine existence checks
@@ -257,6 +272,9 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='pooldocai_stripe_webhook_events' AND column_name='lease_generation') THEN
     RAISE EXCEPTION 'lease_generation column is missing from pooldocai_stripe_webhook_events';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='companies' AND column_name='last_billing_event_created') THEN
+    RAISE EXCEPTION 'last_billing_event_created column is missing from companies';
   END IF;
 
   -- 4. Initial claim on a fresh event succeeds and returns unpredictable token + monotonic lease generation
@@ -426,6 +444,119 @@ BEGIN
   IF (v_res_inv_bad->>'success')::boolean <> false
      OR (v_res_inv_bad->>'status') <> 'missing_invoice_provenance' THEN
     RAISE EXCEPTION 'Invoice with missing provenance did not fail closed: %', v_res_inv_bad;
+  END IF;
+
+  -- 17. Migration 037: Strict invoice subscription provenance & same-period event ordering
+  -- Permutation A: Missing subscription ID with present period fails closed
+  v_claim_inv_nosub := public.pooldocai_claim_stripe_webhook_event(v_test_event_inv_nosub, 'invoice.payment_failed', 60, 5);
+  v_res_inv_nosub := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_inv_nosub,
+    v_claim_inv_nosub->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+  );
+
+  IF (v_res_inv_nosub->>'success')::boolean <> false
+     OR (v_res_inv_nosub->>'status') <> 'missing_invoice_provenance' THEN
+    RAISE EXCEPTION 'Invoice with missing subscription ID did not fail closed: %', v_res_inv_nosub;
+  END IF;
+
+  -- Permutation B: Same-subscription same-period invoice ordering (P1 Blocker 2)
+  -- 1. Payment succeeded at 12:05:00 applies and records last_billing_event_created
+  v_claim_same_paid := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_paid, 'invoice.payment_succeeded', 60, 5);
+  v_res_same_paid := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_paid,
+    v_claim_same_paid->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "active"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_succeeded", "event_created": "2026-03-20T12:05:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_paid->>'success')::boolean <> true
+     OR (v_res_same_paid->>'status') <> 'applied' THEN
+    RAISE EXCEPTION 'Payment succeeded in same period failed to apply: %', v_res_same_paid;
+  END IF;
+
+  SELECT billing_status, last_billing_event_created INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' OR v_company_rec.last_billing_event_created <> '2026-03-20 12:05:00+00'::timestamptz THEN
+    RAISE EXCEPTION 'Company state not updated with event timestamp: %', v_company_rec;
+  END IF;
+
+  -- 2. Delayed payment failed at 12:00:00 (older) arrives for same sub & period: MUST BE IGNORED
+  v_claim_same_fail := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_fail, 'invoice.payment_failed', 60, 5);
+  v_res_same_fail := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_fail,
+    v_claim_same_fail->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_failed", "event_created": "2026-03-20T12:00:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_fail->>'success')::boolean <> true
+     OR (v_res_same_fail->>'status') <> 'ignored'
+     OR (v_res_same_fail->>'reason') <> 'stale_out_of_order_invoice' THEN
+    RAISE EXCEPTION 'Older payment failure in same period was not safely ignored: %', v_res_same_fail;
+  END IF;
+
+  SELECT billing_status INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' THEN
+    RAISE EXCEPTION 'Delayed failure corrupted active billing status: %', v_company_rec;
+  END IF;
+
+  -- 3. Newer payment failure at 12:10:00 arrives: MUST APPLY
+  v_claim_same_newer := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_newer, 'invoice.payment_failed', 60, 5);
+  v_res_same_newer := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_newer,
+    v_claim_same_newer->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "past_due"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_failed", "event_created": "2026-03-20T12:10:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_newer->>'success')::boolean <> true
+     OR (v_res_same_newer->>'status') <> 'applied' THEN
+    RAISE EXCEPTION 'Newer payment failure in same period failed to apply: %', v_res_same_newer;
+  END IF;
+
+  SELECT billing_status INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'past_due' THEN
+    RAISE EXCEPTION 'Newer failure did not transition company to past_due: %', v_company_rec;
+  END IF;
+
+  -- 4. Recovery payment succeeded at 12:15:00 arrives: RESTORES ACTIVE
+  v_claim_same_rec := public.pooldocai_claim_stripe_webhook_event(v_test_event_same_rec, 'invoice.payment_succeeded', 60, 5);
+  v_res_same_rec := public.pooldocai_apply_and_finalize_stripe_webhook(
+    v_test_event_same_rec,
+    v_claim_same_rec->>'claim_token',
+    v_test_company_id,
+    '{"billing_status": "active"}'::jsonb,
+    NULL,
+    NULL,
+    false,
+    '{"subscription_id": "sub_replacement_b", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_succeeded", "event_created": "2026-03-20T12:15:00Z"}'::jsonb
+  );
+
+  IF (v_res_same_rec->>'success')::boolean <> true
+     OR (v_res_same_rec->>'status') <> 'applied' THEN
+    RAISE EXCEPTION 'Recovery payment in same period failed to apply: %', v_res_same_rec;
+  END IF;
+
+  SELECT billing_status INTO v_company_rec FROM public.companies WHERE id = v_test_company_id;
+  IF v_company_rec.billing_status <> 'active' THEN
+    RAISE EXCEPTION 'Recovery payment did not restore active status: %', v_company_rec;
   END IF;
 
   -- Clean up test company and test events
