@@ -1290,11 +1290,7 @@ BEGIN
   END IF;
 
   -- 14. Test Multi-Company Independent Marking (A vs B) and Fail-Closed Boundary
-  -- Add Admin A to Company B as well to simulate a multi-company user
-  INSERT INTO public.company_members (company_id, user_id, role, status, display_name)
-  VALUES (v_co_b, v_user_a_admin, 'company_admin', 'active', 'Admin A (Co B)');
-
-  -- Publish a notification in Company B so Admin A has unread notifications in both companies
+  -- Publish a notification in Company B targeting technicians so Admin A (who is a technician in Co B from Test 10) has unread notifications
   PERFORM public.pooldocai_publish_company_notification(
     p_company_id := v_co_b,
     p_event_type := 'service_request_created',
@@ -1302,7 +1298,7 @@ BEGIN
     p_body := 'Service requested for Co B',
     p_data := '{"company": "B"}'::jsonb,
     p_dedupe_key := 'sr-co-b-test-1',
-    p_target_role := 'admin',
+    p_target_role := 'technician',
     p_target_user_id := NULL
   );
 
