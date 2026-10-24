@@ -39,7 +39,7 @@ if (isPreview) {
       throw new Error('[generate-config] FATAL: Both STAGING_SUPABASE_URL and STAGING_SUPABASE_ANON_KEY are required for a connected preview.');
     }
     const prodUrl = String(process.env.PROD_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
-    if (stagingUrl.includes('owfeebydlyacssqpnmkq') || (prodUrl && stagingUrl.replace(/\\/$/, '') === prodUrl.replace(/\\/$/, ''))) {
+    if (stagingUrl.includes('owfeebydlyacssqpnmkq') || (prodUrl && stagingUrl.replace(/[/]$/, '') === prodUrl.replace(/[/]$/, ''))) {
       throw new Error('[generate-config] FATAL SECURITY VIOLATION: Preview may not connect to the production Supabase project.');
     }
     supabaseUrl = stagingUrl;
