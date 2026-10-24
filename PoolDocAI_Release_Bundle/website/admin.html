@@ -44,39 +44,124 @@ async function loadNotifications(){
     $('tabUnreadBadge').textContent=String(unread);
     $('tabUnreadBadge').classList.toggle('hidden',unread===0);
     
-    if(!notifs.length){
-      $('notificationListWrap').innerHTML='<div class="muted small" style="text-align:center;padding:16px 8px;">No notifications.</div>';
-      $('panelNotificationRows').innerHTML='<tr><td colspan="5">No notifications recorded yet.</td></tr>';
+    const listWrap = $('notificationListWrap');
+    const tableBody = $('panelNotificationRows');
+    listWrap.innerHTML = '';
+    tableBody.innerHTML = '';
+
+    if (!notifs.length) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'muted small';
+      emptyDiv.style.cssText = 'text-align:center;padding:16px 8px;';
+      emptyDiv.textContent = 'No notifications.';
+      listWrap.appendChild(emptyDiv);
+
+      const emptyRow = document.createElement('tr');
+      const emptyCell = document.createElement('td');
+      emptyCell.colSpan = 5;
+      emptyCell.textContent = 'No notifications recorded yet.';
+      emptyRow.appendChild(emptyCell);
+      tableBody.appendChild(emptyRow);
       return;
     }
-    
-    // Dropdown list
-    $('notificationListWrap').innerHTML=notifs.map(n=>`<div style="padding:8px;border-radius:8px;background:${n.read_at?'#f8fafc':'#f0fdf4'};border:1px solid ${n.read_at?'#e2e8f0':'#86efac'};font-size:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-        <strong style="color:#0f2b46;">${esc(n.title)}</strong>
-        <span class="small muted">${fmt(n.created_at)}</span>
-      </div>
-      <div style="color:#334155;margin-bottom:4px;">${esc(n.body)}</div>
-      <div style="display:flex;justify-content:flex-end;gap:6px;">
-        ${!n.read_at?`<button type="button" class="small secondary" data-notif-read="${n.user_notification_id}" style="font-size:10px;padding:2px 6px;">Mark read</button>`:''}
-      </div>
-    </div>`).join('');
 
-    // Panel table rows
-    $('panelNotificationRows').innerHTML=notifs.map(n=>`<tr>
-      <td>${fmt(n.created_at)}</td>
-      <td><span class="badge">${esc(n.event_type)}</span></td>
-      <td><strong>${esc(n.title)}</strong><br><span class="small muted">${esc(n.body)}</span></td>
-      <td>${n.read_at?'<span class="muted small">Read</span>':'<span class="badge" style="background:#dcfce7;color:#166534">Unread</span>'}</td>
-      <td>${!n.read_at?`<button type="button" class="secondary" data-notif-read="${n.user_notification_id}">Mark read</button>`:'—'}</td>
-    </tr>`).join('');
+    notifs.forEach(n => {
+      // Dropdown card
+      const card = document.createElement('div');
+      card.style.cssText = `padding:8px;border-radius:8px;background:${n.read_at ? '#f8fafc' : '#f0fdf4'};border:1px solid ${n.read_at ? '#e2e8f0' : '#86efac'};font-size:12px;margin-bottom:6px;`;
 
-    document.querySelectorAll('[data-notif-read]').forEach(btn=>{
-      btn.onclick=async()=>{
-        btn.disabled=true;
-        await client.rpc('pooldocai_mark_notification_read',{p_user_notification_id:btn.dataset.notifRead});
-        await loadNotifications();
-      };
+      const header = document.createElement('div');
+      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;';
+      const titleEl = document.createElement('strong');
+      titleEl.style.color = '#0f2b46';
+      titleEl.textContent = n.title || '';
+      const timeEl = document.createElement('span');
+      timeEl.className = 'small muted';
+      timeEl.textContent = fmt(n.created_at);
+      header.appendChild(titleEl);
+      header.appendChild(timeEl);
+      card.appendChild(header);
+
+      const bodyEl = document.createElement('div');
+      bodyEl.style.cssText = 'color:#334155;margin-bottom:4px;word-break:break-word;';
+      bodyEl.textContent = n.body || '';
+      card.appendChild(bodyEl);
+
+      if (!n.read_at) {
+        const actWrap = document.createElement('div');
+        actWrap.style.cssText = 'display:flex;justify-content:flex-end;';
+        const markBtn = document.createElement('button');
+        markBtn.type = 'button';
+        markBtn.className = 'small secondary';
+        markBtn.style.cssText = 'font-size:10px;padding:2px 6px;';
+        markBtn.textContent = 'Mark read';
+        markBtn.onclick = async () => {
+          markBtn.disabled = true;
+          await client.rpc('pooldocai_mark_notification_read', { p_user_notification_id: n.user_notification_id });
+          await loadNotifications();
+        };
+        actWrap.appendChild(markBtn);
+        card.appendChild(actWrap);
+      }
+      listWrap.appendChild(card);
+
+      // Table row
+      const tr = document.createElement('tr');
+      const tdTime = document.createElement('td');
+      tdTime.textContent = fmt(n.created_at);
+      tr.appendChild(tdTime);
+
+      const tdType = document.createElement('td');
+      const typeBadge = document.createElement('span');
+      typeBadge.className = 'badge';
+      typeBadge.textContent = n.event_type || '';
+      tdType.appendChild(typeBadge);
+      tr.appendChild(tdType);
+
+      const tdContent = document.createElement('td');
+      const strongTitle = document.createElement('strong');
+      strongTitle.textContent = n.title || '';
+      const br = document.createElement('br');
+      const spanBody = document.createElement('span');
+      spanBody.className = 'small muted';
+      spanBody.textContent = n.body || '';
+      tdContent.appendChild(strongTitle);
+      tdContent.appendChild(br);
+      tdContent.appendChild(spanBody);
+      tr.appendChild(tdContent);
+
+      const tdStatus = document.createElement('td');
+      if (n.read_at) {
+        const readSpan = document.createElement('span');
+        readSpan.className = 'muted small';
+        readSpan.textContent = 'Read';
+        tdStatus.appendChild(readSpan);
+      } else {
+        const unreadSpan = document.createElement('span');
+        unreadSpan.className = 'badge';
+        unreadSpan.style.cssText = 'background:#dcfce7;color:#166534;';
+        unreadSpan.textContent = 'Unread';
+        tdStatus.appendChild(unreadSpan);
+      }
+      tr.appendChild(tdStatus);
+
+      const tdAction = document.createElement('td');
+      if (!n.read_at) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'secondary';
+        btn.textContent = 'Mark read';
+        btn.onclick = async () => {
+          btn.disabled = true;
+          await client.rpc('pooldocai_mark_notification_read', { p_user_notification_id: n.user_notification_id });
+          await loadNotifications();
+        };
+        tdAction.appendChild(btn);
+      } else {
+        tdAction.textContent = '—';
+      }
+      tr.appendChild(tdAction);
+      tableBody.appendChild(tr);
     });
   }catch(e){console.warn('loadNotifications error:',e);}
 }

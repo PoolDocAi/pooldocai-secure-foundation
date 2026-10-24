@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS public.company_notifications (
   data jsonb NOT NULL DEFAULT '{}'::jsonb,
   dedupe_key text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT company_notifications_dedupe_uniq UNIQUE(company_id, dedupe_key)
+  CONSTRAINT company_notifications_dedupe_uniq UNIQUE(company_id, dedupe_key),
+  CONSTRAINT company_notifications_id_company_uniq UNIQUE(id, company_id)
 );
 
 CREATE INDEX IF NOT EXISTS company_notifications_company_created_idx
@@ -20,19 +21,22 @@ CREATE INDEX IF NOT EXISTS company_notifications_company_created_idx
 
 ALTER TABLE public.company_notifications ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON public.company_notifications FROM public, anon;
-GRANT SELECT ON public.company_notifications TO authenticated, service_role;
+REVOKE ALL ON public.company_notifications FROM public, anon, authenticated;
+GRANT SELECT ON public.company_notifications TO authenticated;
 GRANT ALL ON public.company_notifications TO service_role;
 
+-- Authenticated members can only inspect company events if they are an active recipient of that event
 DROP POLICY IF EXISTS company_notifications_select_policy ON public.company_notifications;
 CREATE POLICY company_notifications_select_policy ON public.company_notifications
   FOR SELECT TO authenticated
   USING (
     public.is_platform_admin() OR EXISTS (
-      SELECT 1 FROM public.company_members m
-      JOIN public.companies c ON c.id = m.company_id
-      WHERE m.company_id = company_notifications.company_id
-        AND m.user_id = auth.uid()
+      SELECT 1 FROM public.user_notifications un
+      JOIN public.company_members m ON m.company_id = un.company_id AND m.user_id = un.user_id
+      JOIN public.companies c ON c.id = un.company_id
+      WHERE un.notification_id = company_notifications.id
+        AND un.company_id = company_notifications.company_id
+        AND un.user_id = auth.uid()
         AND m.status = 'active'
         AND c.status = 'active'
     )
@@ -41,13 +45,15 @@ CREATE POLICY company_notifications_select_policy ON public.company_notification
 -- 2. Per-recipient delivery & read state
 CREATE TABLE IF NOT EXISTS public.user_notifications (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  notification_id uuid NOT NULL REFERENCES public.company_notifications(id) ON DELETE CASCADE,
+  notification_id uuid NOT NULL,
   company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   recipient_role text NOT NULL DEFAULT 'all',
   read_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT user_notifications_uniq_user_notif UNIQUE(notification_id, user_id)
+  CONSTRAINT user_notifications_uniq_user_notif UNIQUE(notification_id, user_id),
+  CONSTRAINT user_notifications_company_fk FOREIGN KEY (notification_id, company_id)
+    REFERENCES public.company_notifications(id, company_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS user_notifications_user_company_unread_idx
@@ -55,8 +61,9 @@ CREATE INDEX IF NOT EXISTS user_notifications_user_company_unread_idx
 
 ALTER TABLE public.user_notifications ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON public.user_notifications FROM public, anon;
-GRANT SELECT, UPDATE ON public.user_notifications TO authenticated;
+-- Revoke direct client UPDATE: read state mutations must go through SECURITY DEFINER RPCs
+REVOKE ALL ON public.user_notifications FROM public, anon, authenticated;
+GRANT SELECT ON public.user_notifications TO authenticated;
 GRANT ALL ON public.user_notifications TO service_role;
 
 DROP POLICY IF EXISTS user_notifications_select_policy ON public.user_notifications;
@@ -75,34 +82,13 @@ CREATE POLICY user_notifications_select_policy ON public.user_notifications
     )
   );
 
+-- Direct client updates are disallowed; status changes are strictly performed via RPC
 DROP POLICY IF EXISTS user_notifications_update_policy ON public.user_notifications;
-CREATE POLICY user_notifications_update_policy ON public.user_notifications
-  FOR UPDATE TO authenticated
-  USING (
-    user_id = auth.uid() AND EXISTS (
-      SELECT 1 FROM public.company_members m
-      JOIN public.companies c ON c.id = m.company_id
-      WHERE m.company_id = user_notifications.company_id
-        AND m.user_id = auth.uid()
-        AND m.status = 'active'
-        AND c.status = 'active'
-    )
-  )
-  WITH CHECK (
-    user_id = auth.uid() AND EXISTS (
-      SELECT 1 FROM public.company_members m
-      JOIN public.companies c ON c.id = m.company_id
-      WHERE m.company_id = user_notifications.company_id
-        AND m.user_id = auth.uid()
-        AND m.status = 'active'
-        AND c.status = 'active'
-    )
-  );
 
 -- 3. Notification delivery queue (for in_app, email, and web_push adapters)
 CREATE TABLE IF NOT EXISTS public.notification_delivery_queue (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  notification_id uuid NOT NULL REFERENCES public.company_notifications(id) ON DELETE CASCADE,
+  notification_id uuid NOT NULL,
   company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   channel text NOT NULL CHECK (channel IN ('in_app', 'email', 'web_push')),
@@ -113,7 +99,9 @@ CREATE TABLE IF NOT EXISTS public.notification_delivery_queue (
   next_attempt_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT notification_delivery_queue_uniq UNIQUE(notification_id, user_id, channel)
+  CONSTRAINT notification_delivery_queue_uniq UNIQUE(notification_id, user_id, channel),
+  CONSTRAINT notification_delivery_queue_company_fk FOREIGN KEY (notification_id, company_id)
+    REFERENCES public.company_notifications(id, company_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS notification_delivery_queue_status_idx
@@ -178,7 +166,7 @@ CREATE POLICY user_notification_preferences_manage ON public.user_notification_p
         AND m.user_id = auth.uid()
         AND m.status = 'active'
         AND c.status = 'active'
-    )
+      )
   )
   WITH CHECK (
     user_id = auth.uid() AND EXISTS (
@@ -212,6 +200,9 @@ AS $$
 DECLARE
   v_notification_id uuid;
   v_rec record;
+  v_pref_in_app boolean;
+  v_pref_email boolean;
+  v_pref_push boolean;
 BEGIN
   -- Verify active company
   IF NOT EXISTS (SELECT 1 FROM public.companies WHERE id = p_company_id AND status = 'active') THEN
@@ -247,20 +238,48 @@ BEGIN
     VALUES (v_notification_id, p_company_id, v_rec.user_id, v_rec.role)
     ON CONFLICT (notification_id, user_id) DO NOTHING;
 
-    -- Enqueue in_app delivery (delivered immediately)
-    INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status, delivered_at)
-    VALUES (v_notification_id, p_company_id, v_rec.user_id, 'in_app', 'delivered', now())
-    ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    -- Consult recipient preferences per channel
+    SELECT enabled INTO v_pref_in_app FROM public.user_notification_preferences
+    WHERE user_id = v_rec.user_id AND company_id = p_company_id AND channel = 'in_app';
 
-    -- Enqueue email adapter (deferred pending Part-2 configuration)
-    INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status)
-    VALUES (v_notification_id, p_company_id, v_rec.user_id, 'email', 'deferred')
-    ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    SELECT enabled INTO v_pref_email FROM public.user_notification_preferences
+    WHERE user_id = v_rec.user_id AND company_id = p_company_id AND channel = 'email';
 
-    -- Enqueue web_push adapter (deferred pending Part-3 configuration)
-    INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status)
-    VALUES (v_notification_id, p_company_id, v_rec.user_id, 'web_push', 'deferred')
-    ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    SELECT enabled INTO v_pref_push FROM public.user_notification_preferences
+    WHERE user_id = v_rec.user_id AND company_id = p_company_id AND channel = 'web_push';
+
+    -- Enqueue in_app delivery (delivered immediately if not opted out)
+    IF v_pref_in_app IS NOT FALSE THEN
+      INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status, delivered_at)
+      VALUES (v_notification_id, p_company_id, v_rec.user_id, 'in_app', 'delivered', now())
+      ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    ELSE
+      INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status)
+      VALUES (v_notification_id, p_company_id, v_rec.user_id, 'in_app', 'opted_out')
+      ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    END IF;
+
+    -- Enqueue email adapter (deferred pending Part-2 configuration, or opted_out)
+    IF v_pref_email IS NOT FALSE THEN
+      INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status)
+      VALUES (v_notification_id, p_company_id, v_rec.user_id, 'email', 'deferred')
+      ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    ELSE
+      INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status)
+      VALUES (v_notification_id, p_company_id, v_rec.user_id, 'email', 'opted_out')
+      ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    END IF;
+
+    -- Enqueue web_push adapter (deferred pending Part-3 configuration, or opted_out)
+    IF v_pref_push IS NOT FALSE THEN
+      INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status)
+      VALUES (v_notification_id, p_company_id, v_rec.user_id, 'web_push', 'deferred')
+      ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    ELSE
+      INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status)
+      VALUES (v_notification_id, p_company_id, v_rec.user_id, 'web_push', 'opted_out')
+      ON CONFLICT (notification_id, user_id, channel) DO NOTHING;
+    END IF;
   END LOOP;
 
   RETURN v_notification_id;
@@ -270,8 +289,9 @@ $$;
 REVOKE ALL ON FUNCTION public.pooldocai_publish_company_notification(uuid, text, text, text, jsonb, text, text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.pooldocai_publish_company_notification(uuid, text, text, text, jsonb, text, text, uuid) TO service_role;
 
--- 5b. Get user notifications
+-- 5b. Get user notifications with company context validation
 CREATE OR REPLACE FUNCTION public.pooldocai_get_user_notifications(
+  p_company_id uuid DEFAULT NULL,
   p_limit integer DEFAULT 20,
   p_offset integer DEFAULT 0,
   p_unread_only boolean DEFAULT false
@@ -293,15 +313,30 @@ BEGIN
     RAISE EXCEPTION 'AUTHENTICATION_REQUIRED';
   END IF;
 
-  -- Resolve caller's active company
-  SELECT m.company_id INTO v_company_id
-  FROM public.company_members m
-  JOIN public.companies c ON c.id = m.company_id
-  WHERE m.user_id = v_user_id
-    AND m.status = 'active'
-    AND c.status = 'active'
-  ORDER BY m.created_at ASC
-  LIMIT 1;
+  -- If p_company_id is explicitly provided, validate caller's active membership in that company
+  IF p_company_id IS NOT NULL THEN
+    SELECT m.company_id INTO v_company_id
+    FROM public.company_members m
+    JOIN public.companies c ON c.id = m.company_id
+    WHERE m.company_id = p_company_id
+      AND m.user_id = v_user_id
+      AND m.status = 'active'
+      AND c.status = 'active';
+
+    IF v_company_id IS NULL THEN
+      RAISE EXCEPTION 'NOT_A_MEMBER_OF_SPECIFIED_COMPANY';
+    END IF;
+  ELSE
+    -- Resolve caller's active company (default to earliest active membership)
+    SELECT m.company_id INTO v_company_id
+    FROM public.company_members m
+    JOIN public.companies c ON c.id = m.company_id
+    WHERE m.user_id = v_user_id
+      AND m.status = 'active'
+      AND c.status = 'active'
+    ORDER BY m.created_at ASC
+    LIMIT 1;
+  END IF;
 
   IF v_company_id IS NULL THEN
     RETURN jsonb_build_object(
@@ -324,7 +359,7 @@ BEGIN
   WHERE un.user_id = v_user_id
     AND un.company_id = v_company_id;
 
-  -- Query rows
+  -- Query rows with strict same-company join enforcement
   SELECT coalesce(jsonb_agg(item), '[]'::jsonb) INTO v_items
   FROM (
     SELECT
@@ -339,7 +374,9 @@ BEGIN
       cn.body,
       cn.data
     FROM public.user_notifications un
-    JOIN public.company_notifications cn ON cn.id = un.notification_id
+    JOIN public.company_notifications cn
+      ON cn.id = un.notification_id
+     AND cn.company_id = un.company_id
     WHERE un.user_id = v_user_id
       AND un.company_id = v_company_id
       AND (NOT p_unread_only OR un.read_at IS NULL)
@@ -357,7 +394,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.pooldocai_get_user_notifications(integer, integer, boolean) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.pooldocai_get_user_notifications(uuid, integer, integer, boolean) TO authenticated, service_role;
 
 -- 5c. Mark notification read
 CREATE OR REPLACE FUNCTION public.pooldocai_mark_notification_read(
@@ -389,8 +426,10 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.pooldocai_mark_notification_read(uuid) TO authenticated, service_role;
 
--- 5d. Mark all notifications read
-CREATE OR REPLACE FUNCTION public.pooldocai_mark_all_notifications_read()
+-- 5d. Mark all notifications read with company context validation
+CREATE OR REPLACE FUNCTION public.pooldocai_mark_all_notifications_read(
+  p_company_id uuid DEFAULT NULL
+)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -405,13 +444,28 @@ BEGIN
     RAISE EXCEPTION 'AUTHENTICATION_REQUIRED';
   END IF;
 
-  SELECT m.company_id INTO v_company_id
-  FROM public.company_members m
-  JOIN public.companies c ON c.id = m.company_id
-  WHERE m.user_id = v_user_id
-    AND m.status = 'active'
-    AND c.status = 'active'
-  LIMIT 1;
+  IF p_company_id IS NOT NULL THEN
+    SELECT m.company_id INTO v_company_id
+    FROM public.company_members m
+    JOIN public.companies c ON c.id = m.company_id
+    WHERE m.company_id = p_company_id
+      AND m.user_id = v_user_id
+      AND m.status = 'active'
+      AND c.status = 'active';
+
+    IF v_company_id IS NULL THEN
+      RAISE EXCEPTION 'NOT_A_MEMBER_OF_SPECIFIED_COMPANY';
+    END IF;
+  ELSE
+    SELECT m.company_id INTO v_company_id
+    FROM public.company_members m
+    JOIN public.companies c ON c.id = m.company_id
+    WHERE m.user_id = v_user_id
+      AND m.status = 'active'
+      AND c.status = 'active'
+    ORDER BY m.created_at ASC
+    LIMIT 1;
+  END IF;
 
   IF v_company_id IS NULL THEN
     RETURN 0;
@@ -428,4 +482,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.pooldocai_mark_all_notifications_read() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.pooldocai_mark_all_notifications_read(uuid) TO authenticated, service_role;

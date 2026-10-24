@@ -972,10 +972,14 @@ DECLARE
   v_notif_1 uuid;
   v_notif_2 uuid;
   v_notif_dup uuid;
+  v_notif_admin uuid;
+  v_notif_pref uuid;
   v_user_notif_id uuid;
   v_cnt integer := 0;
   v_read_at timestamptz;
   v_ok boolean;
+  v_res_a jsonb;
+  v_res_b jsonb;
 BEGIN
   -- Setup test users
   INSERT INTO auth.users (id, email, aud, role)
@@ -1117,12 +1121,104 @@ BEGIN
     RAISE EXCEPTION 'User B illegally marked read User A notification';
   END IF;
 
+  -- 7. Test Recipient Restriction Bypass Prevention on company_notifications
+  v_notif_admin := public.pooldocai_publish_company_notification(
+    v_co_a,
+    'admin_alert',
+    'Admin Alert',
+    'Confidential admin notification',
+    '{"confidential": true}'::jsonb,
+    'dedupe-admin-1',
+    'admin',
+    NULL
+  );
+
+  -- Admin A has user_notification and CAN see the event
+  PERFORM set_config('request.jwt.claim.sub', v_user_a_admin::text, true);
+  SELECT count(*) INTO v_cnt FROM public.company_notifications WHERE id = v_notif_admin;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Admin A should be able to view admin notification, got %', v_cnt;
+  END IF;
+
+  -- Tech A has NO user_notification and CANNOT see the event
+  PERFORM set_config('request.jwt.claim.sub', v_user_a_tech::text, true);
+  SELECT count(*) INTO v_cnt FROM public.company_notifications WHERE id = v_notif_admin;
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION 'Tech A illegally viewed admin-only company event via company_notifications';
+  END IF;
+
+  -- User B (Company B) CANNOT see the event
+  PERFORM set_config('request.jwt.claim.sub', v_user_b_admin::text, true);
+  SELECT count(*) INTO v_cnt FROM public.company_notifications WHERE id = v_notif_admin;
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION 'Company B admin illegally viewed Company A event via company_notifications';
+  END IF;
+
+  -- 8. Test Composite FK Constraint Preventing Cross-Company Linkage
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  BEGIN
+    INSERT INTO public.user_notifications (notification_id, company_id, user_id, recipient_role)
+    VALUES (v_notif_1, v_co_b, v_user_b_admin, 'company_admin');
+    RAISE EXCEPTION 'Cross-company notification linkage unexpectedly succeeded';
+  EXCEPTION WHEN foreign_key_violation THEN
+    -- Expected: composite foreign key prevents cross-tenant linkage
+    NULL;
+  END;
+
+  -- 9. Test Preference Enforcement on Enqueue
+  INSERT INTO public.user_notification_preferences (user_id, company_id, channel, enabled)
+  VALUES (v_user_a_tech, v_co_a, 'email', false)
+  ON CONFLICT (user_id, company_id, channel) DO UPDATE SET enabled = false;
+
+  v_notif_pref := public.pooldocai_publish_company_notification(
+    v_co_a,
+    'preference_test',
+    'Preference Test',
+    'Checking channel preferences',
+    '{}'::jsonb,
+    'dedupe-pref-1',
+    'all',
+    NULL
+  );
+
+  SELECT count(*) INTO v_cnt FROM public.notification_delivery_queue
+  WHERE notification_id = v_notif_pref AND user_id = v_user_a_tech AND channel = 'email' AND delivery_status = 'opted_out';
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION 'Expected email queue status opted_out for Tech A, got %', v_cnt;
+  END IF;
+
+  -- 10. Test Multi-Company User Inbox Isolation
+  INSERT INTO public.company_members (company_id, user_id, role, status, display_name)
+  VALUES (v_co_b, v_user_a_admin, 'technician', 'active', 'Admin A in Co B');
+
+  PERFORM set_config('request.jwt.claim.sub', v_user_a_admin::text, true);
+
+  v_res_a := public.pooldocai_get_user_notifications(p_company_id := v_co_a);
+  IF (v_res_a->>'company_id')::uuid <> v_co_a THEN
+    RAISE EXCEPTION 'Expected Company A notifications, got %', v_res_a->>'company_id';
+  END IF;
+
+  v_res_b := public.pooldocai_get_user_notifications(p_company_id := v_co_b);
+  IF (v_res_b->>'company_id')::uuid <> v_co_b THEN
+    RAISE EXCEPTION 'Expected Company B notifications, got %', v_res_b->>'company_id';
+  END IF;
+
+  BEGIN
+    PERFORM public.pooldocai_get_user_notifications(p_company_id := gen_random_uuid());
+    RAISE EXCEPTION 'Expected NOT_A_MEMBER_OF_SPECIFIED_COMPANY exception';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE '%NOT_A_MEMBER_OF_SPECIFIED_COMPANY%' THEN
+      RAISE;
+    END IF;
+  END;
+
   -- Teardown Section 10 test fixtures
   PERFORM set_config('request.jwt.claim.sub', '', true);
+  DELETE FROM public.user_notification_preferences WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.notification_delivery_queue WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.user_notifications WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.company_notifications WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.company_members WHERE company_id IN (v_co_a, v_co_b);
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
   DELETE FROM auth.users WHERE id IN (v_user_a_admin, v_user_a_tech, v_user_a_susp, v_user_b_admin);
-END $$;
+END $;

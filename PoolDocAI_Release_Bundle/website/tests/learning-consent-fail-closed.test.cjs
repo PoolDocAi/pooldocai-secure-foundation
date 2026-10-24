@@ -174,6 +174,9 @@ function createHarness() {
           error: null
         };
       }
+      if (funcName === "pooldocai_publish_company_notification") {
+        return { data: "mock-notif-uuid", error: null };
+      }
       throw new Error(`Unexpected RPC: ${funcName}`);
     },
 

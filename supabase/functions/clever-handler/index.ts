@@ -1625,18 +1625,21 @@ Deno.serve(async (req: Request) => {
     }).select("id,status,created_at").single();
     if(createError||!created){console.error("Customer widget service request insert failed",{code:createError?.code});return jsonResponse({error:"We could not save the service request. Please try again or contact the company directly.",code:"SERVICE_REQUEST_CREATE_FAILED"},500);}
     try {
-      await supabase.rpc("pooldocai_publish_company_notification", {
+      const { data: notifId, error: notifErr } = await supabase.rpc("pooldocai_publish_company_notification", {
         p_company_id: widget.company.id,
         p_event_type: "service_request_created",
         p_title: "New Customer Service Request",
-        p_body: (name + " requested service: " + summary).slice(0, 160),
+        p_body: ("Service requested: " + summary).slice(0, 160),
         p_data: { serviceRequestId: created.id, sourceType: "customer_widget" },
         p_dedupe_key: "sr-created-" + created.id,
         p_target_role: "admin",
         p_target_user_id: null
       });
+      if (notifErr) {
+        console.error("Durable notification publishing failed for service request", { serviceRequestId: created.id, error: notifErr.message });
+      }
     } catch (notifErr) {
-      console.warn("Notification publish non-fatal error:", notifErr);
+      console.error("Notification publish unexpected error:", notifErr);
     }
     return jsonResponse({ok:true,serviceRequestId:created.id,status:created.status,createdAt:created.created_at,message:"Your request was sent to the company service queue. This does not book an appointment; the company will need to contact you."},201);
   }
@@ -1824,6 +1827,23 @@ Deno.serve(async (req: Request) => {
     if(membershipError||!membershipResult){await supabase.from("technician_invitation_requests").update({status:"cancelled",revoked_at:new Date().toISOString()}).eq("id",String(invitation?.id||""));return jsonResponse({error:/seat|limit/i.test(String((membershipError as AnyRecord|null)?.message||""))?"This company has reached its subscription seat limit.":"Could not create this company membership. Check membership constraints and retry after inspecting the invitation record.",code:/seat|limit/i.test(String((membershipError as AnyRecord|null)?.message||""))?"SEAT_LIMIT_REACHED":"MEMBERSHIP_CREATE_FAILED"},409);}
     await supabase.from("company_member_access_audit").insert({company_id:targetCompanyId,member_id:membershipResult.id,subject_user_id:authUser.id,actor_user_id:authenticatedUserId,event_type:invitationSent?"member_invited":previous?.id?"member_reactivated":"member_added",before_state:previous?{status:previous.status}:null,after_state:membershipResult});
     await supabase.from("platform_usage_events").insert({company_id:targetCompanyId,user_id:authenticatedUserId,event_type:invitationSent?"seat_invitation_sent":previous?.id?"seat_reactivated":"seat_added",units:1,metric_type:"seat_event",quantity:1,quantity_unit:"seat",source_event_key:`seat-invite:${invitation?.id}`,metadata:{member_user_id:authUser.id,role,invitation_id:invitation?.id,invitation_expires_at:invitation?.expires_at}});
+    try {
+      const { data: notifId, error: notifErr } = await supabase.rpc("pooldocai_publish_company_notification", {
+        p_company_id: targetCompanyId,
+        p_event_type: "member_invited",
+        p_title: "Company Member Seat Assigned",
+        p_body: ("New " + role + " seat assigned to " + email).slice(0, 160),
+        p_data: { memberUserId: authUser.id, role, invitationId: invitation?.id || null },
+        p_dedupe_key: "seat-invite-" + String(invitation?.id || authUser.id),
+        p_target_role: "admin",
+        p_target_user_id: null
+      });
+      if (notifErr) {
+        console.error("Durable notification publishing failed for member invite", { invitationId: invitation?.id, error: notifErr.message });
+      }
+    } catch (notifErr) {
+      console.error("Notification publish unexpected error:", notifErr);
+    }
     return jsonResponse({ok:true,member:membershipResult,invitationId:invitation?.id||null,invitationSent,existingAccount:!invitationSent,seatUsage:{active:Number(seatCount||0)+(invitationSent?0:1),reserved:Number(pendingCount||0)+(invitationSent?1:0),limit:company.seat_limit},message:invitationSent?"Invitation email sent. The new seat remains locked until the recipient accepts the invite and sets a password.":"Existing account assigned to this company as an active seat."},200);
   }
 
@@ -2048,7 +2068,9 @@ Deno.serve(async (req: Request) => {
       const limit = Number(body.limit) || 20;
       const offset = Number(body.offset) || 0;
       const unreadOnly = body.unreadOnly === true || body.unread_only === true;
+      const companyId = textValue(body.companyId, 80) || authenticatedCompanyId;
       const { data, error } = await supabase.rpc("pooldocai_get_user_notifications", {
+        p_company_id: companyId,
         p_limit: limit,
         p_offset: offset,
         p_unread_only: unreadOnly
@@ -2076,7 +2098,10 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "mark_all_notifications_read") {
-      const { data, error } = await supabase.rpc("pooldocai_mark_all_notifications_read");
+      const companyId = textValue(body.companyId, 80) || authenticatedCompanyId;
+      const { data, error } = await supabase.rpc("pooldocai_mark_all_notifications_read", {
+        p_company_id: companyId
+      });
       if (error) {
         console.error("Failed to mark all notifications read:", error);
         return jsonResponse({ error: "Could not mark all notifications as read.", code: "MARK_ALL_READ_FAILED" }, 500);
@@ -2315,7 +2340,7 @@ Deno.serve(async (req: Request) => {
         if (registerError || !registered) return jsonResponse({ error: "Could not register the webpage source.", code: "WEBPAGE_REGISTER_FAILED" }, 500);
         const queuedResult = await queueManual(registered.id);
         try {
-          await supabase.rpc("pooldocai_publish_company_notification", {
+          const { data: notifId, error: notifErr } = await supabase.rpc("pooldocai_publish_company_notification", {
             p_company_id: targetCompanyId,
             p_event_type: "manual_processing_queued",
             p_title: "Webpage Ingestion Queued",
@@ -2325,7 +2350,12 @@ Deno.serve(async (req: Request) => {
             p_target_role: "admin",
             p_target_user_id: null
           });
-        } catch (_) {}
+          if (notifErr) {
+            console.error("Durable notification publishing failed for webpage import", { manualId: registered.id, error: notifErr.message });
+          }
+        } catch (notifErr) {
+          console.error("Notification publish unexpected error:", notifErr);
+        }
         return jsonResponse(queuedResult, 202);
       } catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : "Webpage import failed.", code: "DOCUMENT_IMPORT_FAILED" }, 502); }
     }
@@ -2582,7 +2612,7 @@ Deno.serve(async (req: Request) => {
       }
       if (data?.id) {
         try {
-          await supabase.rpc("pooldocai_publish_company_notification", {
+          const { data: notifId, error: notifErr } = await supabase.rpc("pooldocai_publish_company_notification", {
             p_company_id: authenticatedCompanyId,
             p_event_type: "technician_job_saved",
             p_title: "Technician Job Logged",
@@ -2592,7 +2622,12 @@ Deno.serve(async (req: Request) => {
             p_target_role: "admin",
             p_target_user_id: null
           });
-        } catch (_) {}
+          if (notifErr) {
+            console.error("Durable notification publishing failed for technician job", { jobId: data.id, error: notifErr.message });
+          }
+        } catch (notifErr) {
+          console.error("Notification publish unexpected error:", notifErr);
+        }
       }
       // Every directly entered PWA job is automatically included in the learning loop
       // as a privacy-minimized pending review item, regardless of its source.

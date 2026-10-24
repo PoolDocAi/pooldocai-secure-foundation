@@ -42,24 +42,52 @@ async function loadTechNotifications(){
     }
     const listWrap=$('notificationListWrap');
     if(!listWrap)return;
+    listWrap.innerHTML='';
     if(!notifs.length){
-      listWrap.innerHTML='<div class="small" style="text-align:center;padding:16px 8px;color:#64748b;">No notifications.</div>';
+      const emptyDiv=document.createElement('div');
+      emptyDiv.className='small';
+      emptyDiv.style.cssText='text-align:center;padding:16px 8px;color:#64748b;';
+      emptyDiv.textContent='No notifications.';
+      listWrap.appendChild(emptyDiv);
       return;
     }
-    listWrap.innerHTML=notifs.map(n=>`<div style="padding:8px;border-radius:8px;background:${n.read_at?'#f8fafc':'#f0fdf4'};border:1px solid ${n.read_at?'#e2e8f0':'#86efac'};font-size:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-        <strong style="color:#0f2b46;">${n.title||''}</strong>
-        <span style="font-size:10px;color:#64748b;">${new Date(n.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
-      </div>
-      <div style="color:#334155;margin-bottom:4px;">${n.body||''}</div>
-      ${!n.read_at?`<div style="text-align:right;"><button type="button" class="secondary" data-tech-notif-read="${n.user_notification_id}" style="font-size:10px;padding:2px 6px;">Mark read</button></div>`:''}
-    </div>`).join('');
-    document.querySelectorAll('[data-tech-notif-read]').forEach(btn=>{
-      btn.onclick=async()=>{
-        btn.disabled=true;
-        await authClient.rpc('pooldocai_mark_notification_read',{p_user_notification_id:btn.dataset.techNotifRead});
-        await loadTechNotifications();
-      };
+    notifs.forEach(n=>{
+      const card=document.createElement('div');
+      card.style.cssText=`padding:8px;border-radius:8px;background:${n.read_at?'#f8fafc':'#f0fdf4'};border:1px solid ${n.read_at?'#e2e8f0':'#86efac'};font-size:12px;margin-bottom:6px;`;
+      const header=document.createElement('div');
+      header.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;';
+      const titleEl=document.createElement('strong');
+      titleEl.style.color='#0f2b46';
+      titleEl.textContent=n.title||'';
+      const timeEl=document.createElement('span');
+      timeEl.style.cssText='font-size:10px;color:#64748b;';
+      timeEl.textContent=n.created_at?new Date(n.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+      header.appendChild(titleEl);
+      header.appendChild(timeEl);
+      card.appendChild(header);
+
+      const bodyEl=document.createElement('div');
+      bodyEl.style.cssText='color:#334155;margin-bottom:4px;word-break:break-word;';
+      bodyEl.textContent=n.body||'';
+      card.appendChild(bodyEl);
+
+      if(!n.read_at){
+        const actWrap=document.createElement('div');
+        actWrap.style.textAlign='right';
+        const markBtn=document.createElement('button');
+        markBtn.type='button';
+        markBtn.className='secondary';
+        markBtn.style.cssText='font-size:10px;padding:2px 6px;';
+        markBtn.textContent='Mark read';
+        markBtn.onclick=async()=>{
+          markBtn.disabled=true;
+          await authClient.rpc('pooldocai_mark_notification_read',{p_user_notification_id:n.user_notification_id});
+          await loadTechNotifications();
+        };
+        actWrap.appendChild(markBtn);
+        card.appendChild(actWrap);
+      }
+      listWrap.appendChild(card);
     });
   }catch(e){console.warn('loadTechNotifications error:',e);}
 }
