@@ -576,6 +576,7 @@ DECLARE
   v_queue_manual_a uuid := gen_random_uuid();
   v_queue_cross uuid := gen_random_uuid();
   v_queue_revoked uuid := gen_random_uuid();
+  v_case_test uuid := gen_random_uuid();
   v_case_unverified uuid := gen_random_uuid();
   v_queue_unverified uuid := gen_random_uuid();
   v_err_msg text;
@@ -605,9 +606,19 @@ BEGIN
     (v_manual_b, v_co_b, 'Hayward SuperPump Manual', 'test/path/b', true, 'pump', 'hayward', 'super_pump', 'general_candidate', true, now(), v_admin_id)
   ON CONFLICT (id) DO NOTHING;
 
+  -- 2b. Setup a valid diagnostic case to satisfy foreign key on learning_review_queue
+  INSERT INTO public.diagnostic_cases (
+    id, tenant_id, case_status, technician_verified, case_learning_opt_in,
+    learning_terms_version, equipment_category, resolution_summary_redacted
+  )
+  VALUES (
+    v_case_test, v_co_a, 'resolved', true, true,
+    '2026-10-v1', 'pump', 'Verified procedure completed successfully'
+  );
+
   -- 3. TEST P0-3: public_demo approval MUST be rejected
   INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
-  VALUES (v_queue_public, NULL, NULL, 'public_demo', 'Public demo visitor fix advice here for testing.', '{}', 'pending');
+  VALUES (v_queue_public, v_case_test, NULL, 'public_demo', 'Public demo visitor fix advice here for testing.', '{}', 'pending');
 
   BEGIN
     PERFORM public.pooldocai_approve_learning_case(v_queue_public, 'Cleaned lesson', v_admin_id, 'Reviewer signoff');
@@ -621,7 +632,7 @@ BEGIN
 
   -- 4. TEST P0-4: Consented company_manual approval populates non-null provenance metadata
   INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
-  VALUES (v_queue_manual_a, NULL, v_co_a, 'company_manual', 'Pentair IntelliFlo drive replacement procedure text.', ARRAY[v_manual_a::text, (v_manual_a::text || '#chunk-0')], 'pending');
+  VALUES (v_queue_manual_a, v_case_test, v_co_a, 'company_manual', 'Pentair IntelliFlo drive replacement procedure text.', ARRAY[v_manual_a::text, (v_manual_a::text || '#chunk-0')], 'pending');
 
   PERFORM public.pooldocai_approve_learning_case(v_queue_manual_a, 'Pentair IntelliFlo drive replacement approved lesson', v_admin_id, 'Senior tech signoff');
 
@@ -636,7 +647,7 @@ BEGIN
   -- 5. TEST P0-4: Cross-tenant manual approval MUST FAIL CLOSED
   -- Tenant A queue item attempting to cite Tenant B manual
   INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
-  VALUES (v_queue_cross, NULL, v_co_a, 'company_manual', 'Attempting cross-tenant manual publication.', ARRAY[v_manual_b::text, (v_manual_b::text || '#chunk-0')], 'pending');
+  VALUES (v_queue_cross, v_case_test, v_co_a, 'company_manual', 'Attempting cross-tenant manual publication.', ARRAY[v_manual_b::text, (v_manual_b::text || '#chunk-0')], 'pending');
 
   BEGIN
     PERFORM public.pooldocai_approve_learning_case(v_queue_cross, 'Cross tenant lesson', v_admin_id, 'Signoff');
@@ -651,7 +662,7 @@ BEGIN
   -- 6. TEST P0-4: Manual consent withdrawal MUST reject approval
   UPDATE public.company_manuals SET shared_learning_opt_in = false WHERE id = v_manual_a;
   INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
-  VALUES (v_queue_revoked, NULL, v_co_a, 'company_manual', 'Revoked consent manual lesson.', ARRAY[v_manual_a::text], 'pending');
+  VALUES (v_queue_revoked, v_case_test, v_co_a, 'company_manual', 'Revoked consent manual lesson.', ARRAY[v_manual_a::text], 'pending');
 
   BEGIN
     PERFORM public.pooldocai_approve_learning_case(v_queue_revoked, 'Revoked lesson', v_admin_id, 'Signoff');
@@ -683,7 +694,7 @@ BEGIN
   -- Cleanup test rows
   DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
   DELETE FROM public.learning_review_queue WHERE id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
-  DELETE FROM public.diagnostic_cases WHERE id = v_case_unverified;
+  DELETE FROM public.diagnostic_cases WHERE id IN (v_case_test, v_case_unverified);
   DELETE FROM public.company_manuals WHERE id IN (v_manual_a, v_manual_b);
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
   DELETE FROM auth.users WHERE id = v_admin_id;
