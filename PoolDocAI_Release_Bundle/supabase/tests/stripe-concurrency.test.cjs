@@ -39,7 +39,6 @@ function query(sql, pgUrl = PG_URL) {
     });
     return stdout.trim();
   } catch (err) {
-    // Sanitize any credential in error message
     const cleanErr = String(err.stderr || err.message || "").replace(/:\/\/[^:]+:[^@]+@/g, "://***:***@");
     throw new Error(`psql query error: ${cleanErr}`);
   }
@@ -132,8 +131,11 @@ async function runConcurrencyTest() {
   const testEventFeb = `evt_concurrency_feb_${crypto.randomUUID().replace(/-/g, "")}`;
   const testSubIdA = `sub_a_${crypto.randomUUID().replace(/-/g, "").slice(0, 14)}`;
   const testSubIdB = `sub_b_${crypto.randomUUID().replace(/-/g, "").slice(0, 14)}`;
+  const testSubIdC = `sub_c_${crypto.randomUUID().replace(/-/g, "").slice(0, 14)}`;
   const testEventSubB = `evt_concurrency_sub_b_${crypto.randomUUID().replace(/-/g, "")}`;
   const testEventInvA = `evt_concurrency_inv_a_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventInvFailFirst = `evt_inv_fail_first_${crypto.randomUUID().replace(/-/g, "")}`;
+  const testEventSubRecover = `evt_recover_${crypto.randomUUID().replace(/-/g, "")}`;
   const testEventInvPaid = `evt_concurrency_inv_paid_${crypto.randomUUID().replace(/-/g, "")}`;
 
   const createdEventIds = [
@@ -142,6 +144,8 @@ async function runConcurrencyTest() {
     testEventFeb,
     testEventSubB,
     testEventInvA,
+    testEventInvFailFirst,
+    testEventSubRecover,
     testEventInvPaid
   ];
 
@@ -462,12 +466,33 @@ async function runConcurrencyTest() {
     // Test that legitimate replacement subscription overrides a prior past_due status.
     // ---------------------------------------------------------------------------
     console.log("Step 7c: Testing reverse ordering and legitimate replacement recovery...");
-    // Manually mark company past_due as if an invoice failed while sub A was active
-    query(`UPDATE public.companies SET billing_status = 'past_due', stripe_subscription_id = '${testSubIdA}' WHERE id = '${testCompanyId}';`);
 
-    const testEventSubRecover = `evt_recover_${crypto.randomUUID().replace(/-/g, "")}`;
-    createdEventIds.push(testEventSubRecover);
+    // 1. First, an invoice payment fails on the active subscription B
+    session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventInvFailFirst}', 'invoice.payment_failed', 60, 5);`);
+    const claimFailFirst = JSON.parse(await session1.waitForOutput());
+    assert.equal(claimFailFirst.status, "claimed");
 
+    session1.execute(`
+      SELECT public.pooldocai_apply_and_finalize_stripe_webhook(
+        '${testEventInvFailFirst}',
+        '${claimFailFirst.claim_token}',
+        '${testCompanyId}'::uuid,
+        '{"billing_status": "past_due"}'::jsonb,
+        '{"event_type": "stripe_invoice.payment_failed", "units": 1}'::jsonb,
+        NULL,
+        false,
+        '{"subscription_id": "${testSubIdB}", "period_start": "2026-03-15T00:00:00Z", "event_type": "invoice.payment_failed"}'::jsonb
+      );
+    `);
+    const applyFailFirst = JSON.parse(await session1.waitForOutput());
+    assert.equal(applyFailFirst.success, true);
+    assert.equal(applyFailFirst.status, "applied");
+
+    // Company is now past_due
+    const coStatePastDue = query(`SELECT billing_status FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(coStatePastDue.includes("past_due"), "Company should be past_due after invoice payment failure");
+
+    // 2. Next, a legitimate replacement/resubscription arrives with a newer billing period
     session1.execute(`SELECT public.pooldocai_claim_stripe_webhook_event('${testEventSubRecover}', 'customer.subscription.updated', 60, 5);`);
     const claimRecover = JSON.parse(await session1.waitForOutput());
     assert.equal(claimRecover.status, "claimed");
@@ -477,20 +502,21 @@ async function runConcurrencyTest() {
         '${testEventSubRecover}',
         '${claimRecover.claim_token}',
         '${testCompanyId}'::uuid,
-        '{"stripe_subscription_id": "${testSubIdB}", "plan_name": "enterprise", "billing_status": "active", "billing_period_start": "2026-04-01T00:00:00Z"}'::jsonb,
+        '{"stripe_subscription_id": "${testSubIdC}", "plan_name": "fleet_complete", "billing_status": "active", "billing_period_start": "2026-04-01T00:00:00Z"}'::jsonb,
         NULL,
         NULL,
         false,
-        '{"subscription_id": "${testSubIdB}", "period_start": "2026-04-01T00:00:00Z", "event_type": "customer.subscription.updated"}'::jsonb
+        '{"subscription_id": "${testSubIdC}", "period_start": "2026-04-01T00:00:00Z", "event_type": "customer.subscription.updated"}'::jsonb
       );
     `);
     const applyRecover = JSON.parse(await session1.waitForOutput());
     assert.equal(applyRecover.success, true);
     assert.equal(applyRecover.status, "applied");
 
-    const coStateRecover = query(`SELECT stripe_subscription_id, billing_status FROM public.companies WHERE id = '${testCompanyId}';`);
-    assert.ok(coStateRecover.includes(testSubIdB));
+    const coStateRecover = query(`SELECT stripe_subscription_id, billing_status, plan_name FROM public.companies WHERE id = '${testCompanyId}';`);
+    assert.ok(coStateRecover.includes(testSubIdC), "Company must update to new subscription C");
     assert.ok(coStateRecover.includes("active"), "Legitimate replacement subscription restored active status");
+    assert.ok(coStateRecover.includes("fleet_complete"), "Company plan updated to fleet_complete");
     console.log("PASS: Step 7c - Replacement subscription cleanly recovered past_due tenant to active.");
 
     // ---------------------------------------------------------------------------
@@ -510,7 +536,7 @@ async function runConcurrencyTest() {
         '{"event_type": "stripe_invoice.payment_succeeded", "units": 1}'::jsonb,
         NULL,
         false,
-        '{"subscription_id": "${testSubIdB}", "period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_succeeded"}'::jsonb
+        '{"subscription_id": "${testSubIdC}", "period_start": "2026-04-01T00:00:00Z", "event_type": "invoice.payment_succeeded"}'::jsonb
       );
     `);
     const applyPaid = JSON.parse(await session1.waitForOutput());
