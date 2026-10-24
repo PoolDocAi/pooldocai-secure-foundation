@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- Concept L2: PD + Fluid Precision Flow (Hydrodynamic Circulation & Diagnostic Architecture) -->
+  <defs>
+    <linearGradient id="l2-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a1d33"/>
+      <stop offset="100%" stop-color="#030b14"/>
+    </linearGradient>
+    <linearGradient id="l2-wave" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="50%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="l2-pd" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e0f2fe"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded Base Tile -->
+  <rect width="512" height="512" rx="112" fill="url(#l2-bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="96" stroke="#38bdf8" stroke-opacity="0.2" stroke-width="8"/>
+  
+  <!-- Hydrodynamic Circulation Path (Disciplined Engineered Flow Vector) -->
+  <path d="M96 352 C 160 300, 220 380, 280 340 C 340 300, 380 350, 416 320" stroke="url(#l2-wave)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M120 404 C 180 364, 240 424, 300 392 C 350 364, 380 394, 400 380" stroke="#0ea5e9" stroke-opacity="0.4" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- Bold Technical 'PD' Monogram Anchored Above Circulation Flow -->
+  <!-- 'P' Glyph -->
+  <path d="M128 112 H236 C280 112 312 138 312 180 C312 222 280 248 236 248 H176 V308 H128 Z M176 156 V204 H232 C254 204 266 196 266 180 C266 164 254 156 232 156 Z" fill="url(#l2-pd)"/>
+  
+  <!-- Intersecting 'D' Arc -->
+  <path d="M268 112 H328 C376 112 412 148 412 210 C412 272 376 308 328 308 H268 Z M316 156 V264 H326 C352 264 366 244 366 210 C366 176 352 156 326 156 Z" fill="url(#l2-pd)"/>
+  
+  <!-- Diagnostic Spark Node -->
+  <circle cx="376" cy="144" r="14" fill="#38bdf8"/>
+</svg>

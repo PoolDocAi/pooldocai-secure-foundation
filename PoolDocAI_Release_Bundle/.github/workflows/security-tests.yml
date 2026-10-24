@@ -40,6 +40,8 @@ jobs:
         run: node website/tests/safety-stop.test.cjs
       - name: Test TASK-002 troubleshooter UX, technician default, and site readiness
         run: node website/tests/task002-troubleshooter-ux.test.cjs
+      - name: Test TASK-003 design tokens, logo concepts, and Option C hybrid styling
+        run: node website/tests/task003-design-tokens-and-logos.test.cjs
       - name: Test monthly session entitlements, technician sync, and trial RPC scope
         run: node website/tests/monthly-sessions.test.cjs
 

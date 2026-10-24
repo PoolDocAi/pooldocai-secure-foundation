@@ -160,6 +160,7 @@
     @media (max-width:1023px){#dispatchNoteContent{display:none}#dispatchNoteContent.dispatch-summary-open{display:block}}
   </style>
   <script src="/js/config.js"></script>
+  <link rel="stylesheet" href="/css/design-tokens.css" />
 </head>
 <body data-site-page="demo" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
 
@@ -2937,7 +2938,7 @@
       if (!barEl) return;
       const list = SAMPLE_STARTERS[currentSurfaceMode] || SAMPLE_STARTERS.homeowner;
       barEl.innerHTML = list.map(s => `
-        <button type="button" data-starter-prompt="${escapeHtml(s.prompt)}" class="demo-starter-chip px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-sky-500/20 text-sky-300 border border-slate-700 hover:border-sky-400 text-xs font-semibold transition cursor-pointer">
+        <button type="button" data-starter-prompt="${escapeHtml(s.prompt)}" class="demo-starter-chip min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-sky-500/20 text-sky-300 border border-slate-700 hover:border-sky-400 text-xs font-semibold transition cursor-pointer flex items-center justify-center">
           ${escapeHtml(s.label)}
         </button>
       `).join('');
@@ -5580,7 +5581,7 @@
         </div>
       </div>
       <div class="flex items-center gap-1.5">
-        <button id="closeHomeownerWidgetBtn" type="button" aria-label="Close Homeowner Chat" class="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold cursor-pointer">✕</button>
+        <button id="closeHomeownerWidgetBtn" type="button" aria-label="Close Homeowner Chat" class="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-base font-bold flex items-center justify-center cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-sky-400">✕</button>
       </div>
     </div>
 
@@ -5604,8 +5605,8 @@
     <!-- Chat Input Box -->
     <div class="p-3 bg-slate-900 border-t border-slate-800">
       <form id="homeownerWidgetInputForm" class="flex gap-2">
-        <input id="homeownerWidgetCustomInput" type="text" maxlength="600" placeholder="Type a pool symptom (e.g. pump wont start)…" autocomplete="off" class="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400" />
-        <button id="homeownerWidgetSendBtn" type="submit" class="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs cursor-pointer">Send</button>
+        <input id="homeownerWidgetCustomInput" type="text" maxlength="600" placeholder="Type a pool symptom (e.g. pump wont start)…" autocomplete="off" class="flex-1 min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-base sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400" />
+        <button id="homeownerWidgetSendBtn" type="submit" class="min-h-[44px] px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm cursor-pointer flex items-center justify-center">Send</button>
       </form>
       <p class="mt-1 text-[10px] text-slate-400 text-center">Demonstrates embedded chat widget for pool company websites.</p>
     </div>
@@ -5644,7 +5645,7 @@
         { label: "Heater not heating", prompt: "My pool heater is not heating the water." }
       ];
       bar.innerHTML = starters.map(s => `
-        <button type="button" data-widget-starter="${escapeHtml(s.prompt)}" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-sky-900/60 text-sky-200 border border-slate-700 text-[11px] font-semibold transition cursor-pointer">
+        <button type="button" data-widget-starter="${escapeHtml(s.prompt)}" class="demo-widget-starter-chip min-h-[44px] px-3 py-2 rounded-xl bg-slate-800 hover:bg-sky-900/60 text-sky-200 border border-slate-700 text-xs font-semibold transition cursor-pointer flex items-center">
           ${escapeHtml(s.label)}
         </button>
       `).join('');

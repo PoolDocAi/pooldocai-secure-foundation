@@ -189,6 +189,7 @@
     @media(max-width:650px){.secure-app-toolbar{align-items:flex-start}.secure-app-actions{width:100%}.secure-app-actions a,.secure-app-actions button{flex:1;text-align:center}.secure-app-brand small{max-width:75vw}}
   </style>
 
+  <link rel="stylesheet" href="/css/design-tokens.css" />
 </head>
 <body data-site-page="secure-app" class="app-auth-required bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
   <div id="secureLoginGate" class="secure-login-gate" role="main" aria-labelledby="secureLoginTitle">
@@ -575,7 +576,7 @@
         <label class="sm:col-span-2 text-sm font-semibold">Field observations, readings and tests<textarea id="integratedNotesDiagnostic" rows="3" maxlength="4000" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" placeholder="What did you observe? What tests/readings were completed? What did the manuals or troubleshooting establish?"></textarea></label>
         <label class="text-sm font-semibold">Case outcome<select id="integratedNotesOutcome" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white"><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="follow_up_required">Follow-up required</option><option value="unresolved">Unresolved</option></select></label>
         <label class="sm:col-span-2 text-sm font-semibold">Resolution / next step<textarea id="integratedNotesResolution" rows="2" maxlength="3000" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" placeholder="Resolved, follow-up needed, parts required, or next diagnostic step…"></textarea></label>
-        <div class="sm:col-span-2 flex flex-wrap items-center gap-3"><button id="integratedNotesSave" type="submit" class="rounded-lg bg-sky-500 px-5 py-3 font-bold text-slate-950 hover:bg-sky-400">Save Field Notes</button><p id="integratedNotesStatus" role="status" aria-live="polite" class="text-sm text-slate-300">Notes are not saved until you select Save Field Notes.</p></div>
+        <div class="sm:col-span-2 flex flex-wrap items-center gap-3"><button id="integratedNotesSave" type="submit" class="rounded-lg bg-sky-500 px-5 py-3 font-bold text-slate-950 hover:bg-sky-400 min-h-[44px] cursor-pointer flex items-center justify-center">Save Field Notes</button><p id="integratedNotesStatus" role="status" aria-live="polite" class="text-sm text-slate-300">Notes are not saved until you select Save Field Notes.</p></div>
       </form>
     </div>
   </div>
