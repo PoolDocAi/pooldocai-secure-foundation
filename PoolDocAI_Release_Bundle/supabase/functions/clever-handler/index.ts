@@ -1908,11 +1908,30 @@ function isCriticalPoolHazardText(rawText: string): boolean {
     if (clientJobId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientJobId)) {
       return jsonResponse({ error: "The offline sync ID must be a valid UUID. Save the job again to create a fresh sync ID.", code: "CLIENT_JOB_ID_INVALID" }, 400);
     }
+    const rawRelatedCaseId = textValue(body.relatedCaseId, 80);
+    let validatedRelatedCaseId: string | null = null;
+    if (rawRelatedCaseId) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawRelatedCaseId)) {
+        return jsonResponse({ error: "The related case ID must be a valid UUID.", code: "RELATED_CASE_ID_INVALID" }, 400);
+      }
+      const { data: existingCase, error: caseLookupError } = await supabase
+        .from("diagnostic_cases")
+        .select("id, tenant_id")
+        .eq("id", rawRelatedCaseId)
+        .eq("tenant_id", authenticatedCompanyId)
+        .maybeSingle();
+      if (caseLookupError || !existingCase) {
+        return jsonResponse({ error: "The referenced diagnostic case belongs to a different company workspace or was not found.", code: "TENANT_MISMATCH" }, 403);
+      }
+      validatedRelatedCaseId = existingCase.id;
+    }
+    const sessionRef = textValue(body.diagnosticSessionId || body.sessionId, 120);
+    const jobRef = textValue(body.jobRef, 120) || (sessionRef ? (`session:${sessionRef}`.slice(0, 120)) : null);
     const row = {
       tenant_id: authenticatedCompanyId,
       technician_id: authenticatedUserId,
       case_status: textValue(body.outcome, 40) === "resolved" ? "resolved" : (textValue(body.outcome, 40) === "unresolved" ? "unresolved" : (textValue(body.outcome, 40) === "follow_up_required" ? "technician_handoff" : "open")),
-      job_reference_redacted: textValue(body.jobRef, 120) || null,
+      job_reference_redacted: jobRef,
       equipment_category: textValue(body.equipmentCategory, 120) || null,
       manufacturer_normalized: textValue(body.manufacturer, 120) || null,
       model_normalized: textValue(body.model, 120) || null,
@@ -1921,7 +1940,7 @@ function isCriticalPoolHazardText(rawText: string): boolean {
       repair_steps_redacted: repairSteps,
       resolution_summary_redacted: resolution,
       outcome: textValue(body.outcome, 40) || "in_progress",
-      related_case_id: textValue(body.relatedCaseId, 80) || null,
+      related_case_id: validatedRelatedCaseId,
       voice_transcribed: body.voiceTranscribed === true,
       source: textValue(body.source, 40) === "troubleshooter" ? "troubleshooter" : "technician_manual",
       technician_verified: true,
@@ -1957,13 +1976,17 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         symptom_redacted: caseIssue, resolution_summary_redacted: caseResolution || null,
         source_ids: [data.id], technician_verified: true, approved_for_learning: false
       }).select("id").single();
+      if (validatedRelatedCaseId) {
+        const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
+        await supabase.from("diagnostic_case_steps").insert({ case_id: validatedRelatedCaseId, step_number: 99, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician session-linked field notes saved", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
+      }
       if (!learningCaseError && learningCase) {
         const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
         await supabase.from("diagnostic_case_steps").insert({ case_id: learningCase.id, step_number: 1, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician job submitted", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
         const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
         const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
         if (queueError) console.error("Technician job learning queue failed", { code: queueError.code, jobId: data.id });
-        else await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
+        else if (!row.related_case_id) await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
       } else { console.error("Technician job learning case failed", { code: learningCaseError?.code, jobId: data.id }); }
       return jsonResponse({ ok: true, job: data, message: "Technician job notes saved and submitted for learning-loop review." }, 200);
     } catch {

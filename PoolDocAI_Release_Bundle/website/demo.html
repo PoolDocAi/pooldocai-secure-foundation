@@ -424,27 +424,25 @@
   <section id="interactive-demo" class="py-16 sm:py-20 bg-slate-900 text-white border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="max-w-3xl mx-auto text-center space-y-3">
-        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Live Conversational PoolDocAI Troubleshooter</span>
-        <h2 class="text-2xl sm:text-4xl font-extrabold">Have a Natural Troubleshooting Conversation with PoolDocAI</h2>
+        <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Live Field Tech Mobile Demo</span>
+        <h2 class="text-2xl sm:text-4xl font-extrabold">Field Technician AI Diagnostic Copilot</h2>
         <p class="text-slate-300 text-xs sm:text-base">
-          Start with a symptom or choose one of the eight categories below. PoolDocAI guides the intake, runs an illustrative water-balancing calculator, and prepares a Pre-Job Summary for review. This is a demo; it does not book or dispatch a technician.
+          Experience how field service technicians troubleshoot pool equipment at the pad with diagnostic checklists, fault codes, and verified equipment procedures. This public demo provides 8 turns.
         </p>
       </div>
 
-      <!-- Surface Mode Switcher (Homeowner Triage vs. Field Tech Copilot) -->
-      <div class="mt-8 flex justify-center">
-        <div class="inline-flex p-1.5 rounded-2xl bg-slate-950 border border-slate-800 gap-2">
-          <button id="modeHomeownerBtn" type="button" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer">
-            🏠 Homeowner Triage Chat
-          </button>
-          <button id="modeTechBtn" type="button" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer">
-            🔧 Field Tech Mobile App
-          </button>
-        </div>
+      <!-- Tech-First Demo Action Bar with CTA to Secondary Floating Homeowner Widget -->
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <span class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow">
+          🔧 Field Tech Mobile Demo (Primary)
+        </span>
+        <button id="openHomeownerWidgetBtn" type="button" data-open-homeowner-widget class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-800 hover:bg-slate-700 text-sky-200 border border-slate-700 shadow transition cursor-pointer">
+          💬 Try Homeowner Chat Widget (Demo) &rarr;
+        </button>
       </div>
       <div class="mt-3 text-center space-y-1" aria-live="polite">
-        <p id="publicDemoTurnMeter" class="text-sm font-bold text-sky-200">Homeowner Triage demo: 8 of 8 turns remaining (0/8 used).</p>
-        <p class="text-xs text-slate-400">Homeowner Triage and Field Tech Mobile App each have a separate allowance of 8 turns in this browser session.</p>
+        <p id="publicDemoTurnMeter" class="text-sm font-bold text-sky-200">Field Tech Mobile App demo: 8 of 8 turns remaining (0/8 used).</p>
+        <p class="text-xs text-slate-400">Primary Field Tech Mobile Demo has an 8-turn allowance. Homeowner Chat Widget has its own separate 8-turn allowance.</p>
       </div>
 
       <!-- Expanded 2-Column Conversational Interface -->
@@ -456,7 +454,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2.5">
                 <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — 24/7 Homeowner Troubleshooting Assistant</span>
+                <span id="walkthroughHeaderTitle" class="text-sm sm:text-base font-extrabold text-white">PoolDocAI — Field Technician Mobile Copilot</span>
               </div>
               <button id="restartScenarioBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer">
                 ↻ New Conversation
@@ -1687,7 +1685,7 @@
     // =========================================================================
     // 2. PERSISTENT MULTI-TURN SESSION CONTEXT WITH LOCKED CATEGORY & MEMORY
     // =========================================================================
-    let currentSurfaceMode = 'homeowner';
+    let currentSurfaceMode = 'tech'; // Field Tech Mobile Demo is primary by default
     let conversationHistory = [];
     let lastTurnRequest = null;
     let dispatchMilestone = null;
@@ -5480,7 +5478,8 @@
       const chat = snapshot.chat || {};
       if (Array.isArray(chat.history) && chat.history.length && typeof conversationHistory !== 'undefined') {
         conversationHistory = chat.history;
-        if (chat.currentSurfaceMode) currentSurfaceMode = chat.currentSurfaceMode;
+        if (chat.currentSurfaceMode === 'tech') currentSurfaceMode = 'tech';
+        else currentSurfaceMode = 'tech'; // Default to tech-first demo
         if (typeof updatePublicDemoTurnMeter === 'function') updatePublicDemoTurnMeter();
         if (chat.sessionContext) sessionContext = chat.sessionContext;
         if (chat.waterHelpState) waterHelpState = chat.waterHelpState;
@@ -5571,5 +5570,251 @@
 </script>
 <script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
 <script src="/js/core.js" defer></script>
+  <!-- Floating Homeowner Chat Launcher Button -->
+  <div id="homeownerFloatingLauncherWrap" class="fixed bottom-5 right-5 z-40">
+    <button id="homeownerFloatingLauncher" type="button" data-open-homeowner-widget aria-expanded="false" aria-controls="homeownerChatWidgetPanel" aria-label="Try Homeowner Troubleshooting Assistant" class="group flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-sky-500 to-cyan-500 text-slate-950 font-black text-xs sm:text-sm shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 border-2 border-white/80 cursor-pointer">
+      <span class="text-base sm:text-lg">💬</span>
+      <span class="hidden sm:inline">Try Homeowner Chat Widget</span>
+      <span class="inline sm:hidden">Homeowner Chat</span>
+      <span class="px-2 py-0.5 rounded-full bg-slate-950 text-sky-300 text-[10px] font-bold">8 Turns</span>
+    </button>
+  </div>
+
+  <!-- Floating Homeowner Chat Widget Pop-up / Mobile Sheet -->
+  <div id="homeownerChatWidgetPanel" role="dialog" aria-modal="true" aria-labelledby="homeownerWidgetTitle" aria-hidden="true" class="hidden fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[420px] max-w-[440px] h-[600px] max-h-[85vh] bg-slate-950 border border-sky-400/50 rounded-3xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200">
+    <!-- Widget Header -->
+    <div class="px-4 py-3 bg-gradient-to-r from-sky-900/90 to-cyan-950/90 border-b border-sky-700/60 flex items-center justify-between text-white">
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        <div>
+          <h3 id="homeownerWidgetTitle" class="text-xs sm:text-sm font-extrabold tracking-tight">PoolDocAI Homeowner Chat Widget</h3>
+          <p class="text-[10px] text-sky-200">Customer Website Assistant · Demo Preview</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button id="closeHomeownerWidgetBtn" type="button" aria-label="Close Homeowner Chat" class="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold cursor-pointer">✕</button>
+      </div>
+    </div>
+
+    <!-- Demo Usage & Scope Banner -->
+    <div class="px-3 py-1.5 bg-sky-950/80 border-b border-sky-800/50 flex items-center justify-between text-[11px] text-sky-200">
+      <span id="homeownerWidgetTurnMeter" class="font-bold">Homeowner demo: 8 of 8 turns remaining</span>
+      <span class="text-amber-300 font-semibold">Demo preview</span>
+    </div>
+
+    <!-- Scrollable Conversation Stream -->
+    <div id="homeownerWidgetBody" class="flex-1 space-y-3 p-3.5 overflow-y-auto text-xs sm:text-sm leading-relaxed" style="scrollbar-width:thin">
+      <!-- Dynamic Homeowner Chat Messages -->
+    </div>
+
+    <!-- Homeowner Starter Prompts -->
+    <div id="homeownerWidgetStarters" class="p-2.5 bg-slate-900/90 border-t border-slate-800 space-y-1.5">
+      <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">💡 Quick Customer Questions:</div>
+      <div id="homeownerWidgetStartersBar" class="flex flex-wrap gap-1.5"></div>
+    </div>
+
+    <!-- Chat Input Box -->
+    <div class="p-3 bg-slate-900 border-t border-slate-800">
+      <form id="homeownerWidgetInputForm" class="flex gap-2">
+        <input id="homeownerWidgetCustomInput" type="text" maxlength="600" placeholder="Type a pool symptom (e.g. pump wont start)…" autocomplete="off" class="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400" />
+        <button id="homeownerWidgetSendBtn" type="submit" class="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs cursor-pointer">Send</button>
+      </form>
+      <p class="mt-1 text-[10px] text-slate-400 text-center">Demonstrates embedded chat widget for pool company websites.</p>
+    </div>
+  </div>
+
+  <script id="pooldocai-floating-homeowner-widget">
+  (function () {
+    let widgetHistory = [];
+    let widgetSessionContext = {
+      category: null, subType: null, brand: null, model: null, symptom: null, currentStep: 0,
+      ruledOut: [], skippedSteps: [], lastRecommendedStep: null, initialTriageComplete: false
+    };
+    let widgetDiagnosticSessionId = 'hw-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    let isWidgetBusy = false;
+
+    function getWidgetRemainingTurns() {
+      const used = Math.min(publicDemoTurns('homeowner'), PUBLIC_DEMO_TURN_LIMIT);
+      return Math.max(0, PUBLIC_DEMO_TURN_LIMIT - used);
+    }
+
+    function updateWidgetTurnMeter() {
+      const el = document.getElementById('homeownerWidgetTurnMeter');
+      if (!el) return;
+      const rem = getWidgetRemainingTurns();
+      const used = PUBLIC_DEMO_TURN_LIMIT - rem;
+      el.textContent = `Homeowner demo: ${rem} of ${PUBLIC_DEMO_TURN_LIMIT} turns remaining (${used}/${PUBLIC_DEMO_TURN_LIMIT} used)`;
+    }
+
+    function renderWidgetStarters() {
+      const bar = document.getElementById('homeownerWidgetStartersBar');
+      if (!bar) return;
+      const starters = [
+        { label: "Pump wont start", prompt: "My pool pump wont start and makes no sound." },
+        { label: "Water is cloudy", prompt: "My pool water is cloudy and chemistry is off." },
+        { label: "Filter pressure high", prompt: "My pool filter pressure is running high." },
+        { label: "Heater not heating", prompt: "My pool heater is not heating the water." }
+      ];
+      bar.innerHTML = starters.map(s => `
+        <button type="button" data-widget-starter="${escapeHtml(s.prompt)}" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-sky-900/60 text-sky-200 border border-slate-700 text-[11px] font-semibold transition cursor-pointer">
+          ${escapeHtml(s.label)}
+        </button>
+      `).join('');
+    }
+
+    function initWidgetConversation() {
+      if (widgetHistory.length > 0) return;
+      widgetHistory = [{
+        role: 'assistant',
+        aiReply: "Hi! I'm PoolDocAI's customer troubleshooting assistant. Describe your pool equipment issue below (e.g. pump wont start, high pressure, cloudy water), and I'll help with safe preliminary checks.",
+        citation: "PoolDocAI Customer Chat Widget — Public Demo Preview"
+      }];
+      renderWidgetConversation();
+      renderWidgetStarters();
+      updateWidgetTurnMeter();
+    }
+
+    function renderWidgetConversation() {
+      const bodyEl = document.getElementById('homeownerWidgetBody');
+      if (!bodyEl) return;
+      bodyEl.innerHTML = widgetHistory.map((msg, i) => {
+        if (msg.role === 'user') {
+          return `<div class="ml-auto max-w-[88%] p-2.5 rounded-2xl bg-sky-600/25 border border-sky-500/40 text-right"><div class="text-[10px] font-bold uppercase text-sky-300">You (Homeowner)</div><p class="text-white mt-1 text-xs sm:text-sm text-left">${escapeHtml(msg.userMsg || '')}</p></div>`;
+        }
+        const isCrit = msg.isCritical === true;
+        const replyText = escapeHtml(msg.aiReply || '').replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
+        return `<div class="mr-auto max-w-[94%] p-3 rounded-2xl ${isCrit ? 'bg-rose-950/80 border border-rose-500/60' : 'bg-slate-900 border border-slate-700/80'}"><div class="text-[10px] font-bold uppercase ${isCrit ? 'text-rose-300' : 'text-emerald-400'}">PoolDocAI Widget</div><p class="text-slate-100 mt-1 whitespace-pre-line text-xs sm:text-sm">${replyText}</p>${msg.citation ? `<div class="mt-2 text-[10px] text-slate-400">📋 ${escapeHtml(msg.citation)}</div>` : ''}</div>`;
+      }).join('');
+      bodyEl.scrollTop = bodyEl.scrollHeight;
+    }
+
+    window.openHomeownerWidget = function () {
+      const panel = document.getElementById('homeownerChatWidgetPanel');
+      const launcher = document.getElementById('homeownerFloatingLauncher');
+      if (!panel) return;
+      panel.classList.remove('hidden');
+      panel.setAttribute('aria-hidden', 'false');
+      launcher?.setAttribute('aria-expanded', 'true');
+      initWidgetConversation();
+      document.getElementById('homeownerWidgetCustomInput')?.focus();
+    };
+
+    window.closeHomeownerWidget = function () {
+      const panel = document.getElementById('homeownerChatWidgetPanel');
+      const launcher = document.getElementById('homeownerFloatingLauncher');
+      if (!panel) return;
+      panel.classList.add('hidden');
+      panel.setAttribute('aria-hidden', 'true');
+      launcher?.setAttribute('aria-expanded', 'false');
+      launcher?.focus();
+    };
+
+    async function sendWidgetMessage(userText) {
+      if (!userText || isWidgetBusy) return;
+      if (getWidgetRemainingTurns() <= 0) {
+        showDemoWaitlistNotice("You have reached the 8-turn limit for the Homeowner Chat Widget demo. Join the waitlist for full access!");
+        return;
+      }
+      isWidgetBusy = true;
+      const sendBtn = document.getElementById('homeownerWidgetSendBtn');
+      const inputEl = document.getElementById('homeownerWidgetCustomInput');
+      if (sendBtn) sendBtn.disabled = true;
+      if (inputEl) inputEl.value = '';
+
+      // Increment independent homeowner turn count
+      const currentUsed = publicDemoTurns('homeowner');
+      sessionStorage.setItem(publicDemoCountKey('homeowner'), String(currentUsed + 1));
+      updateWidgetTurnMeter();
+
+      widgetHistory.push({ role: 'user', userMsg: userText });
+      renderWidgetConversation();
+
+      // Check emergency stops
+      if (isCriticalPoolHazard(userText)) {
+        widgetHistory.push({
+          role: 'assistant',
+          aiReply: "🚫 **NON-BYPASSABLE SAFETY STOP:** The reported condition may involve gas, live electricity, active fire/smoke, structural pressure hazard, or suction entrapment. Do not touch equipment or enter the pool. Move to safety and contact emergency services or a qualified professional.",
+          isCritical: true,
+          citation: "Safety Enforcement — Immediate Emergency Stop"
+        });
+        renderWidgetConversation();
+        isWidgetBusy = false;
+        if (sendBtn) sendBtn.disabled = false;
+        return;
+      }
+
+      try {
+        const payload = {
+          action: 'troubleshoot',
+          mode: 'homeowner',
+          authenticatedApp: false,
+          sessionId: getPublicDemoSessionId('homeowner'),
+          diagnosticSessionId: widgetDiagnosticSessionId,
+          query: userText,
+          sessionContext: widgetSessionContext,
+          history: widgetHistory.slice(-8)
+        };
+        const res = await fetch(TROUBLESHOOTER_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        let reply = data.replyText || data.message || data.response || '';
+        if (!reply) {
+          reply = getLocalTroubleshootingFallback(userText);
+        }
+        widgetHistory.push({
+          role: 'assistant',
+          aiReply: reply,
+          citation: data.source || "PoolDocAI Diagnostic Knowledge Base"
+        });
+      } catch (err) {
+        const fallback = getLocalTroubleshootingFallback(userText);
+        widgetHistory.push({
+          role: 'assistant',
+          aiReply: fallback,
+          citation: "PoolDocAI Safe Offline Diagnostic Guidance"
+        });
+      } finally {
+        isWidgetBusy = false;
+        if (sendBtn) sendBtn.disabled = false;
+        renderWidgetConversation();
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      renderWidgetStarters();
+      updateWidgetTurnMeter();
+      document.querySelectorAll('[data-open-homeowner-widget]').forEach(btn => {
+        btn.addEventListener('click', () => window.openHomeownerWidget());
+      });
+      document.getElementById('closeHomeownerWidgetBtn')?.addEventListener('click', () => window.closeHomeownerWidget());
+      document.getElementById('homeownerWidgetInputForm')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('homeownerWidgetCustomInput');
+        if (input && input.value.trim()) sendWidgetMessage(input.value.trim());
+      });
+      document.getElementById('homeownerWidgetStartersBar')?.addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-widget-starter]');
+        if (chip) {
+          const prompt = chip.getAttribute('data-widget-starter');
+          if (prompt) sendWidgetMessage(prompt);
+        }
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const panel = document.getElementById('homeownerChatWidgetPanel');
+          if (panel && !panel.classList.contains('hidden') && panel.getAttribute('aria-hidden') === 'false') {
+            window.closeHomeownerWidget();
+          }
+        }
+      });
+      if (window.location.hash === '#open-homeowner-widget' || new URLSearchParams(window.location.search).get('widget') === 'homeowner') {
+        setTimeout(window.openHomeownerWidget, 200);
+      }
+    });
+  })();
+  </script>
 </body>
 </html>

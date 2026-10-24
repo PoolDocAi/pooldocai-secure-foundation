@@ -487,15 +487,11 @@
         </p>
       </div>
 
-      <!-- Surface Mode Switcher (Homeowner Triage vs. Field Tech Copilot) -->
+      <!-- Authenticated Field Technician Workspace Header Badge -->
       <div class="mt-8 flex justify-center">
-        <div class="inline-flex p-1.5 rounded-2xl bg-slate-950 border border-slate-800 gap-2">
-          <button id="modeHomeownerBtn" type="button" aria-pressed="false" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition cursor-pointer">
-            🏠 Homeowner Triage Chat
-          </button>
-          <button id="modeTechBtn" type="button" aria-pressed="true" class="mode-switch-btn px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-sky-500 text-slate-950 shadow transition cursor-pointer">
-            🔧 Field Technician Troubleshooter
-          </button>
+        <div class="inline-flex items-center gap-2.5 px-6 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 shadow">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-xs sm:text-sm font-bold text-sky-400">🔧 Field Technician Troubleshooter Workspace</span>
         </div>
       </div>
 
@@ -1289,9 +1285,15 @@
     const SECURE_APP_MODE = true;
     let APP_SESSION = null;
     function secureAuthHeaders(){ if(!APP_SESSION?.access_token) throw new Error('Your login session expired. Sign in again.'); return {'Content-Type':'application/json','Accept':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+APP_SESSION.access_token}; }
+    let activeLearningCaseId = null;
     async function captureTroubleshootingLearning(issue, answer, actionName){
       if(!APP_SESSION?.access_token || !issue || !answer) return;
-      try { const headers=secureAuthHeaders(); await fetch(TROUBLESHOOTER_ENDPOINT,{method:'POST',headers,keepalive:true,body:JSON.stringify({action:'capture_learning_case',authenticatedApp:true,sessionId:APP_SESSION.user?.id?('account-'+APP_SESSION.user.id):'',issue:String(issue).slice(0,1200),answer:String(answer).slice(0,1200),category:sessionContext.category||'',manufacturer:sessionContext.brand||'',model:sessionContext.model||'',caseStatus:actionName==='resolved'?'resolved':'open'})}); } catch(err) { console.warn('Learning-loop capture will need retry:',err?.message||'network issue'); }
+      try {
+        const headers=secureAuthHeaders();
+        const res = await fetch(TROUBLESHOOTER_ENDPOINT,{method:'POST',headers,keepalive:true,body:JSON.stringify({action:'capture_learning_case',authenticatedApp:true,sessionId:APP_SESSION.user?.id?('account-'+APP_SESSION.user.id):'',issue:String(issue).slice(0,1200),answer:String(answer).slice(0,1200),category:sessionContext.category||'',manufacturer:sessionContext.brand||'',model:sessionContext.model||'',caseStatus:actionName==='resolved'?'resolved':'open'})});
+        const data = await res.json().catch(()=>({}));
+        if (data?.caseId) activeLearningCaseId = data.caseId;
+      } catch(err) { console.warn('Learning-loop capture will need retry:',err?.message||'network issue'); }
     }
     const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
 
@@ -1811,7 +1813,7 @@
     // 2. PERSISTENT MULTI-TURN SESSION CONTEXT WITH LOCKED CATEGORY & MEMORY
     // =========================================================================
     const requestedSurfaceMode = new URLSearchParams(window.location.search).get('mode');
-    let currentSurfaceMode = requestedSurfaceMode === 'homeowner' ? 'homeowner' : 'tech';
+    let currentSurfaceMode = 'tech'; // Authenticated app workspace is strictly the Field Technician Troubleshooter
     let conversationHistory = [];
     let lastTurnRequest = null;
     let dispatchMilestone = null;
@@ -1852,6 +1854,7 @@
       conversationHistory = [];
       lastTurnRequest = null;
       dispatchMilestone = null;
+      activeLearningCaseId = null;
       if (typeof createDiagnosticSessionId === 'function') {
         diagnosticSessionId = createDiagnosticSessionId();
       }
@@ -5347,8 +5350,8 @@
     }
 
     function syncSurfaceModeUI(mode) {
-      if (mode) currentSurfaceMode = mode;
-      const isTech = currentSurfaceMode === 'tech';
+      currentSurfaceMode = 'tech'; // In authenticated app, always tech
+      const isTech = true;
       document.body.classList.toggle('tech-notes-mode', isTech);
       updateIntegratedTechNotesVisibility();
       const techBtn = document.getElementById('modeTechBtn');
@@ -5396,6 +5399,7 @@
           action:'save_technician_job', authenticatedApp:true,
           sessionId: activeSessionId,
           diagnosticSessionId: diagnosticSessionId || null,
+          relatedCaseId: activeLearningCaseId || null,
           source:'troubleshooter', complaint, diagnosticNotes, resolution,
           equipmentCategory:document.getElementById('integratedNotesCategory').value.trim() || String(sessionContext.category || ''),
           manufacturer:document.getElementById('integratedNotesEquipment').value.trim() || String(sessionContext.brand || ''),
@@ -5622,7 +5626,8 @@
       const chat = snapshot.chat || {};
       if (Array.isArray(chat.history) && chat.history.length && typeof conversationHistory !== 'undefined') {
         conversationHistory = chat.history;
-        if (chat.currentSurfaceMode) currentSurfaceMode = chat.currentSurfaceMode;
+        // In authenticated app, surface mode is strictly 'tech' regardless of older snapshot
+        currentSurfaceMode = 'tech';
         if (chat.sessionContext) sessionContext = chat.sessionContext;
         if (chat.waterHelpState) waterHelpState = chat.waterHelpState;
         if (chat.algaeTriageState) algaeTriageState = chat.algaeTriageState;
