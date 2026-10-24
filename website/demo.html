@@ -163,19 +163,6 @@
 </head>
 <body data-site-page="demo" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
 
-  <!-- TOP VALIDATION & WAITLIST BANNER -->
-  <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
-    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">PUBLIC DEMO · 8 TURNS PER MODE</span>
-        <span class="font-medium">Try 8 turns in Homeowner Triage and a separate 8 turns in the Field Tech Mobile App preview. Join the waitlist for full account access.</span>
-      </div>
-      <div class="flex items-center gap-4">
-        <a href="demo.html#interactive-demo" class="text-white hover:text-sky-200 font-semibold text-xs flex items-center gap-1">Try Live Demo &rarr;</a>
-        <a href="waitlist.html#interest-section" class="text-amber-300 hover:text-amber-200 font-semibold text-xs flex items-center gap-1">Join Pilot &rarr;</a>
-      </div>
-    </div>
-  </div>
 
   <!-- STICKY NAVIGATION HEADER -->
   <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
@@ -200,8 +187,9 @@
       </nav>
 
       <div class="flex items-center gap-2">
-        <a href="demo.html#interactive-demo" class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-sky-700 border border-sky-200 hover:bg-sky-50 transition">Try Live Demo</a>
-        <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition">Join Pilot</a>
+        <a href="#interactive-demo" class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-sky-700 border border-sky-200 hover:bg-sky-50 transition">Try PoolDocAI Tech</a>
+        <button type="button" data-open-homeowner-widget class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-slate-700 border border-slate-200 hover:bg-slate-50 transition cursor-pointer">Try PoolDocAI Homeowner</button>
+        <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition">Join Waitlist</a>
         <button id="mobileMenuBtn" type="button" aria-label="Toggle Menu" aria-expanded="false" aria-controls="mobileMenuPanel" class="xl:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 border border-slate-200 cursor-pointer">
           ☰
         </button>
@@ -212,10 +200,10 @@
     <div id="mobileMenuPanel" class="hidden xl:hidden bg-white border-t border-slate-200 px-4 py-3 space-y-2 text-sm font-medium text-slate-700">
       <a href="index.html#top" class="block py-2 hover:text-sky-600">Home</a>
       <a href="how-it-works.html#solution-section" class="block py-2 hover:text-sky-600">How It Works</a>
-      <a href="demo.html#interactive-demo" class="block py-2 hover:text-sky-600">Try the Demo</a>
-      <a href="pricing.html#pricing-roi-section" class="block py-2 hover:text-sky-600">Pricing</a>
-      <a href="faq.html#faq-section" class="block py-2 hover:text-sky-600">Help &amp; Safety</a>
-      <a href="/admin.html" class="block py-2 text-sky-600 font-bold">Account Login</a><a href="waitlist.html#interest-section" class="block py-2 text-sky-600 font-bold">Join the Pilot</a>
+      <a href="#interactive-demo" class="block py-2 hover:text-sky-600">Try PoolDocAI Tech</a>
+      <button type="button" data-open-homeowner-widget class="block w-full text-left py-2 hover:text-sky-600 font-medium">Try PoolDocAI Homeowner</button>
+      <a href="/admin.html" class="block py-2 text-sky-600 font-bold">Account Login</a>
+      <a href="waitlist.html#interest-section" class="block py-2 text-sky-600 font-bold">Join Waitlist</a>
       <div class="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
         <button id="openPortalModalMobileBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 underline underline-offset-2 cursor-pointer">Setup details</button>
       </div>
@@ -3499,10 +3487,10 @@
       return (isModelResolved() && modelGate) || (!!sessionContext.initialTriageComplete && (symptomGate || opGate)) || (!!sessionContext.makeConfirmed && makeGate);
     }
 
-    function getLocalTroubleshootingFallback(userText) {
+    function getLocalTroubleshootingFallback(userText, ctx = sessionContext) {
       const q = normalizeConversationalText(userText || '');
-      const category = String(sessionContext.category || '').toLowerCase();
-      const symptom = String(sessionContext.symptom || userText || '');
+      const category = String(ctx?.category || '').toLowerCase();
+      const symptom = String(ctx?.symptom || userText || '');
       if (category.includes('water quality') || /algae|green pool|green water|cloudy water|water chemistry|\bph\b|chlorine|alkalinity|\bcya\b/.test(q)) {
         if (/algae|green pool|green water/.test(`${q} ${symptom.toLowerCase()}`)) return '**FIRST SAFE CHECK — GREEN / CLOUDY WATER (NO DOSING YET)**\n1. If you have a suitable pool test kit, record free chlorine (FC), pH, and CYA/stabilizer; also note total alkalinity and pool volume if known.\n2. Keep swimmers out if the water is cloudy or the pool floor is not clearly visible. Never mix products or guess a chemical dose.\n\nShare the measured readings so the next step can be selected safely. A complete algae-treatment plan still requires applicable verified guidance and the right pool/product details.';
         return '**FIRST SAFE CHECK — WATER CHEMISTRY**\n1. Test and record free chlorine (FC), pH, and CYA/stabilizer; add total alkalinity and pool volume if available.\n2. Do not add chemicals based on appearance alone, and do not guess a dose or combine products.\n\nTell me the actual test readings. If the water may be unsafe or readings are outside product-label guidance, get qualified pool-service help.';
@@ -5715,21 +5703,23 @@
         showDemoWaitlistNotice("You have reached the 8-turn limit for the Homeowner Chat Widget demo. Join the waitlist for full access!");
         return;
       }
+
+      // Check learning consent before invoking public demo Edge function
+      if (typeof ensurePublicDemoLearningConsent === 'function') {
+        const consented = await ensurePublicDemoLearningConsent();
+        if (!consented) return;
+      }
+
       isWidgetBusy = true;
       const sendBtn = document.getElementById('homeownerWidgetSendBtn');
       const inputEl = document.getElementById('homeownerWidgetCustomInput');
       if (sendBtn) sendBtn.disabled = true;
       if (inputEl) inputEl.value = '';
 
-      // Increment independent homeowner turn count
-      const currentUsed = publicDemoTurns('homeowner');
-      sessionStorage.setItem(publicDemoCountKey('homeowner'), String(currentUsed + 1));
-      updateWidgetTurnMeter();
-
       widgetHistory.push({ role: 'user', userMsg: userText });
       renderWidgetConversation();
 
-      // Check emergency stops
+      // Check client-side emergency stops on user message
       if (isCriticalPoolHazard(userText)) {
         widgetHistory.push({
           role: 'assistant',
@@ -5743,38 +5733,113 @@
         return;
       }
 
+      // Generate distinct per-turn demoTurnId
+      const widgetTurnId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random());
+
       try {
+        const history = widgetHistory.slice(-8).map(turn => ({
+          user: String(turn.userMsg || '').slice(0, 1200),
+          assistant: String(turn.aiReply || '').slice(0, 1800),
+          citation: String(turn.citation || '').slice(0, 300)
+        }));
+        const messages = [];
+        history.forEach(turn => {
+          if (turn.user) messages.push({ role: 'user', content: turn.user });
+          if (turn.assistant) messages.push({ role: 'assistant', content: turn.assistant });
+        });
+        messages.push({ role: 'user', content: userText });
+
         const payload = {
           action: 'troubleshoot',
+          action_type: 'troubleshoot',
           mode: 'homeowner',
           authenticatedApp: false,
           sessionId: getPublicDemoSessionId('homeowner'),
+          demoTurnId: widgetTurnId,
           diagnosticSessionId: widgetDiagnosticSessionId,
           query: userText,
+          message: userText,
+          userMessage: userText,
           sessionContext: widgetSessionContext,
-          history: widgetHistory.slice(-8)
+          history,
+          messages
         };
+
+        const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+        if (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY.trim()) {
+          headers.apikey = SUPABASE_ANON_KEY.trim();
+          headers.Authorization = `Bearer ${SUPABASE_ANON_KEY.trim()}`;
+        }
+
         const res = await fetch(TROUBLESHOOTER_ENDPOINT, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+          headers,
           body: JSON.stringify(payload)
         });
-        const data = await res.json().catch(() => ({}));
-        let reply = data.replyText || data.message || data.response || '';
-        if (!reply) {
-          reply = getLocalTroubleshootingFallback(userText);
+
+        const responseText = await res.text();
+        let data;
+        try { data = responseText ? JSON.parse(responseText) : {}; }
+        catch { data = { error: responseText }; }
+
+        if (!res.ok) {
+          if (res.status === 429 || data?.code === 'DEMO_LIMIT_REACHED') {
+            showDemoWaitlistNotice(data?.error || "You have reached the 8-turn limit for the Homeowner Chat Widget demo. Join the waitlist for full access!");
+            widgetHistory.push({
+              role: 'assistant',
+              aiReply: "Demo limit reached: The public demo allows up to eight turns in the Homeowner Chat Widget. Join the waitlist for full account access.",
+              citation: "PoolDocAI Access Control"
+            });
+            return;
+          }
+          if (res.status === 400 && data?.code === 'DEMO_SESSION_REQUIRED') {
+            widgetHistory.push({
+              role: 'assistant',
+              aiReply: "Demo session verification required. Please refresh the page to start a new demo session.",
+              citation: "PoolDocAI Session Guard"
+            });
+            return;
+          }
+          const errMsg = data?.error || data?.message || `Service unavailable (HTTP ${res.status})`;
+          throw new Error(errMsg);
         }
+
+        if (data?.error) {
+          throw new Error(String(data.error));
+        }
+
+        let reply = getSupabaseReply(data);
+        if (!reply) {
+          throw new Error("No diagnostic response generated.");
+        }
+
+        // Apply hazardous repair instruction safety filtration for homeowner mode
+        const cautionRiskText = reply;
+        const homeownerHighRisk = /(?:\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring)\b)/i.test(cautionRiskText);
+        const dangerousChem = typeof isDangerousChemicalMixInstruction === 'function' ? isDangerousChemicalMixInstruction(cautionRiskText) : false;
+
+        if (dangerousChem) {
+          reply = 'Chemical safety hold: this response appears to instruct mixing or combining incompatible pool chemicals. Do not follow that instruction. Keep products separate, follow each product label, and consult a qualified pool professional for a safe treatment sequence.';
+        } else if (homeownerHighRisk) {
+          reply = 'Homeowner safety hold: this response appears to include instructions for gas, electrical, pressurized equipment, or another high-risk repair. The demo will not show those repair instructions in homeowner mode. Do not attempt the repair; choose a non-invasive observation, skip this step, or contact a qualified professional.';
+        }
+
+        // Server confirmed turn: increment independent homeowner turn counter
+        const currentUsed = publicDemoTurns('homeowner');
+        sessionStorage.setItem(publicDemoCountKey('homeowner'), String(currentUsed + 1));
+        updateWidgetTurnMeter();
+
         widgetHistory.push({
           role: 'assistant',
           aiReply: reply,
           citation: data.source || "PoolDocAI Diagnostic Knowledge Base"
         });
       } catch (err) {
-        const fallback = getLocalTroubleshootingFallback(userText);
+        const fallback = getLocalTroubleshootingFallback(userText, widgetSessionContext);
         widgetHistory.push({
           role: 'assistant',
           aiReply: fallback,
-          citation: "PoolDocAI Safe Offline Diagnostic Guidance"
+          citation: "PoolDocAI Safe Offline Diagnostic Guidance (Service Temporarily Unavailable)"
         });
       } finally {
         isWidgetBusy = false;
@@ -5782,6 +5847,19 @@
         renderWidgetConversation();
       }
     }
+
+    // Expose for DOM events and executable test suites
+    window.sendWidgetMessage = sendWidgetMessage;
+    window.getWidgetHistory = () => widgetHistory;
+    window.resetWidgetState = () => {
+      widgetHistory = [];
+      widgetSessionContext = {
+        category: null, subType: null, brand: null, model: null, symptom: null, currentStep: 0,
+        ruledOut: [], skippedSteps: [], lastRecommendedStep: null, initialTriageComplete: false
+      };
+      widgetDiagnosticSessionId = 'hw-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+      initWidgetConversation();
+    };
 
     document.addEventListener('DOMContentLoaded', () => {
       renderWidgetStarters();

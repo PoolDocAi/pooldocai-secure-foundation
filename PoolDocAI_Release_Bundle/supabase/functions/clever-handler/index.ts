@@ -1976,9 +1976,41 @@ function isCriticalPoolHazardText(rawText: string): boolean {
         symptom_redacted: caseIssue, resolution_summary_redacted: caseResolution || null,
         source_ids: [data.id], technician_verified: true, approved_for_learning: false
       }).select("id").single();
+      let stepLinked = false;
       if (validatedRelatedCaseId) {
-        const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
-        await supabase.from("diagnostic_case_steps").insert({ case_id: validatedRelatedCaseId, step_number: 99, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician session-linked field notes saved", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
+        const { data: existingStep } = await supabase
+          .from("diagnostic_case_steps")
+          .select("id, step_number")
+          .eq("case_id", validatedRelatedCaseId)
+          .contains("source_ids", [data.id])
+          .maybeSingle();
+
+        if (existingStep) {
+          stepLinked = true;
+        } else {
+          const { data: maxStepData } = await supabase
+            .from("diagnostic_case_steps")
+            .select("step_number")
+            .eq("case_id", validatedRelatedCaseId)
+            .order("step_number", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const nextStepNumber = ((maxStepData as { step_number?: number } | null)?.step_number || 0) + 1;
+          const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
+          const { error: stepInsertError } = await supabase.from("diagnostic_case_steps").insert({
+            case_id: validatedRelatedCaseId,
+            step_number: nextStepNumber,
+            step_type: "observation",
+            prompt_redacted: stepText || caseIssue || "Technician session-linked field notes saved",
+            result_summary_redacted: caseResolution || null,
+            source_ids: [data.id]
+          });
+          if (stepInsertError) {
+            console.error("Diagnostic case step linkage failed", { code: stepInsertError.code, caseId: validatedRelatedCaseId, jobId: data.id });
+          } else {
+            stepLinked = true;
+          }
+        }
       }
       if (!learningCaseError && learningCase) {
         const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);

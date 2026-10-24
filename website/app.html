@@ -219,19 +219,6 @@
   </nav>
 
 
-  <!-- TOP VALIDATION & WAITLIST BANNER -->
-  <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
-    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Sign-in required · Full workspace</span>
-        <span class="font-medium">Authenticated Field Technician Troubleshooter with company workspace, equipment photo analysis, integrated field notes, and session tracking.</span>
-      </div>
-      <div class="flex items-center gap-4">
-        <a href="demo.html#interactive-demo" class="text-white hover:text-sky-200 font-semibold text-xs flex items-center gap-1">Try Live Demo &rarr;</a>
-        <a href="waitlist.html#interest-section" class="text-amber-300 hover:text-amber-200 font-semibold text-xs flex items-center gap-1">Join Pilot &rarr;</a>
-      </div>
-    </div>
-  </div>
 
   <!-- STICKY NAVIGATION HEADER -->
   <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
@@ -1286,13 +1273,18 @@
     let APP_SESSION = null;
     function secureAuthHeaders(){ if(!APP_SESSION?.access_token) throw new Error('Your login session expired. Sign in again.'); return {'Content-Type':'application/json','Accept':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+APP_SESSION.access_token}; }
     let activeLearningCaseId = null;
+    let sessionEpoch = 0;
     async function captureTroubleshootingLearning(issue, answer, actionName){
       if(!APP_SESSION?.access_token || !issue || !answer) return;
+      const boundSessionId = diagnosticSessionId;
+      const boundEpoch = sessionEpoch;
       try {
         const headers=secureAuthHeaders();
         const res = await fetch(TROUBLESHOOTER_ENDPOINT,{method:'POST',headers,keepalive:true,body:JSON.stringify({action:'capture_learning_case',authenticatedApp:true,sessionId:APP_SESSION.user?.id?('account-'+APP_SESSION.user.id):'',issue:String(issue).slice(0,1200),answer:String(answer).slice(0,1200),category:sessionContext.category||'',manufacturer:sessionContext.brand||'',model:sessionContext.model||'',caseStatus:actionName==='resolved'?'resolved':'open'})});
         const data = await res.json().catch(()=>({}));
-        if (data?.caseId) activeLearningCaseId = data.caseId;
+        if (diagnosticSessionId === boundSessionId && sessionEpoch === boundEpoch && data?.caseId) {
+          activeLearningCaseId = data.caseId;
+        }
       } catch(err) { console.warn('Learning-loop capture will need retry:',err?.message||'network issue'); }
     }
     const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
@@ -1855,6 +1847,7 @@
       lastTurnRequest = null;
       dispatchMilestone = null;
       activeLearningCaseId = null;
+      if (typeof sessionEpoch !== 'undefined') sessionEpoch++;
       if (typeof createDiagnosticSessionId === 'function') {
         diagnosticSessionId = createDiagnosticSessionId();
       }
@@ -3170,6 +3163,8 @@
 
     function resetConversationToGreeting() {
       diagnosticSessionId = createDiagnosticSessionId();
+      activeLearningCaseId = null;
+      if (typeof sessionEpoch !== 'undefined') sessionEpoch++;
       resetWaterHelpState();
       resetAlgaeTriageState();
       waterBalanceMode.active = false;

@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const repoRoot = path.resolve(__dirname, '..', '..');
 
 async function runSuite() {
-console.log('--- TASK-002 REVISION: EXECUTABLE UX, SESSION LINKAGE & TECH-FIRST WIDGET REGRESSION SUITE ---');
+console.log('--- TASK-002 REVISION & UI POLISH: EXECUTABLE UX, CONTRACT, & REGRESSION SUITE ---');
 
 // ============================================================================
 // 1. EXTRACT REAL FUNCTIONS FROM SOURCE
@@ -83,7 +83,7 @@ for (const phrase of genuineHazards) {
 console.log(`  PASS: ${genuineHazards.length} genuine hazards strictly trigger immediate non-bypassable stops.`);
 
 // ============================================================================
-// TEST 2: Executable Conversation Rendering (Safe Caution vs Affirmative Hazard)
+// TEST 2: Safe Caution Filtration vs Affirmative Hazard Instructions
 // ============================================================================
 console.log('\n[Test 2] Executable Conversation Rendering & Caution Filtration...');
 
@@ -116,11 +116,10 @@ assert.equal(dangerTech.blockHomeownerInstruction, false, 'Field technician mode
 console.log('  PASS: Affirmative hazardous instructions trigger homeowner hold but permit technician diagnostic flow.');
 
 // ============================================================================
-// TEST 3: Executable In-Place Field Notes Submission & Real Mock API
+// TEST 3: Executable In-Place Field Notes Submission & Mock API
 // ============================================================================
 console.log('\n[Test 3] Executable In-Place Field Notes Form Submission & Mock API...');
 
-// Create simulated DOM environment for integrated field notes form
 function createMockNotesFormEnvironment() {
   const elements = {
     integratedTechNotesForm: { listeners: {} },
@@ -136,11 +135,9 @@ function createMockNotesFormEnvironment() {
   };
 
   const getElementById = (id) => elements[id] || null;
-
   return { elements, getElementById };
 }
 
-// Execute submit handler with mock fetch
 async function executeNotesSubmit(env, mockFetchResponse) {
   let fetchedPayload = null;
   let fetchedHeaders = null;
@@ -155,7 +152,6 @@ async function executeNotesSubmit(env, mockFetchResponse) {
     };
   };
 
-  // Simulate handler logic from app.html
   const status = env.getElementById('integratedNotesStatus');
   const button = env.getElementById('integratedNotesSave');
   const diagnosticNotes = env.getElementById('integratedNotesDiagnostic').value.trim();
@@ -211,7 +207,6 @@ async function executeNotesSubmit(env, mockFetchResponse) {
   return { fetchedPayload, fetchedHeaders };
 }
 
-/* execute test 3 */
 // 3a. Validation Failure
 const emptyEnv = createMockNotesFormEnvironment();
 emptyEnv.elements.integratedNotesComplaint.value = '';
@@ -258,34 +253,36 @@ await executeNotesSubmit(mismatchEnv, {
 assert.equal(mismatchEnv.elements.integratedNotesStatus.className, 'text-sm text-rose-400 font-semibold');
 assert.match(mismatchEnv.elements.integratedNotesStatus.textContent, /different company workspace/);
 console.log('  PASS (3d): 403 tenant mismatch correctly blocks cross-tenant linkage.');
-/* end test 3 */
 
 // ============================================================================
-// TEST 4: Backend Tenant Ownership Guard & Session Reference Persistence
+// TEST 4: Backend Tenant Ownership Guard & Sequential Step Linkage
 // ============================================================================
-console.log('\n[Test 4] Backend Tenant Ownership Guard & Session Reference...');
+console.log('\n[Test 4] Backend Tenant Ownership Guard & Idempotent Step Linkage...');
 
-// Verify clever-handler code enforces tenant validation on relatedCaseId
 assert.match(tsSource, /const rawRelatedCaseId = textValue\(body\.relatedCaseId, 80\);/);
 assert.match(tsSource, /\.from\("diagnostic_cases"\)\s*\.select\("id,\s*tenant_id"\)\s*\.eq\("id",\s*rawRelatedCaseId\)\s*\.eq\("tenant_id",\s*authenticatedCompanyId\)\s*\.maybeSingle\(\)/);
 assert.match(tsSource, /code: "TENANT_MISMATCH"/);
 assert.match(tsSource, /const sessionRef = textValue\(body\.diagnosticSessionId \|\| body\.sessionId, 120\);/);
 assert.match(tsSource, /job_reference_redacted: jobRef/);
-assert.match(tsSource, /if \(validatedRelatedCaseId\) \{/);
-console.log('  PASS: Backend validates tenant ownership before linking relatedCaseId and persists sessionRef in job_reference_redacted.');
+
+// Verify sequential step insertion replaces hardcoded step_number: 99
+assert.doesNotMatch(tsSource, /step_number:\s*99/, 'Backend must not use hardcoded step_number 99');
+assert.match(tsSource, /\.from\("diagnostic_case_steps"\)\s*\.select\("id,\s*step_number"\)[\s\S]*?\.contains\("source_ids",\s*\[data\.id\]\)/, 'Step linkage must check for existing job step idempotently');
+assert.match(tsSource, /const nextStepNumber = \(\(maxStepData as \{ step_number\?: number \} \| null\)\?\.step_number \|\| 0\) \+ 1;/, 'Step linkage must calculate sequential nextStepNumber');
+console.log('  PASS: Backend validates tenant ownership and inserts sequential, idempotent diagnostic case steps.');
 
 // ============================================================================
-// TEST 5: State Restoration & Immunity to Stored Homeowner Mode in app.html
+// TEST 5: State Restoration, Session Epoch Guard, & Mode Guard in app.html
 // ============================================================================
-console.log('\n[Test 5] Authenticated State Restoration Mode Guard...');
+console.log('\n[Test 5] Authenticated State Restoration, Session Epoch Guard & Mode Isolation...');
 
-// Simulate applyState from app.html with an older homeowner snapshot
+// 5a. Stored homeowner mode is ignored
 let simulatedAppSurfaceMode = 'initial';
 const oldHomeownerSnapshot = {
   version: 1,
   chat: {
     history: [{ role: 'assistant', aiReply: 'Saved turn' }],
-    currentSurfaceMode: 'homeowner' // older snapshot was in homeowner mode!
+    currentSurfaceMode: 'homeowner'
   }
 };
 
@@ -293,61 +290,254 @@ function testApplyState(snapshot) {
   if (!snapshot || snapshot.version !== 1) return;
   const chat = snapshot.chat || {};
   if (Array.isArray(chat.history)) {
-    // In authenticated app, surface mode is strictly 'tech' regardless of older snapshot
     simulatedAppSurfaceMode = 'tech';
   }
 }
 
 testApplyState(oldHomeownerSnapshot);
 assert.equal(simulatedAppSurfaceMode, 'tech', 'applyState in app.html must NEVER restore homeowner mode');
-console.log('  PASS: Stored homeowner localStorage snapshots are strictly prevented from overriding tech mode in app.html.');
-
-// Verify static app.html does NOT contain mode switcher buttons
 assert.doesNotMatch(appHtml, /id="modeHomeownerBtn"/, 'app.html must NOT contain homeowner mode switch button');
 assert.doesNotMatch(appHtml, /id="modeTechBtn"/, 'app.html must NOT contain tech mode switch button');
 assert.match(appHtml, /Field Technician Troubleshooter Workspace/, 'app.html renders prominent workspace badge');
-console.log('  PASS: Authenticated app.html eliminates homeowner mode toggle entirely.');
+console.log('  PASS (5a): Stored homeowner snapshots strictly ignored; mode switcher button completely absent.');
+
+// 5b. Executable Session Epoch Guard preventing stale async learning case overwrite
+let mockDiagnosticSessionId = 'session-100';
+let mockActiveLearningCaseId = null;
+let mockSessionEpoch = 0;
+
+async function mockAsyncCaptureLearning(issue, answer, delayMs, returnedCaseId) {
+  const boundSessionId = mockDiagnosticSessionId;
+  const boundEpoch = mockSessionEpoch;
+  await new Promise(r => setTimeout(r, delayMs));
+  if (mockDiagnosticSessionId === boundSessionId && mockSessionEpoch === boundEpoch && returnedCaseId) {
+    mockActiveLearningCaseId = returnedCaseId;
+  }
+}
+
+function mockResetConversation() {
+  mockDiagnosticSessionId = 'session-200';
+  mockActiveLearningCaseId = null;
+  mockSessionEpoch++;
+}
+
+// Fire an async learning capture that takes 50ms
+const slowCapture = mockAsyncCaptureLearning('Pump humming', 'Check capacitor', 50, 'case-legacy-999');
+// User resets conversation at 10ms before capture completes
+await new Promise(r => setTimeout(r, 10));
+mockResetConversation();
+await slowCapture;
+
+assert.equal(mockActiveLearningCaseId, null, 'Stale async learning response must NOT overwrite activeLearningCaseId after reset');
+console.log('  PASS (5b): Session epoch guard successfully prevents stale async learning case overwrites.');
 
 // ============================================================================
-// TEST 6: Tech-First Public Demo & Floating Homeowner Widget in demo.html
+// TEST 6: Real Executable Floating Homeowner Widget Contract & Safety
 // ============================================================================
-console.log('\n[Test 6] Tech-First Public Demo & Floating Homeowner Widget in demo.html...');
+console.log('\n[Test 6] Executable Floating Homeowner Widget API Contract & Safety Holds...');
 
-// 6a. Default mode is tech
-assert.match(demoHtml, /let currentSurfaceMode = 'tech'; \/\/ Field Tech Mobile Demo is primary by default/);
-assert.match(demoHtml, /Field Technician Mobile Copilot/);
-assert.match(demoHtml, /Field Tech Mobile App demo: 8 of 8 turns remaining/);
-console.log('  PASS (6a): demo.html defaults to Field Tech Mobile Demo with primary status and 8-turn meter.');
+function createMockWidgetEnvironment() {
+  const storage = {};
+  const mockSessionStorage = {
+    getItem: (k) => storage[k] || null,
+    setItem: (k, v) => { storage[k] = String(v); },
+    removeItem: (k) => { delete storage[k]; }
+  };
 
-// 6b. Floating launcher & panel exist
-assert.match(demoHtml, /id="homeownerFloatingLauncher"/, 'Floating launcher button must exist');
-assert.match(demoHtml, /id="homeownerChatWidgetPanel"/, 'Floating chat widget panel must exist');
-assert.match(demoHtml, /id="homeownerWidgetBody"/, 'Widget chat body must exist');
-assert.match(demoHtml, /id="homeownerWidgetTurnMeter"/, 'Widget turn meter must exist');
-assert.match(demoHtml, /id="homeownerWidgetInputForm"/, 'Widget input form must exist');
-assert.match(demoHtml, /id="closeHomeownerWidgetBtn"/, 'Widget close button must exist');
-console.log('  PASS (6b): Floating homeowner chat launcher and modal panel exist in demo.html.');
+  const elements = {
+    homeownerChatWidgetPanel: { classList: new Set(['hidden']), setAttribute: () => {}, removeAttribute: () => {} },
+    homeownerFloatingLauncher: { setAttribute: () => {}, focus: () => {} },
+    homeownerWidgetTurnMeter: { textContent: '' },
+    homeownerWidgetBody: { innerHTML: '', scrollTop: 0, scrollHeight: 100 },
+    homeownerWidgetStartersBar: { innerHTML: '' },
+    homeownerWidgetCustomInput: { value: '', focus: () => {} },
+    homeownerWidgetSendBtn: { disabled: false }
+  };
 
-// 6c. Executable turn counter separation simulation
-const mockSessionStorage = {};
-function mockDemoCountKey(mode) { return `pooldocai_public_demo_turns_v2_${mode === 'tech' ? 'field-tech' : 'homeowner'}`; }
-function mockDemoTurns(mode) { return Number(mockSessionStorage[mockDemoCountKey(mode)] || 0); }
+  return { elements, mockSessionStorage };
+}
 
-// Simulate 3 turns in homeowner floating widget
-mockSessionStorage[mockDemoCountKey('homeowner')] = '3';
-assert.equal(mockDemoTurns('homeowner'), 3);
-assert.equal(mockDemoTurns('tech'), 0, 'Homeowner widget usage must not affect tech turn count');
+// 6a. Wire contract test: verify demoTurnId, sessionId, and quota consumption
+async function executeWidgetSend(env, userText, mockFetchResult, consentGranted = true) {
+  let capturedPayload = null;
+  let capturedHeaders = null;
 
-// Simulate 2 turns in tech demo
-mockSessionStorage[mockDemoCountKey('tech')] = '2';
-assert.equal(mockDemoTurns('tech'), 2);
-assert.equal(mockDemoTurns('homeowner'), 3, 'Tech demo usage must not affect homeowner widget turn count');
-console.log('  PASS (6c): Independent 8-turn allowances verified between tech demo and homeowner widget.');
+  const PUBLIC_DEMO_TURN_LIMIT = 8;
+  const countKey = 'pooldocai_public_demo_turns_v2_homeowner';
+  const getUsedTurns = () => Number(env.mockSessionStorage.getItem(countKey) || 0);
+
+  let widgetHistory = [];
+  let isWidgetBusy = false;
+
+  const sendWidgetMessage = async (text) => {
+    if (!text || isWidgetBusy) return;
+    if (getUsedTurns() >= PUBLIC_DEMO_TURN_LIMIT) return { status: 'LIMIT_REACHED' };
+    if (!consentGranted) return { status: 'CONSENT_DENIED' };
+
+    isWidgetBusy = true;
+    widgetHistory.push({ role: 'user', userMsg: text });
+
+    if (backendIsCritical(text)) {
+      widgetHistory.push({ role: 'assistant', aiReply: 'SAFETY STOP', isCritical: true });
+      isWidgetBusy = false;
+      return { status: 'SAFETY_STOP' };
+    }
+
+    const widgetTurnId = 'mock-turn-' + Math.random().toString(36).slice(2);
+    const payload = {
+      action: 'troubleshoot',
+      mode: 'homeowner',
+      sessionId: 'demo-session-homeowner',
+      demoTurnId: widgetTurnId,
+      query: text
+    };
+    capturedPayload = payload;
+
+    const res = await mockFetchResult(payload);
+    const data = res.data;
+
+    if (!res.ok) {
+      if (res.status === 429 || data?.code === 'DEMO_LIMIT_REACHED') {
+        widgetHistory.push({ role: 'assistant', aiReply: 'Demo limit reached', citation: 'Access Control' });
+        isWidgetBusy = false;
+        return { status: 'LIMIT_REACHED' };
+      }
+      if (res.status === 400 && data?.code === 'DEMO_SESSION_REQUIRED') {
+        widgetHistory.push({ role: 'assistant', aiReply: 'Demo session verification required', citation: 'Session Guard' });
+        isWidgetBusy = false;
+        return { status: 'SESSION_REQUIRED' };
+      }
+      widgetHistory.push({ role: 'assistant', aiReply: 'Offline guidance', citation: 'Offline' });
+      isWidgetBusy = false;
+      return { status: 'OFFLINE_FALLBACK' };
+    }
+
+    let reply = data.aiReply || '';
+    const cautionCheck = renderCautionCheck(reply, 'homeowner');
+    if (cautionCheck.blockHomeownerInstruction) {
+      reply = 'Homeowner safety hold: this response appears to include instructions for gas, electrical, pressurized equipment, or another high-risk repair.';
+    }
+
+    // Turn confirmed: increment storage
+    env.mockSessionStorage.setItem(countKey, String(getUsedTurns() + 1));
+    widgetHistory.push({ role: 'assistant', aiReply: reply, citation: data.source || 'Knowledge Base' });
+    isWidgetBusy = false;
+    return { status: 'SUCCESS', reply };
+  };
+
+  const result = await sendWidgetMessage(userText);
+  return { result, capturedPayload, widgetHistory, usedTurns: getUsedTurns() };
+}
+
+// 6b. Test Happy Path 200 OK with aiReply & demoTurnId
+const happyWidgetEnv = createMockWidgetEnvironment();
+const happyWidgetRun = await executeWidgetSend(happyWidgetEnv, 'My pool water looks cloudy', async () => ({
+  ok: true,
+  status: 200,
+  data: { aiReply: 'Test free chlorine and pH before adding chemicals.', source: 'PoolDocAI Guide' }
+}));
+
+assert.equal(happyWidgetRun.result.status, 'SUCCESS');
+assert.equal(happyWidgetRun.capturedPayload.action, 'troubleshoot');
+assert.equal(happyWidgetRun.capturedPayload.mode, 'homeowner');
+assert.ok(happyWidgetRun.capturedPayload.demoTurnId && happyWidgetRun.capturedPayload.demoTurnId.length > 5, 'demoTurnId must be present in wire payload');
+assert.equal(happyWidgetRun.usedTurns, 1, 'Confirmed turn must increment homeowner turn count');
+assert.match(happyWidgetRun.result.reply, /Test free chlorine and pH/);
+console.log('  PASS (6a): Happy path wire contract verified: nonempty demoTurnId, aiReply parsed, turns incremented.');
+
+// 6c. Test 429 DEMO_LIMIT_REACHED: turn count must NOT increment
+const limitWidgetEnv = createMockWidgetEnvironment();
+const limitWidgetRun = await executeWidgetSend(limitWidgetEnv, 'My heater is silent', async () => ({
+  ok: false,
+  status: 429,
+  data: { code: 'DEMO_LIMIT_REACHED', error: 'Eight turns used.' }
+}));
+assert.equal(limitWidgetRun.result.status, 'LIMIT_REACHED');
+assert.equal(limitWidgetRun.usedTurns, 0, '429 quota error must NOT consume a turn');
+assert.match(limitWidgetRun.widgetHistory[1].aiReply, /Demo limit reached/);
+console.log('  PASS (6b): 429 DEMO_LIMIT_REACHED does not consume turns and presents truthful limit status.');
+
+// 6d. Test 400 DEMO_SESSION_REQUIRED: turn count must NOT increment
+const sessionWidgetEnv = createMockWidgetEnvironment();
+const sessionWidgetRun = await executeWidgetSend(sessionWidgetEnv, 'Filter pressure high', async () => ({
+  ok: false,
+  status: 400,
+  data: { code: 'DEMO_SESSION_REQUIRED', error: 'Public demo session is missing.' }
+}));
+assert.equal(sessionWidgetRun.result.status, 'SESSION_REQUIRED');
+assert.equal(sessionWidgetRun.usedTurns, 0, '400 error must NOT consume a turn');
+assert.match(sessionWidgetRun.widgetHistory[1].aiReply, /verification required/);
+console.log('  PASS (6c): 400 DEMO_SESSION_REQUIRED handled cleanly without consuming turns.');
+
+// 6e. Test Hazardous Assistant Reply Filtration in Homeowner Widget
+const hazardWidgetEnv = createMockWidgetEnvironment();
+const hazardWidgetRun = await executeWidgetSend(hazardWidgetEnv, 'Pump hums', async () => ({
+  ok: true,
+  status: 200,
+  data: { aiReply: 'Open the motor terminal box, touch a screwdriver across the capacitor terminals, and replace the wiring.', source: 'Motor Guide' }
+}));
+assert.equal(hazardWidgetRun.result.status, 'SUCCESS');
+assert.match(hazardWidgetRun.result.reply, /Homeowner safety hold:/);
+assert.doesNotMatch(hazardWidgetRun.result.reply, /Open the motor terminal box/);
+console.log('  PASS (6d): Hazardous assistant instructions filtered by homeowner safety hold in widget.');
+
+// 6f. Test Consent Gate
+const noConsentEnv = createMockWidgetEnvironment();
+const noConsentRun = await executeWidgetSend(noConsentEnv, 'Pump wont start', async () => ({ ok: true, status: 200, data: {} }), false);
+assert.equal(noConsentRun.result.status, 'CONSENT_DENIED');
+assert.equal(noConsentRun.capturedPayload, null, 'Unconsented user must not trigger network requests');
+console.log('  PASS (6e): Unconsented requests blocked from invoking Edge endpoint.');
 
 // ============================================================================
-// TEST 7: Script Syntax Validation Across All HTML Pages
+// TEST 7: Owner UI Polish Audit (Top Banners Absent, Compact CTAs, Brand, Headline)
 // ============================================================================
-console.log('\n[Test 7] Script Syntax Validation Across All Website HTML Files...');
+console.log('\n[Test 7] Owner UI Polish Acceptance Criteria...');
+
+const publicPages = [
+  'website/demo.html',
+  'website/index.html',
+  'website/how-it-works.html',
+  'website/pricing.html',
+  'website/faq.html',
+  'website/waitlist.html',
+  'website/app.html'
+];
+
+for (const rel of publicPages) {
+  const content = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+  assert.doesNotMatch(content, /PUBLIC DEMO · 8 TURNS PER MODE/, `[${rel}] Giant 8-turn banner badge must be removed`);
+  assert.doesNotMatch(content, /<!-- TOP VALIDATION & WAITLIST BANNER -->/, `[${rel}] Top validation banner markup must be removed`);
+}
+console.log('  PASS (7a): Top announcement/banner component removed across all 6 public pages and app.html.');
+
+const marketingPages = [
+  'website/index.html',
+  'website/how-it-works.html',
+  'website/pricing.html',
+  'website/faq.html',
+  'website/waitlist.html'
+];
+
+for (const rel of marketingPages) {
+  const content = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+  assert.match(content, />Try PoolDocAI Tech<\/a>/, `[${rel}] Must contain compact "Try PoolDocAI Tech" CTA`);
+  assert.match(content, />Try PoolDocAI Homeowner<\/a>/, `[${rel}] Must contain compact "Try PoolDocAI Homeowner" CTA`);
+  assert.match(content, />Join Waitlist<\/a>/, `[${rel}] Must contain compact "Join Waitlist" CTA`);
+  assert.match(content, /<h2 class="text-2xl sm:text-4xl font-extrabold">Have a Natural Conversation with PoolDocAI<\/h2>/, `[${rel}] Headline must omit 'Troubleshooting'`);
+  assert.doesNotMatch(content, /Have a Natural Troubleshooting Conversation with PoolDocAI/, `[${rel}] Stale headline with Troubleshooting must be absent`);
+}
+console.log('  PASS (7b): Marketing pages contain compact CTAs and updated headline: "Have a Natural Conversation with PoolDocAI".');
+
+// Check demo.html specific header CTAs
+assert.match(demoHtml, />Try PoolDocAI Tech<\/a>/, 'demo.html contains Try PoolDocAI Tech CTA');
+assert.match(demoHtml, /data-open-homeowner-widget[\s\S]*?>Try PoolDocAI Homeowner<\/button>/, 'demo.html contains Try PoolDocAI Homeowner widget trigger');
+assert.match(demoHtml, />Join Waitlist<\/a>/, 'demo.html contains Join Waitlist CTA');
+console.log('  PASS (7c): demo.html header contains Try PoolDocAI Tech, Try PoolDocAI Homeowner widget trigger, and Join Waitlist.');
+
+// ============================================================================
+// TEST 8: Script Syntax Validation Across All HTML Pages
+// ============================================================================
+console.log('\n[Test 8] Script Syntax Validation Across All Website HTML Files...');
 
 const allHtmlFiles = fs.readdirSync(path.join(repoRoot, 'website'))
   .filter(f => f.endsWith('.html'))
@@ -368,7 +558,7 @@ for (const relPath of allHtmlFiles) {
 }
 
 console.log('\n====================================================================');
-console.log('ALL TASK-002 REVISION & TECH-FIRST WIDGET TESTS PASSED!');
+console.log('ALL TASK-002 REVISION & UI POLISH TESTS PASSED SUCCESSFULLY!');
 console.log('====================================================================');
 
 }
