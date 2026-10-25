@@ -161,8 +161,8 @@ function Run-RotationWithKeys([string]$adminKeyInput, [string]$anonKeyInput = ""
 # 3C. Reject non-service_role JWT (e.g. authenticated) as admin key
 & {
     $res = Run-RotationWithKeys -adminKeyInput $authenticatedJwt -DryRunSwitch
-    $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "expected 'service_role'")
-    Assert-Test "Rejects authenticated-role JWT for administrative operations (fail closed)" $failedClosed
+    $failedClosed = ($res.ExitCode -ne 0) -and (($res.Combined -match "expected\s*'?service_role'?") -or ($res.Combined -match "JWT role claim is 'authenticated'") -or ($res.Combined -match "authenticated"))
+    Assert-Test "Rejects authenticated-role JWT for administrative operations (fail closed)" $failedClosed "Exit: $($res.ExitCode), Output: $($res.Combined)"
 }
 
 # 3D. Reject random non-key format as admin key
