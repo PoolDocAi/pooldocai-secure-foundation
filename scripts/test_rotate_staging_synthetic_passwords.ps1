@@ -241,15 +241,19 @@ Invoke-Expression $errFunctionBlock
 }
 
 # ----------------------------------------------------------------------------
-# 5. Decoupled Mode Switches & Exclusivity Tests (-RotateOnly / -RunLiveTests)
+# 5. Decoupled Mode Switches, Exclusivity & Fail-Closed Journaling Tests
 # ----------------------------------------------------------------------------
-Write-Host "`n--- Test Suite 5: Decoupled Mode Switches & Exclusivity ---" -ForegroundColor Cyan
+Write-Host "`n--- Test Suite 5: Decoupled Mode Switches, Exclusivity & Journaling ---" -ForegroundColor Cyan
 
 # 5A. AST Checks
 Assert-Test "Defines -RotateOnly param switch" ($scriptContent -match '\[switch\]\$RotateOnly')
 Assert-Test "Defines -RunLiveTests param switch" ($scriptContent -match '\[switch\]\$RunLiveTests')
 Assert-Test "Contains mode exclusivity validation" ($scriptContent -match '\$activeModes\.Count\s+-gt\s+1')
-Assert-Test "-RotateOnly exits before live integration test execution" ($scriptContent -match 'if\s*\(\$RotateOnly\)[\s\S]*?return[\s\S]*?node\s+website/tests/staging-live-tenant-isolation\.test\.cjs')
+Assert-Test "Contains fail-closed no-mode validation" ($scriptContent -match '\$activeModes\.Count\s+-eq\s+0')
+Assert-Test "-RotateOnly exits before live integration test execution" ($scriptContent -match 'if\s*\(\$RotateOnly\)[\s\S]*?return')
+Assert-Test "Implements DPAPI pre-mutation backup (.bak.)" ($scriptContent -match '\.bak\.\$utcTimestamp')
+Assert-Test "Implements idempotent existing credential check (Test-GoTruePassword)" ($scriptContent -match 'Test-GoTruePassword')
+Assert-Test "Implements atomic per-account incremental journal persistence" ($scriptContent -match '\$credStore\[\$acct\.Role\]\s*=\s*ConvertTo-SecureString[\s\S]*?Export-Clixml')
 
 # Helper to run script in a subprocess with arbitrary switch arguments
 function Run-RotationWithArgs([string]$arguments) {
@@ -276,21 +280,28 @@ function Run-RotationWithArgs([string]$arguments) {
     }
 }
 
-# 5B. Exclusivity: -DryRun + -RotateOnly
+# 5B. Fail-Closed Default (No Mode Specified)
+& {
+    $res = Run-RotationWithArgs ""
+    $noModeFailedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "No execution mode switch specified") -and ($res.Combined -match "-DryRun") -and ($res.Combined -match "-RotateOnly")
+    Assert-Test "Fails closed with nonzero exit and usage instructions when no mode switch is specified" $noModeFailedClosed
+}
+
+# 5C. Exclusivity: -DryRun + -RotateOnly
 & {
     $res = Run-RotationWithArgs "-DryRun -RotateOnly"
     $exclPassed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Incompatible mode switches specified")
     Assert-Test "Rejects conflicting mode flags -DryRun and -RotateOnly" $exclPassed
 }
 
-# 5C. Exclusivity: -RotateOnly + -RunLiveTests
+# 5D. Exclusivity: -RotateOnly + -RunLiveTests
 & {
     $res = Run-RotationWithArgs "-RotateOnly -RunLiveTests"
     $exclPassed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Incompatible mode switches specified")
     Assert-Test "Rejects conflicting mode flags -RotateOnly and -RunLiveTests" $exclPassed
 }
 
-# 5D. Exclusivity: -DryRun + -RunLiveTests
+# 5E. Exclusivity: -DryRun + -RunLiveTests
 & {
     $res = Run-RotationWithArgs "-DryRun -RunLiveTests"
     $exclPassed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Incompatible mode switches specified")

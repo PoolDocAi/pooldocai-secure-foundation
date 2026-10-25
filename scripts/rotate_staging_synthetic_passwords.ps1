@@ -34,11 +34,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Parameter exclusivity validation
+# Parameter validation: exactly ONE explicit mode must be specified (Fail-closed)
 $activeModes = @()
 if ($DryRun) { $activeModes += "-DryRun" }
 if ($RotateOnly) { $activeModes += "-RotateOnly" }
 if ($RunLiveTests) { $activeModes += "-RunLiveTests" }
+
+if ($activeModes.Count -eq 0) {
+    Write-Host "`n============================================================================" -ForegroundColor Red
+    Write-Host " [FATAL ERROR] No execution mode switch specified." -ForegroundColor Red
+    Write-Host " PoolDocAI security policy requires an explicit mode flag to prevent accidental execution." -ForegroundColor Yellow
+    Write-Host "`n USAGE:" -ForegroundColor Cyan
+    Write-Host "   1. Non-mutating preflight validation (Zero mutations):" -ForegroundColor Cyan
+    Write-Host "      powershell -ExecutionPolicy RemoteSigned -File .\scripts\rotate_staging_synthetic_passwords.ps1 -DryRun" -ForegroundColor White
+    Write-Host "`n   2. Rotate synthetic passwords only (Isolated - Zero integration tests):" -ForegroundColor Cyan
+    Write-Host "      powershell -ExecutionPolicy RemoteSigned -File .\scripts\rotate_staging_synthetic_passwords.ps1 -RotateOnly" -ForegroundColor White
+    Write-Host "`n   3. Run live integration tests only (Using saved DPAPI credentials):" -ForegroundColor Cyan
+    Write-Host "      powershell -ExecutionPolicy RemoteSigned -File .\scripts\rotate_staging_synthetic_passwords.ps1 -RunLiveTests" -ForegroundColor White
+    Write-Host "============================================================================`n" -ForegroundColor Red
+    exit 1
+}
+
 if ($activeModes.Count -gt 1) {
     Write-Error "[FATAL] Incompatible mode switches specified: $($activeModes -join ', '). Please specify only one mode."
     exit 1
@@ -60,8 +76,6 @@ if ($DryRun) {
     Write-Host " MODE: ROTATE PASSWORDS ONLY (ISOLATED - ZERO INTEGRATION TESTS)" -ForegroundColor Magenta
 } elseif ($RunLiveTests) {
     Write-Host " MODE: RUN LIVE TESTS ONLY (USING SAVED DPAPI CREDENTIALS)" -ForegroundColor Cyan
-} else {
-    Write-Host " MODE: FULL SEQUENCE (PASSWORD ROTATION + INTEGRATION TESTS)" -ForegroundColor Magenta
 }
 Write-Host "============================================================================`n" -ForegroundColor Cyan
 
@@ -483,23 +497,35 @@ try {
         return
     }
 
-    # 6. Pre-mutation DPAPI Persistence: Generate passwords & save encrypted store BEFORE first update
-    Write-Host "`n--- Step 2: Pre-Mutation DPAPI Credential Persistence ---" -ForegroundColor Cyan
-    $passwords = @{}
+    # 6. Pre-mutation DPAPI Backup & Journal Setup
+    Write-Host "`n--- Step 2: DPAPI Credential Store Pre-Check & Atomic Backup ---" -ForegroundColor Cyan
+    $credPath = Join-Path $env:USERPROFILE ".pooldocai_staging_credentials.xml"
     $credStore = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
 
-    foreach ($acct in $approvedAccounts) {
-        $pwd = New-SecurePassword -Length 32
-        $passwords[$acct.Role] = $pwd
-        $credStore[$acct.Role] = ConvertTo-SecureString $pwd -AsPlainText -Force
+    if (Test-Path $credPath) {
+        $utcTimestamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
+        $bakPath = "$credPath.bak.$utcTimestamp"
+        Copy-Item -Path $credPath -Destination $bakPath -Force
+        Write-Host "  [DPAPI BACKUP] Existing credential store backed up to: $bakPath" -ForegroundColor Green
+
+        # Load existing store for safe incremental journal resume
+        try {
+            $existing = Import-Clixml -Path $credPath
+            if ($null -ne $existing) {
+                foreach ($k in $existing.Keys) {
+                    $credStore[$k] = $existing[$k]
+                }
+                Write-Host "  [DPAPI JOURNAL] Loaded $($credStore.Count) existing credentials for safe resume check." -ForegroundColor Cyan
+            }
+        } catch {
+            Write-Warning "Could not deserialize existing DPAPI store. Initializing clean store."
+        }
+    } else {
+        Write-Host "  [DPAPI STORE] Initializing new store at: $credPath" -ForegroundColor Cyan
     }
 
-    $credPath = Join-Path $env:USERPROFILE ".pooldocai_staging_credentials.xml"
-    $credStore | Export-Clixml -Path $credPath
-    Write-Host "  [DPAPI PERSISTED] Pre-mutation encrypted credentials saved to: $credPath" -ForegroundColor Green
-
-    # 7. Perform One-by-One Rotation via Auth Admin & Immediate GoTrue Login Verification
-    Write-Host "`n--- Step 3: Rotating Passwords & Verifying Logins ---" -ForegroundColor Cyan
+    # 7. Perform Incremental, Journaled Rotation & Immediate GoTrue Verification
+    Write-Host "`n--- Step 3: Journaled Password Rotation & GoTrue Login Verification ---" -ForegroundColor Cyan
     $authTokens = @{}
 
     $tokenHeaders = @{
@@ -511,8 +537,48 @@ try {
         $tokenHeaders["Authorization"] = "Bearer $anonKeyPlain"
     }
 
+    $loginUrl = "$StagingUrl/auth/v1/token?grant_type=password"
+
+    function Test-GoTruePassword {
+        param(
+            [string]$Email,
+            [System.Security.SecureString]$SecurePwd,
+            [string]$TargetUrl,
+            [hashtable]$Headers,
+            [string]$UserAgent
+        )
+        if ($null -eq $SecurePwd) { return $null }
+        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePwd)
+        $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+
+        $body = @{ email = $Email; password = $plain } | ConvertTo-Json
+        try {
+            $res = Invoke-RestMethod -Uri $TargetUrl -Method Post -Headers $Headers -Body $body -UserAgent $cliUserAgent -MaximumRedirection 0
+            if ($res.access_token) {
+                return $res
+            }
+        } catch {
+            # Expected if credentials invalid, outdated, or not yet rotated
+        }
+        return $null
+    }
+
     foreach ($acct in $approvedAccounts) {
-        $newPwd = $passwords[$acct.Role]
+        # Check if user already authenticates with existing DPAPI-stored password
+        if ($credStore.ContainsKey($acct.Role) -and ($null -ne $credStore[$acct.Role])) {
+            Write-Host "  Checking existing DPAPI credentials for $($acct.Email)..." -ForegroundColor Cyan
+            $preAuth = Test-GoTruePassword -Email $acct.Email -SecurePwd $credStore[$acct.Role] -TargetUrl $loginUrl -Headers $tokenHeaders -UserAgent $cliUserAgent
+            if ($null -ne $preAuth -and $preAuth.user.id -eq $acct.Id) {
+                Write-Host "  [IDEMPOTENT / VERIFIED] User $($acct.Email) ($($acct.Role)) already has verified credentials in DPAPI store and logs in successfully." -ForegroundColor Green
+                $authTokens[$acct.Role] = $preAuth.access_token
+                continue
+            }
+        }
+
+        # User requires rotation: generate new random 32-char password
+        Write-Host "  Rotating password for $($acct.Email) ($($acct.Role))..." -ForegroundColor Cyan
+        $newPwd = New-SecurePassword -Length 32
         $updateUrl = "$StagingUrl/auth/v1/admin/users/$($acct.Id)"
         $updateBody = @{ password = $newPwd } | ConvertTo-Json
         $updateHeaders = Get-AdminHeaders -adminKey $adminKeyPlain
@@ -529,10 +595,8 @@ try {
             Write-Error "[FATAL] Unexpected response when updating $($acct.Email)"
             exit 1
         }
-        Write-Host "  [ROTATION SUCCESS] Rotated password for $($acct.Email)" -ForegroundColor Green
 
         # Immediate login verification with publishable key
-        $loginUrl = "$StagingUrl/auth/v1/token?grant_type=password"
         $loginBody = @{
             email = $acct.Email
             password = $newPwd
@@ -550,9 +614,6 @@ try {
             exit 1
         }
 
-        $authTokens[$acct.Role] = $loginRes.access_token
-        Write-Host "  [LOGIN VERIFIED] Authentic GoTrue token verified for $($acct.Email)" -ForegroundColor Green
-
         # Re-verify company membership unchanged post-rotation
         $postMemberUrl = "$StagingUrl/rest/v1/company_members?user_id=eq.$($acct.Id)&select=id,company_id,role"
         try {
@@ -566,9 +627,17 @@ try {
             Write-Error "[FATAL] Post-rotation membership altered for $($acct.Email)!"
             exit 1
         }
+
+        # Immediately persist this account's verified password to the DPAPI store (Atomic incremental journal)
+        $credStore[$acct.Role] = ConvertTo-SecureString $newPwd -AsPlainText -Force
+        $credStore | Export-Clixml -Path $credPath -Force
+        Write-Host "  [ROTATED, VERIFIED & SAVED] $($acct.Email) password rotated, authenticated via GoTrue, and persisted to DPAPI store." -ForegroundColor Green
+
+        $authTokens[$acct.Role] = $loginRes.access_token
+        $newPwd = $null
     }
 
-    Write-Host "`nAll 4 synthetic user passwords rotated and verified successfully." -ForegroundColor Green
+    Write-Host "`nAll 4 synthetic user accounts verified/rotated in GoTrue and stored in DPAPI." -ForegroundColor Green
 
 } finally {
     # 8. Clean Up Administrative Key from Memory Immediately
@@ -577,46 +646,16 @@ try {
     [System.GC]::Collect()
 }
 
-# 9. Handle RotateOnly Mode: Clean exit before integration tests
+# 9. Handle RotateOnly Mode: Clean exit with zero integration tests
 if ($RotateOnly) {
     Write-Host "`n============================================================================" -ForegroundColor Green
-    Write-Host " [PASSWORD ROTATION COMPLETE]: All 4 synthetic passwords successfully rotated" -ForegroundColor Green
-    Write-Host " and verified via genuine GoTrue login in project $expectedHost." -ForegroundColor Green
+    Write-Host " [PASSWORD ROTATION COMPLETE]: All 4 synthetic passwords successfully verified" -ForegroundColor Green
+    Write-Host " and authenticated via genuine GoTrue login in project $expectedHost." -ForegroundColor Green
     Write-Host " Encrypted credentials persisted to: $credPath" -ForegroundColor Green
     Write-Host " ZERO INTEGRATION TESTS EXECUTED (-RotateOnly mode)." -ForegroundColor Green
     Write-Host " To execute live integration tests independently, run:" -ForegroundColor Green
     Write-Host "   powershell -NoProfile -ExecutionPolicy RemoteSigned -File `".\scripts\rotate_staging_synthetic_passwords.ps1`" -RunLiveTests" -ForegroundColor Green
     Write-Host "============================================================================`n" -ForegroundColor Green
     return
-}
-
-# 10. Execute Live Tenant-Isolation Test Suite with Verified Tokens (Full Sequence Mode)
-Write-Host "`n[PHASE 1 COMPLETE]: Password rotation and GoTrue login verification succeeded." -ForegroundColor Green
-Write-Host "Proceeding to Phase 2: Live Integration Tests..." -ForegroundColor Cyan
-Write-Host "`n============================================================================" -ForegroundColor Cyan
-Write-Host " EXECUTING REAL STAGING TENANT-ISOLATION SUITE (29 ASSERTIONS)" -ForegroundColor Cyan
-Write-Host "============================================================================`n" -ForegroundColor Cyan
-
-$env:STAGING_SUPABASE_URL = $StagingUrl
-$env:STAGING_SUPABASE_ANON_KEY = $anonKeyPlain
-$env:STAGING_AUTH_TOKENS = ($authTokens | ConvertTo-Json -Compress)
-$env:REQUIRE_LIVE_STAGING = "1"
-
-$repoRoot = Split-Path -Parent $PSScriptRoot
-Push-Location $repoRoot
-try {
-    node website/tests/staging-live-tenant-isolation.test.cjs
-    $testExit = $LASTEXITCODE
-    if ($testExit -eq 0) {
-        Write-Host "`n[TASK-008 PART-1C VERIFICATION]: ALL LIVE STAGING TESTS PASSED SUCCESSFULLY!" -ForegroundColor Green
-    } else {
-        Write-Error "[TASK-008 PART-1C VERIFICATION]: Live integration tests encountered failures (exit code $testExit). Note: Phase 1 Password Rotation was SUCCESSFUL and credentials remain saved in DPAPI."
-    }
-} finally {
-    $env:STAGING_AUTH_TOKENS = $null
-    $env:STAGING_SUPABASE_URL = $null
-    $env:STAGING_SUPABASE_ANON_KEY = $null
-    $env:REQUIRE_LIVE_STAGING = $null
-    Pop-Location
 }
 

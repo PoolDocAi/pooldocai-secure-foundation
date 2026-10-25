@@ -61,8 +61,9 @@ async function runStagingBundleTests() {
     // Zero psql meta-commands
     assert.ok(!fixturesContent.includes("\\set "), "Fixtures must NOT contain psql \\set commands");
 
-    // Valid bcrypt hashing via pgcrypto crypt()
-    assert.ok(fixturesContent.includes("crypt('PoolDocStaging2026!', gen_salt('bf', 10))"), "Must generate authentic bcrypt hash via pgcrypto");
+    // Unguessable CSPRNG bcrypt hashing via pgcrypto crypt(gen_random_bytes)
+    assert.ok(fixturesContent.includes("crypt(encode(gen_random_bytes(24), 'base64'), gen_salt('bf', 10))"), "Must generate unguessable bcrypt hash via pgcrypto gen_random_bytes");
+    assert.ok(!fixturesContent.includes("PoolDocStaging2026!"), "Must NOT contain hardcoded static seed password 'PoolDocStaging2026!'");
     assert.ok(!fixturesContent.includes("$2a$10$wT8K4cQZq7N9.fJ6dC5hkeFz7b4q0A3c6a4f2b1d0e9c8a7b6c5d"), "Must NOT contain old truncated 40-char fake bcrypt hash");
 
     // Must seed auth.identities

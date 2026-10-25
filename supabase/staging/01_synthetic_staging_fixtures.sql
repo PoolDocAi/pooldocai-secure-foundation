@@ -11,8 +11,10 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- 1. Synthetic Auth Users (auth.users) & Identities (auth.identities)
--- Real bcrypt hash generated via PostgreSQL crypt('PoolDocStaging2026!', gen_salt('bf', 10))
--- Ensures genuine GoTrue signInWithPassword authentication works in staging UI.
+-- Initial passwords generated via pgcrypto CSPRNG: crypt(encode(gen_random_bytes(24), 'base64'), gen_salt('bf', 10))
+-- Ensures NO fixed static default credentials exist in git repository history.
+-- Genuine staging credentials are provisioned via Auth Admin API rotation (scripts/rotate_staging_synthetic_passwords.ps1).
+-- Note: ON CONFLICT DO UPDATE explicitly preserves existing encrypted_password so rotated credentials are never overwritten.
 DO $$
 DECLARE
   v_has_provider_id boolean;
@@ -25,8 +27,9 @@ DECLARE
   v_elem jsonb;
   v_pwd_hash text;
 BEGIN
-  -- Compute authentic bcrypt hash matching GoTrue standard
-  v_pwd_hash := crypt('PoolDocStaging2026!', gen_salt('bf', 10));
+  -- Generate cryptographically unguessable initial hash (24 random bytes base64 encoded)
+  -- Prevents fixed public static seed credentials in repository history.
+  v_pwd_hash := crypt(encode(gen_random_bytes(24), 'base64'), gen_salt('bf', 10));
 
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
