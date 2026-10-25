@@ -497,28 +497,83 @@ try {
         return
     }
 
-    # 6. Pre-mutation DPAPI Backup & Journal Setup
+    # 6. Pre-mutation DPAPI Backup, Atomic Replace Helper & Journal Recovery
     Write-Host "`n--- Step 2: DPAPI Credential Store Pre-Check & Atomic Backup ---" -ForegroundColor Cyan
     $credPath = Join-Path $env:USERPROFILE ".pooldocai_staging_credentials.xml"
+    $journalPath = "$credPath.journal.xml"
     $credStore = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
 
-    if (Test-Path $credPath) {
-        $utcTimestamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
-        $bakPath = "$credPath.bak.$utcTimestamp"
-        Copy-Item -Path $credPath -Destination $bakPath -Force
-        Write-Host "  [DPAPI BACKUP] Existing credential store backed up to: $bakPath" -ForegroundColor Green
+    # Helper function for atomic temp-file commit and replace with Win32 ReplaceFile
+    function Save-DpapiStoreAtomic {
+        param(
+            [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]$Store,
+            [string]$DestinationPath
+        )
+        $tempPath = "$DestinationPath.tmp.$([System.Guid]::NewGuid().ToString('N'))"
+        try {
+            $Store | Export-Clixml -Path $tempPath
+            if (-not (Test-Path $tempPath) -or (Get-Item $tempPath).Length -eq 0) {
+                throw "Temporary DPAPI export file is missing or zero-length: $tempPath"
+            }
+            # Deserialization integrity check
+            $verify = Import-Clixml -Path $tempPath
+            if ($null -eq $verify -or $verify.Count -ne $Store.Count) {
+                throw "Integrity verification failed for temporary DPAPI export: $tempPath"
+            }
 
-        # Load existing store for safe incremental journal resume
+            if (Test-Path $DestinationPath) {
+                $backupPath = "$DestinationPath.bak.$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssffffZ'))"
+                # Win32 atomic file replace with backup creation
+                [System.IO.File]::Replace($tempPath, $DestinationPath, $backupPath)
+            } else {
+                [System.IO.File]::Move($tempPath, $DestinationPath)
+            }
+        } finally {
+            if (Test-Path $tempPath) {
+                Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    if (Test-Path $credPath) {
+        $loadSuccess = $false
         try {
             $existing = Import-Clixml -Path $credPath
             if ($null -ne $existing) {
                 foreach ($k in $existing.Keys) {
                     $credStore[$k] = $existing[$k]
                 }
+                $loadSuccess = $true
                 Write-Host "  [DPAPI JOURNAL] Loaded $($credStore.Count) existing credentials for safe resume check." -ForegroundColor Cyan
             }
         } catch {
-            Write-Warning "Could not deserialize existing DPAPI store. Initializing clean store."
+            Write-Warning "Primary DPAPI credential store at $credPath is corrupted or unreadable: $_"
+        }
+
+        if (-not $loadSuccess) {
+            Write-Host "  [RECOVERY ATTEMPT] Attempting automatic recovery from latest valid backup..." -ForegroundColor Yellow
+            $parentDir = Split-Path -Parent $credPath
+            $baseName = Split-Path -Leaf $credPath
+            $backups = Get-ChildItem -Path $parentDir -Filter "$baseName.bak.*" | Sort-Object LastWriteTime -Descending
+            $recovered = $false
+            foreach ($bak in $backups) {
+                try {
+                    $bakStore = Import-Clixml -Path $bak.FullName
+                    if ($null -ne $bakStore -and $bakStore.Count -gt 0) {
+                        foreach ($k in $bakStore.Keys) {
+                            $credStore[$k] = $bakStore[$k]
+                        }
+                        Save-DpapiStoreAtomic -Store $credStore -DestinationPath $credPath
+                        Write-Host "  [DPAPI RECOVERED] Successfully recovered valid DPAPI store from backup: $($bak.Name)" -ForegroundColor Green
+                        $recovered = $true
+                        break
+                    }
+                } catch {}
+            }
+            if (-not $recovered) {
+                Write-Error "[FATAL] DPAPI credential store at $credPath is corrupted and no valid backup could be recovered. Failing closed to prevent data loss."
+                exit 1
+            }
         }
     } else {
         Write-Host "  [DPAPI STORE] Initializing new store at: $credPath" -ForegroundColor Cyan
@@ -564,6 +619,34 @@ try {
         return $null
     }
 
+    # Crash recovery: Check if an interrupted pending mutation journal exists from prior aborted run
+    if (Test-Path $journalPath) {
+        Write-Host "  [RECOVERY CHECK] Found pending mutation journal at: $journalPath" -ForegroundColor Yellow
+        try {
+            $pendingJournal = Import-Clixml -Path $journalPath
+            if ($pendingJournal -and $pendingJournal.PendingRole -and $pendingJournal.PendingPassword) {
+                $pRole = $pendingJournal.PendingRole
+                $pAcct = $approvedAccounts | Where-Object { $_.Role -eq $pRole }
+                if ($pAcct) {
+                    Write-Host "  Verifying if interrupted mutation for $($pAcct.Email) ($pRole) succeeded remotely..." -ForegroundColor Cyan
+                    $pAuth = Test-GoTruePassword -Email $pAcct.Email -SecurePwd $pendingJournal.PendingPassword -TargetUrl $loginUrl -Headers $tokenHeaders -UserAgent $cliUserAgent
+                    if ($null -ne $pAuth -and $pAuth.user.id -eq $pAcct.Id) {
+                        Write-Host "  [JOURNAL RECOVERED] Interrupted mutation for $($pAcct.Email) succeeded remotely. Committing to primary DPAPI store." -ForegroundColor Green
+                        $credStore[$pRole] = $pendingJournal.PendingPassword
+                        Save-DpapiStoreAtomic -Store $credStore -DestinationPath $credPath
+                        $authTokens[$pRole] = $pAuth.access_token
+                    } else {
+                        Write-Host "  [JOURNAL DISCARD] Interrupted mutation for $($pAcct.Email) did not take effect remotely. Clean state preserved." -ForegroundColor Yellow
+                    }
+                }
+            }
+        } catch {
+            Write-Warning "Could not deserialize pending journal: $_"
+        } finally {
+            Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     foreach ($acct in $approvedAccounts) {
         # Check if user already authenticates with existing DPAPI-stored password
         if ($credStore.ContainsKey($acct.Role) -and ($null -ne $credStore[$acct.Role])) {
@@ -579,6 +662,29 @@ try {
         # User requires rotation: generate new random 32-char password
         Write-Host "  Rotating password for $($acct.Email) ($($acct.Role))..." -ForegroundColor Cyan
         $newPwd = New-SecurePassword -Length 32
+
+        # Step A: Record pending mutation journal BEFORE remote Admin PUT
+        $journalEntry = @{
+            PendingRole = $acct.Role
+            PendingEmail = $acct.Email
+            PendingPassword = ConvertTo-SecureString $newPwd -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+        }
+        $jTmp = "$journalPath.tmp.$([System.Guid]::NewGuid().ToString('N'))"
+        try {
+            $journalEntry | Export-Clixml -Path $jTmp
+            if (Test-Path $journalPath) {
+                [System.IO.File]::Replace($jTmp, $journalPath, $null)
+            } else {
+                [System.IO.File]::Move($jTmp, $journalPath)
+            }
+        } finally {
+            if (Test-Path $jTmp) {
+                Remove-Item -Path $jTmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        # Step B: Perform Auth Admin PUT
         $updateUrl = "$StagingUrl/auth/v1/admin/users/$($acct.Id)"
         $updateBody = @{ password = $newPwd } | ConvertTo-Json
         $updateHeaders = Get-AdminHeaders -adminKey $adminKeyPlain
@@ -596,7 +702,7 @@ try {
             exit 1
         }
 
-        # Immediate login verification with publishable key
+        # Step C: Immediate login verification with publishable key
         $loginBody = @{
             email = $acct.Email
             password = $newPwd
@@ -614,7 +720,7 @@ try {
             exit 1
         }
 
-        # Re-verify company membership unchanged post-rotation
+        # Step D: Re-verify company membership unchanged post-rotation
         $postMemberUrl = "$StagingUrl/rest/v1/company_members?user_id=eq.$($acct.Id)&select=id,company_id,role"
         try {
             $postMemberRes = Invoke-RestMethod -Uri $postMemberUrl -Method Get -Headers (Get-AdminHeaders -adminKey $adminKeyPlain) -UserAgent $cliUserAgent -MaximumRedirection 0
@@ -628,10 +734,11 @@ try {
             exit 1
         }
 
-        # Immediately persist this account's verified password to the DPAPI store (Atomic incremental journal)
+        # Step E: Atomic commit to primary DPAPI store & remove pending journal
         $credStore[$acct.Role] = ConvertTo-SecureString $newPwd -AsPlainText -Force
-        $credStore | Export-Clixml -Path $credPath -Force
-        Write-Host "  [ROTATED, VERIFIED & SAVED] $($acct.Email) password rotated, authenticated via GoTrue, and persisted to DPAPI store." -ForegroundColor Green
+        Save-DpapiStoreAtomic -Store $credStore -DestinationPath $credPath
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+        Write-Host "  [ROTATED, VERIFIED & COMMITTED] $($acct.Email) password rotated, authenticated via GoTrue, and committed to DPAPI store." -ForegroundColor Green
 
         $authTokens[$acct.Role] = $loginRes.access_token
         $newPwd = $null

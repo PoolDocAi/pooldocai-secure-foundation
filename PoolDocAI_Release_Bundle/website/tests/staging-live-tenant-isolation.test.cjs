@@ -467,11 +467,15 @@ async function runLiveStagingIntegrationTests() {
 
     // 3C. AquaPure Admin attempts upload into BlueWave directory -> DENY (400, 401, or 403, NEVER 200/201)
     {
-      const res = await authReq(sessions.adminA, `/storage/v1/object/company-manuals/${TENANT_B.companyId}/malicious_${runNonce}.txt`, {
+      const maliciousPath = `/storage/v1/object/company-manuals/${TENANT_B.companyId}/malicious_${runNonce}.txt`;
+      const res = await authReq(sessions.adminA, maliciousPath, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: "SPOOF_ATTEMPT"
       });
+      if (res.status === 200 || res.status === 201) {
+        createdCanaries.push({ session: sessions.adminA, path: maliciousPath, name: "AquaPure Malicious Probe Canary" });
+      }
       const ok = res.status === 400 || res.status === 401 || res.status === 403;
       recordLiveResult("3C", "AquaPure Admin upload to BlueWave prefix rejected (DENY)", ok, `Status ${res.status}`);
     }
@@ -699,7 +703,7 @@ async function runLiveStagingIntegrationTests() {
   }
 
   } finally {
-    // Guaranteed Ephemeral Storage Canary Teardown (Best-effort in finally block)
+    // Guaranteed Ephemeral Storage Canary Teardown (Fails closed on deletion failure or absence check failure)
     if (createdCanaries.length > 0) {
       console.log("\n--- Ephemeral Storage Canary Teardown (Guaranteed Finally Block) ---");
       for (const canary of createdCanaries) {
@@ -707,11 +711,21 @@ async function runLiveStagingIntegrationTests() {
           const delRes = await authReq(canary.session, canary.path, { method: "DELETE" });
           if (delRes.status === 200 || delRes.status === 204) {
             console.log(`  [STORAGE CLEANUP SUCCESS] Deleted ${canary.path} (status ${delRes.status})`);
+            // Independently verify absence via authorized GET returning non-200 (e.g. 400, 404, 403)
+            const verifyRes = await authReq(canary.session, canary.path);
+            if (verifyRes.status === 200) {
+              console.error(`  [STORAGE CLEANUP VERIFICATION FAILED] ${canary.path} still returns HTTP 200 after DELETE`);
+              liveResults.failed++;
+            } else {
+              console.log(`  [STORAGE CLEANUP VERIFIED] ${canary.path} absence confirmed (status ${verifyRes.status})`);
+            }
           } else {
             console.error(`  [STORAGE CLEANUP FAILED] DELETE ${canary.path} returned HTTP ${delRes.status}`);
+            liveResults.failed++;
           }
         } catch (delErr) {
           console.error(`  [STORAGE CLEANUP ERROR] Exception during deletion of ${canary.path}: ${delErr.message}`);
+          liveResults.failed++;
         }
       }
     }
@@ -745,6 +759,9 @@ async function runLiveStagingIntegrationTests() {
     console.log(`  - ${liveResults.passed} assertions passed successfully.`);
     console.log(`  - ${liveResults.notRun} positive application-endpoint controls pending application fixture / RPC deployment.`);
     console.log(`  - Transparent honest accounting: complete release signoff requires positive endpoint fixtures.`);
+    if (requireLiveStaging) {
+      throw new Error(`[FATAL RELEASE GATE ERROR] Strict staging gate REQUIRE_LIVE_STAGING=1 requires complete test suite execution, but ${liveResults.notRun} controls were NOT RUN.`);
+    }
   }
 
   return {

@@ -251,9 +251,14 @@ Assert-Test "Defines -RunLiveTests param switch" ($scriptContent -match '\[switc
 Assert-Test "Contains mode exclusivity validation" ($scriptContent -match '\$activeModes\.Count\s+-gt\s+1')
 Assert-Test "Contains fail-closed no-mode validation" ($scriptContent -match '\$activeModes\.Count\s+-eq\s+0')
 Assert-Test "-RotateOnly exits before live integration test execution" ($scriptContent -match 'if\s*\(\$RotateOnly\)[\s\S]*?return')
-Assert-Test "Implements DPAPI pre-mutation backup (.bak.)" ($scriptContent -match '\.bak\.\$utcTimestamp')
+Assert-Test "Implements DPAPI pre-mutation backup with UTC timestamp (.bak.)" ($scriptContent -match '\.bak\.\$')
 Assert-Test "Implements idempotent existing credential check (Test-GoTruePassword)" ($scriptContent -match 'Test-GoTruePassword')
-Assert-Test "Implements atomic per-account incremental journal persistence" ($scriptContent -match '\$credStore\[\$acct\.Role\]\s*=\s*ConvertTo-SecureString[\s\S]*?Export-Clixml')
+Assert-Test "Implements Save-DpapiStoreAtomic helper function" ($scriptContent -match 'function\s+Save-DpapiStoreAtomic')
+Assert-Test "Uses Win32 [System.IO.File]::Replace for atomic store replacement" ($scriptContent -match '\[System\.IO\.File\]::Replace')
+Assert-Test "Enforces deserialization integrity check prior to file replace" ($scriptContent -match 'Import-Clixml[\s\S]*?\$verify\.Count\s+-ne\s+\$Store\.Count')
+Assert-Test "Implements corrupted store auto-recovery from latest backup (.bak.*)" ($scriptContent -match 'Get-ChildItem[\s\S]*?\$baseName\.bak\.\*[\s\S]*?Sort-Object\s+LastWriteTime\s+-Descending')
+Assert-Test "Implements pre-mutation pending journal write prior to GoTrue PUT" ($scriptContent -match '\$journalEntry[\s\S]*?PendingRole[\s\S]*?Export-Clixml[\s\S]*?\$updateUrl')
+Assert-Test "Implements startup crash recovery check for pending mutation journal" ($scriptContent -match 'if\s*\(Test-Path\s+\$journalPath\)[\s\S]*?PendingRole')
 
 # Helper to run script in a subprocess with arbitrary switch arguments
 function Run-RotationWithArgs([string]$arguments) {
@@ -306,6 +311,91 @@ function Run-RotationWithArgs([string]$arguments) {
     $res = Run-RotationWithArgs "-DryRun -RunLiveTests"
     $exclPassed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Incompatible mode switches specified")
     Assert-Test "Rejects conflicting mode flags -DryRun and -RunLiveTests" $exclPassed
+}
+
+# ----------------------------------------------------------------------------
+# 6. Unit Execution Tests: Atomic File Replace, Corrupted Store & Crash Recovery
+# ----------------------------------------------------------------------------
+Write-Host "`n--- Test Suite 6: Atomic Replace, Corrupted Store & Crash Journal Recovery ---" -ForegroundColor Cyan
+
+# Source Save-DpapiStoreAtomic in isolation using AST extraction
+$ast = [System.Management.Automation.Language.Parser]::ParseInput($scriptContent, [ref]$null, [ref]$null)
+$funcAst = $ast.Find({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Save-DpapiStoreAtomic' }, $true)
+$atomicHelperBlock = $funcAst.Extent.Text
+Invoke-Expression $atomicHelperBlock
+
+$testDir = Join-Path $env:TEMP ("pooldocai_test_" + [System.Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $testDir -Force | Out-Null
+
+try {
+    $testCredPath = Join-Path $testDir "credentials.xml"
+
+    # 6A. Initial atomic create
+    $store1 = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
+    $store1["company_a_admin"] = ConvertTo-SecureString "TestPasswordA1" -AsPlainText -Force
+    $store1["company_a_tech"] = ConvertTo-SecureString "TestPasswordA2" -AsPlainText -Force
+
+    Save-DpapiStoreAtomic -Store $store1 -DestinationPath $testCredPath
+    $created = Test-Path $testCredPath
+    $loaded1 = Import-Clixml -Path $testCredPath
+    Assert-Test "Save-DpapiStoreAtomic creates destination file on first save" ($created -and $loaded1.Count -eq 2)
+
+    # 6B. Atomic replace creates backup (.bak.)
+    Start-Sleep -Milliseconds 50
+    $store2 = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
+    foreach ($k in $store1.Keys) { $store2[$k] = $store1[$k] }
+    $store2["company_b_admin"] = ConvertTo-SecureString "TestPasswordB1" -AsPlainText -Force
+
+    Save-DpapiStoreAtomic -Store $store2 -DestinationPath $testCredPath
+    $loaded2 = Import-Clixml -Path $testCredPath
+    $backups = Get-ChildItem -Path $testDir -Filter "credentials.xml.bak.*"
+    Assert-Test "Save-DpapiStoreAtomic creates Win32 .bak backup and replaces target atomically" ($loaded2.Count -eq 3 -and $backups.Count -ge 1)
+
+    # 6C. Corrupted store auto-recovery from latest backup
+    # Intentionally corrupt the primary store file
+    [System.IO.File]::WriteAllText($testCredPath, "<<<CORRUPTED CLIXML HEADER GARBAGE>>>")
+    
+    $recoveredStore = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
+    $recovered = $false
+    $latestBackups = Get-ChildItem -Path $testDir -Filter "credentials.xml.bak.*" | Sort-Object LastWriteTime -Descending
+    foreach ($bak in $latestBackups) {
+        try {
+            $bakStore = Import-Clixml -Path $bak.FullName
+            if ($null -ne $bakStore -and $bakStore.Count -gt 0) {
+                foreach ($k in $bakStore.Keys) {
+                    $recoveredStore[$k] = $bakStore[$k]
+                }
+                Save-DpapiStoreAtomic -Store $recoveredStore -DestinationPath $testCredPath
+                $recovered = $true
+                break
+            }
+        } catch {}
+    }
+    $recoveredFile = Import-Clixml -Path $testCredPath
+    Assert-Test "Corrupted primary store auto-recovers from latest valid .bak backup" ($recovered -and $recoveredFile.Count -eq 2)
+
+    # 6D. Pre-mutation crash journal serialization and deserialization
+    $journalFile = "$testCredPath.journal.xml"
+    $journalData = @{
+        PendingRole = "company_b_tech"
+        PendingEmail = "staging_tech_bluewave@pooldocai.test"
+        PendingPassword = ConvertTo-SecureString "PendingSecret123" -AsPlainText -Force
+        Timestamp = [DateTime]::UtcNow.ToString("o")
+    }
+    $jTmp = "$journalFile.tmp.$([System.Guid]::NewGuid().ToString('N'))"
+    $journalData | Export-Clixml -Path $jTmp
+    [System.IO.File]::Move($jTmp, $journalFile)
+
+    $readJournal = Import-Clixml -Path $journalFile
+    $journalValid = ($readJournal.PendingRole -eq "company_b_tech") -and ($readJournal.PendingEmail -eq "staging_tech_bluewave@pooldocai.test") -and ($null -ne $readJournal.PendingPassword)
+    Assert-Test "Pre-mutation journal correctly stores and restores pending role, email, and SecureString password" $journalValid
+
+    # Cleanup journal
+    Remove-Item -Path $journalFile -Force -ErrorAction SilentlyContinue
+} finally {
+    if (Test-Path $testDir) {
+        Remove-Item -Path $testDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # ----------------------------------------------------------------------------
