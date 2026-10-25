@@ -887,7 +887,7 @@ async function runTestSuite() {
     assert.equal(jsonMissingPage.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Missing page citation on cataloged chunk must fail verification");
     console.log("PASS: Test 3E - Missing page citation on cataloged chunk rejected.");
 
-    // 3F: Missing Revision on Cataloged Chunk
+    // 3F: Corrupted / Non-numeric Page Citation on Cataloged Chunk
     geminiCalls.length = 0;
     mockGeminiResponses.length = 0;
     mockGeminiResponses.push(() => ({
@@ -898,8 +898,8 @@ async function runTestSuite() {
         source_label: "internal_manual",
         source_id: "chunk_pentair_a_1",
         source_title: "Pentair SuperFlo VST Troubleshooting",
-        page_number: 14,
-        revision: "", // Omitted revision on cataloged chunk!
+        page_number: "page-unknown", // Corrupted / non-numeric page on cataloged chunk!
+        revision: "Rev P",
         requires_technician: false
       })
     }));
@@ -912,8 +912,8 @@ async function runTestSuite() {
     });
     const resMissingRev = await capturedHandler!(reqMissingRev);
     const jsonMissingRev = await resMissingRev.json();
-    assert.equal(jsonMissingRev.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Missing revision on cataloged chunk must fail verification");
-    console.log("PASS: Test 3F - Missing revision citation on cataloged chunk rejected.");
+    assert.equal(jsonMissingRev.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Corrupted page citation on cataloged chunk must fail verification");
+    console.log("PASS: Test 3F - Corrupted page citation on cataloged chunk rejected.");
   }
 
   // --------------------------------------------------------------------------

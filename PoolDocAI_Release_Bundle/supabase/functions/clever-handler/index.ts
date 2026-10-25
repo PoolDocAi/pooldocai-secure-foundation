@@ -1351,14 +1351,8 @@ function verifyInternalCitation(
     // Revision match where available
     const citedRevision = textValue(structured.revision ?? structured.source_revision ?? structured.sourceRevision, 40).trim().toLowerCase();
     const rowRevision = textValue(row.revision ?? row.manual_revision ?? row.document_revision, 40).trim().toLowerCase();
-    if (rowRevision) {
-      if (citedRevision) {
-        if (citedRevision !== rowRevision) {
-          return false;
-        }
-      } else if (isEquipmentManual) {
-        return false;
-      }
+    if (citedRevision && rowRevision && citedRevision !== rowRevision) {
+      return false;
     }
 
     // Conjunction Check 3: Procedure text present & symptom match
