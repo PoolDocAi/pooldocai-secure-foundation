@@ -82,6 +82,8 @@ jobs:
         run: node website/tests/manual-pilot-provenance-and-isolation.test.cjs
       - name: Test staging migration bundle, synthetic fixtures, and verification suite
         run: node website/tests/staging-bundle-and-fixtures.test.cjs
+      - name: Test real authenticated staging JWT/HTTP tenant isolation and security definer triage
+        run: node website/tests/staging-tenant-isolation-http.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |

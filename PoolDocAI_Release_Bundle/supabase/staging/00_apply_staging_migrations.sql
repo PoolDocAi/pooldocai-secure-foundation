@@ -1,7 +1,7 @@
 -- ============================================================================
 -- POOLDOCAI ISOLATED STAGING ENVIRONMENT MIGRATION BUNDLE
 -- Target: Project rzkgmvyyeclrpomrlyft (PoolDocAI Staging)
--- Total Migrations: 45 (001 through 045)
+-- Total Migrations: 46 (001 through 046)
 -- Generated: 2026-10-25
 -- STRICT NOTICE: STAGING USE ONLY. DO NOT EXECUTE ON PRODUCTION owfeebydlyacssqpnmkq
 --
@@ -13,7 +13,7 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- Migration 1/45: 202610210001_learning_loop_privacy.sql
+-- Migration 1/46: 202610210001_learning_loop_privacy.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI privacy-minimized learning-loop schema.
@@ -126,7 +126,7 @@ revoke all on function public.pooldocai_consume_session_budget(text,text,integer
 grant execute on function public.pooldocai_consume_session_budget(text,text,integer,integer) to service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 2/45: 202610210002_technician_job_records.sql
+-- Migration 2/46: 202610210002_technician_job_records.sql
 -- ----------------------------------------------------------------------------
 
 -- Technician-entered job records. Identity/contact fields are intentionally absent.
@@ -164,7 +164,7 @@ grant all on public.technician_job_records to service_role;
 comment on table public.technician_job_records is 'PII-minimized technician-entered job notes, including jobs that did not use AI troubleshooting. Human review required before approved_for_learning is enabled.';
 
 -- ----------------------------------------------------------------------------
--- Migration 3/45: 202610210003_company_admin_portal.sql
+-- Migration 3/46: 202610210003_company_admin_portal.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI multi-tenant company portal and platform-owner dashboard.
@@ -395,7 +395,7 @@ comment on table public.service_customers is 'Customer PII is visible only to au
 comment on table public.technician_invitation_requests is 'Queue only. Actual Auth invitations must be sent through a trusted server using the Supabase service-role key; never expose that key in the dashboard.';
 
 -- ----------------------------------------------------------------------------
--- Migration 4/45: 202610210004_company_manual_learning_consent.sql
+-- Migration 4/46: 202610210004_company_manual_learning_consent.sql
 -- ----------------------------------------------------------------------------
 
 -- Separate company reference use from optional shared-learning consent.
@@ -426,7 +426,7 @@ create index if not exists learning_review_queue_tenant_created_idx
   on public.learning_review_queue(tenant_id, created_at desc);
 
 -- ----------------------------------------------------------------------------
--- Migration 5/45: 202610210005_document_extraction_retrieval.sql
+-- Migration 5/46: 202610210005_document_extraction_retrieval.sql
 -- ----------------------------------------------------------------------------
 
 -- Company-private document extraction/indexing. Shared learning consent is separate from
@@ -501,7 +501,7 @@ comment on table public.company_manual_chunks is 'Private extracted document chu
 comment on column public.company_manuals.shared_learning_opt_in is 'Explicit consent for extracted content to enter pending shared-learning review. Does not control private company-reference use.';
 
 -- ----------------------------------------------------------------------------
--- Migration 6/45: 202610210006_security_document_jobs_learning_approval.sql
+-- Migration 6/46: 202610210006_security_document_jobs_learning_approval.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI security hardening, durable document jobs, consent audit, and human-approved shared knowledge.
@@ -710,7 +710,7 @@ using (public.is_platform_admin() or public.is_company_admin(company_id) or (ass
 with check (public.is_platform_admin() or public.is_company_admin(company_id) or (assigned_technician=auth.uid() and public.is_company_operator(company_id)));
 
 -- ----------------------------------------------------------------------------
--- Migration 7/45: 202610210007_reliability_review_safety.sql
+-- Migration 7/46: 202610210007_reliability_review_safety.sql
 -- ----------------------------------------------------------------------------
 
 -- Reliability, queue performance, and safety metadata. Safe additive migration.
@@ -749,7 +749,7 @@ alter table public.company_manuals add column if not exists equipment_category t
 create index if not exists company_manuals_company_manufacturer_idx on public.company_manuals(company_id,manufacturer_normalized,equipment_category);
 
 -- ----------------------------------------------------------------------------
--- Migration 8/45: 202610210008_public_demo_eight_turns.sql
+-- Migration 8/46: 202610210008_public_demo_eight_turns.sql
 -- ----------------------------------------------------------------------------
 
 -- Increase the server-enforced public demo allowance to eight turns per opaque session.
@@ -840,7 +840,7 @@ comment on function public.pooldocai_consume_public_demo_turn(text, text, intege
 is 'Atomically consumes a unique public demo turn; maximum eight turns per mode-specific session per window.';
 
 -- ----------------------------------------------------------------------------
--- Migration 9/45: 202610210009_company_member_permissions_management.sql
+-- Migration 9/46: 202610210009_company_member_permissions_management.sql
 -- ----------------------------------------------------------------------------
 
 -- Company-level seat management, delegated permissions, and platform visibility.
@@ -1166,7 +1166,7 @@ comment on column public.company_members.can_review_documents is 'Member-specifi
 comment on table public.company_member_access_audit is 'Audit trail for seat assignments, membership state, roles, and company member permission changes; retained even if a membership row is deleted.';
 
 -- ----------------------------------------------------------------------------
--- Migration 10/45: 202610210010_company_admin_safety_fixups.sql
+-- Migration 10/46: 202610210010_company_admin_safety_fixups.sql
 -- ----------------------------------------------------------------------------
 
 -- Follow-up guards for seat permission triggers, subscription controls, and audit sequence access.
@@ -1206,7 +1206,7 @@ comment on function public.pooldocai_default_member_permissions()
 is 'Applies role-aware default permissions and guarantees company_admin seats retain full company permissions.';
 
 -- ----------------------------------------------------------------------------
--- Migration 11/45: 202610210011_demo_quota_and_company_creation_fix.sql
+-- Migration 11/46: 202610210011_demo_quota_and_company_creation_fix.sql
 -- ----------------------------------------------------------------------------
 
 -- Forward repair for the public demo SQL ambiguity exposed by the eight-turn regression test.
@@ -1310,7 +1310,7 @@ comment on policy companies_insert_platform_owner on public.companies
 is 'Only a registered PoolDocAI platform owner may create a company through the authenticated portal.';
 
 -- ----------------------------------------------------------------------------
--- Migration 12/45: 202610210012_invites_billing_usage_vector_industry.sql
+-- Migration 12/46: 202610210012_invites_billing_usage_vector_industry.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI feature expansion: invitation lifecycle, Stripe preparation, usage metering,
@@ -1537,7 +1537,7 @@ comment on table public.pooldocai_stripe_webhook_events is 'Idempotency/audit le
 comment on column public.company_manual_chunks.page_number is 'PDF page number when extracted with page-preserving parsing; NULL when the source does not provide a reliable page number.';
 
 -- ----------------------------------------------------------------------------
--- Migration 13/45: 202610210013_offline_sync_invitation_hardening.sql
+-- Migration 13/46: 202610210013_offline_sync_invitation_hardening.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI feature hardening (migration 013).
@@ -1603,7 +1603,7 @@ comment on column public.technician_job_records.client_job_id is 'Client-generat
 comment on column public.technician_job_records.sync_version is 'Monotonic version incremented by the database when an existing job record is updated.';
 
 -- ----------------------------------------------------------------------------
--- Migration 14/45: 202610210014_industry_activation_guard.sql
+-- Migration 14/46: 202610210014_industry_activation_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI migration 014: prevent unreviewed industries from using a different module's rules.
@@ -1636,7 +1636,7 @@ comment on function public.pooldocai_validate_company_industry_active()
 is 'Blocks company assignment to planned/disabled industry modules until module safety and diagnostic content are reviewed and explicitly activated.';
 
 -- ----------------------------------------------------------------------------
--- Migration 15/45: 202610210015_temporary_platform_trial_credentials.sql
+-- Migration 15/46: 202610210015_temporary_platform_trial_credentials.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 015: platform-owner-issued temporary full-experience credentials.
@@ -1677,7 +1677,7 @@ end $$;
 comment on table public.temporary_access_grants is 'Platform-owner-created full-experience trial credentials with a hard expiry between 30 minutes and 24 hours. No model training or shared-learning privilege is granted.';
 
 -- ----------------------------------------------------------------------------
--- Migration 16/45: 20261021001630_diagnostic_learning_sessions_consent_workflow_feedback.sql
+-- Migration 16/46: 20261021001630_diagnostic_learning_sessions_consent_workflow_feedback.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 016: durable diagnostic learning sessions, explicit company consent, and workflow-evaluation outcomes.
@@ -1784,7 +1784,7 @@ comment on column public.companies.diagnostic_learning_opt_in is 'Explicit compa
 comment on table public.diagnostic_workflow_feedback is 'Evaluation signals for improving diagnostic workflows. Never automatically published as knowledge or used for fine-tuning.';
 
 -- ----------------------------------------------------------------------------
--- Migration 17/45: 202610210016_restrict_trigger_function_execution.sql
+-- Migration 17/46: 202610210016_restrict_trigger_function_execution.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 016: prevent direct API invocation of trigger-only SECURITY DEFINER functions.
@@ -1809,7 +1809,7 @@ COMMENT ON FUNCTION public.pooldocai_audit_initial_document_consent() IS
   'Trigger-only function. Direct API execution is intentionally revoked.';
 
 -- ----------------------------------------------------------------------------
--- Migration 18/45: 202610210017_legal_document_rights_and_private_sop_guard.sql
+-- Migration 18/46: 202610210017_legal_document_rights_and_private_sop_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 017: document upload rights attestation and private-only company SOP/policy guard.
@@ -1945,7 +1945,7 @@ for each row execute function public.pooldocai_enforce_manual_rights_scope();
 comment on function public.pooldocai_enforce_manual_rights_scope() is 'Database-level guard for uploader rights attestation and private-only company documents.';
 
 -- ----------------------------------------------------------------------------
--- Migration 19/45: 202610210018_public_demo_learning_consent_capture.sql
+-- Migration 19/46: 202610210018_public_demo_learning_consent_capture.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 018: explicit public-demo/widget learning notice and privacy-minimized case capture.
@@ -2000,7 +2000,7 @@ create unique index if not exists diagnostic_cases_public_session_uidx
   where tenant_id is null and client_session_id is not null;
 
 -- ----------------------------------------------------------------------------
--- Migration 20/45: 202610220001_tenant_widget_service_routing.sql
+-- Migration 20/46: 202610220001_tenant_widget_service_routing.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI reviewed migration 019. Policy hardening applied during preflight review:
@@ -2179,7 +2179,7 @@ grant execute on function public.pooldocai_consume_widget_service_request(text,i
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 21/45: 202610220002_authenticated_service_handoff_source.sql
+-- Migration 21/46: 202610220002_authenticated_service_handoff_source.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 020: allow authenticated troubleshooter escalations to be recorded in the tenant service queue.
@@ -2191,7 +2191,7 @@ ALTER TABLE public.service_requests ADD CONSTRAINT service_requests_source_type_
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 22/45: 202610220003_plan_entitlements_pooled_sessions_branding.sql
+-- Migration 22/46: 202610220003_plan_entitlements_pooled_sessions_branding.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 021: canonical three-plan entitlement model, pooled monthly troubleshooting sessions, and onboarding brand data.
@@ -2377,7 +2377,7 @@ COMMENT ON TABLE public.pooldocai_company_monthly_sessions IS 'Privacy-preservin
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 23/45: 202610220004_three_size_tiers_founders_pricing.sql
+-- Migration 23/46: 202610220004_three_size_tiers_founders_pricing.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 022: three company-size tiers, Tech-Only/Complete access modes,
@@ -2538,7 +2538,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_reserve_founders_checkout(uuid,timest
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 24/45: 202610220005_model_rate_card_effective_dates.sql
+-- Migration 24/46: 202610220005_model_rate_card_effective_dates.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 023: effective-dated model rates for the models currently used by PoolDocAI.
@@ -2628,7 +2628,7 @@ COMMENT ON TABLE public.pooldocai_model_rate_cards IS
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 25/45: 202610220006_secure_service_request_webhooks.sql
+-- Migration 25/46: 202610220006_secure_service_request_webhooks.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 024: tenant-scoped, plan-gated outbound service-request webhooks.
@@ -2755,7 +2755,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_finish_service_request_webhook(uuid,b
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 26/45: 202610220007_grounding_cost_cache_security_review.sql
+-- Migration 26/46: 202610220007_grounding_cost_cache_security_review.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 025: Google Search grounding metering, public fault-code source cache, and review attestations.
@@ -2878,7 +2878,7 @@ COMMENT ON FUNCTION public.pooldocai_reserve_grounding_budget(uuid,text,integer,
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 27/45: 20261023030000_temporary_access_validity_rpc_scope.sql
+-- Migration 27/46: 20261023030000_temporary_access_validity_rpc_scope.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 026: keep the temporary-trial validity RPC bound to the caller's own identity.
@@ -2910,7 +2910,7 @@ COMMENT ON FUNCTION public.temporary_access_is_valid(uuid) IS
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 28/45: 20261023040000_finish_grounding_budget_reservation.sql
+-- Migration 28/46: 20261023040000_finish_grounding_budget_reservation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 027: explicitly release short-lived grounding budget reservations after provider completion.
@@ -2946,7 +2946,7 @@ COMMENT ON FUNCTION public.pooldocai_finish_grounding_budget(uuid) IS
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 29/45: 20261023050000_restore_company_diagnostic_learning_consent_trigger.sql
+-- Migration 29/46: 20261023050000_restore_company_diagnostic_learning_consent_trigger.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 028: restore the company diagnostic-learning consent audit trigger if it drifted.
@@ -2979,7 +2979,7 @@ EXECUTE FUNCTION public.pooldocai_audit_diagnostic_learning_consent();
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 30/45: 20261023060000_storage_temporary_access_expiry_policy.sql
+-- Migration 30/46: 20261023060000_storage_temporary_access_expiry_policy.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 030: Extend restrictive temporary-account expiry policy to storage.objects.
@@ -3000,7 +3000,7 @@ END $$;
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 31/45: 20261023070000_case_level_learning_consent_dual_opt_in.sql
+-- Migration 31/46: 20261023070000_case_level_learning_consent_dual_opt_in.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 031: Case-level learning consent, applicable terms version, dual-opt-in enforcement, and automatic withdrawal revocation.
@@ -3202,7 +3202,7 @@ IS 'Atomically verifies company and case-level consent, publishes approved lesso
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 32/45: 20261023080000_public_demo_learning_consent_reconciliation.sql
+-- Migration 32/46: 20261023080000_public_demo_learning_consent_reconciliation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 032: Reconcile public-demo case consent and enforce strict fail-closed atomic approval.
@@ -3404,7 +3404,7 @@ FOR EACH ROW EXECUTE FUNCTION public.pooldocai_audit_case_learning_consent();
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 33/45: 20261023090000_stripe_webhook_atomic_claim_and_recovery.sql
+-- Migration 33/46: 20261023090000_stripe_webhook_atomic_claim_and_recovery.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 033: Stripe webhook atomic event claiming, bounded retry/recovery, and concurrency locking.
@@ -3494,7 +3494,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_claim_stripe_webhook_event(text, text
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 34/45: 20261023100000_stripe_webhook_claim_fencing.sql
+-- Migration 34/46: 20261023100000_stripe_webhook_claim_fencing.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 034: Stripe webhook claim ownership fencing, atomic billing application, and lease governance.
@@ -3824,7 +3824,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_release_stripe_webhook_event(text, te
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 35/45: 20261023110000_stripe_webhook_company_ordering_guard.sql
+-- Migration 35/46: 20261023110000_stripe_webhook_company_ordering_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 035: Per-company transactionally serialized ordering check for Stripe webhook processing.
@@ -4042,7 +4042,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_apply_and_finalize_stripe_webhook(tex
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 36/45: 20261023120000_stripe_webhook_provenance_and_ordering_guard.sql
+-- Migration 36/46: 20261023120000_stripe_webhook_provenance_and_ordering_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 036: Event provenance and authoritative company row-lock validation for Stripe webhooks.
@@ -4312,7 +4312,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_apply_and_finalize_stripe_webhook(tex
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 37/45: 20261023130000_stripe_webhook_strict_provenance_and_same_period_ordering.sql
+-- Migration 37/46: 20261023130000_stripe_webhook_strict_provenance_and_same_period_ordering.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 037: Strict invoice subscription provenance enforcement and authoritative same-period event ordering.
@@ -4632,7 +4632,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_apply_and_finalize_stripe_webhook(tex
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 38/45: 20261024100000_learning_approval_verified_repairs_and_contributor_terms.sql
+-- Migration 38/46: 20261024100000_learning_approval_verified_repairs_and_contributor_terms.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 038: Enforce verified repairs and contributor terms in learning approval RPC
@@ -4812,7 +4812,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_approve_learning_case(uuid, text, uui
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 39/45: 20261024110000_learning_approval_strict_metadata_and_public_demo_quarantine.sql
+-- Migration 39/46: 20261024110000_learning_approval_strict_metadata_and_public_demo_quarantine.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 039: Strict metadata preservation for company manuals and public demo quarantine in learning approval
@@ -5015,7 +5015,7 @@ $$;
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 40/45: 20261024120000_company_manual_search_rpc_metadata_contract.sql
+-- Migration 40/46: 20261024120000_company_manual_search_rpc_metadata_contract.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 040: Fix company manual search RPCs return schema contract
@@ -5187,7 +5187,7 @@ REVOKE ALL ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, ex
 GRANT EXECUTE ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, extensions.vector, integer) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 41/45: 20261024130000_company_manual_search_active_tenant_gate.sql
+-- Migration 41/46: 20261024130000_company_manual_search_active_tenant_gate.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 041: Enforce active company status on company manual search RPCs
@@ -5360,7 +5360,7 @@ REVOKE ALL ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, ex
 GRANT EXECUTE ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, extensions.vector, integer) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 42/45: 20261024140000_company_notifications_foundation.sql
+-- Migration 42/46: 20261024140000_company_notifications_foundation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 042: Company Notifications and Delivery Foundation
@@ -5959,7 +5959,7 @@ REVOKE ALL ON FUNCTION public.pooldocai_reconcile_service_request_notifications(
 GRANT EXECUTE ON FUNCTION public.pooldocai_reconcile_service_request_notifications(uuid, integer) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 43/45: 20261024150000_email_delivery_foundation.sql
+-- Migration 43/46: 20261024150000_email_delivery_foundation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 043: Email Delivery Outbox, Lease Fencing & Provider Foundation (TASK-007 Part-2)
@@ -6337,7 +6337,7 @@ REVOKE ALL ON FUNCTION public.pooldocai_finish_email_delivery(uuid, text, boolea
 GRANT EXECUTE ON FUNCTION public.pooldocai_finish_email_delivery(uuid, text, boolean, text, text, boolean) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 44/45: 20261024160000_web_push_delivery_foundation.sql
+-- Migration 44/46: 20261024160000_web_push_delivery_foundation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 044: Web Push Delivery Foundation & Device Subscription Management (TASK-007 Part-3)
@@ -6907,7 +6907,7 @@ REVOKE ALL ON FUNCTION public.pooldocai_finish_push_delivery(uuid, text, boolean
 GRANT EXECUTE ON FUNCTION public.pooldocai_finish_push_delivery(uuid, text, boolean, text, text, boolean, text[]) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 45/45: 20261024170000_company_manual_provenance_and_duplicate_guard.sql
+-- Migration 45/46: 20261024170000_company_manual_provenance_and_duplicate_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 045: Company manual provenance contract and duplicate protection
@@ -7171,4 +7171,28 @@ $$;
 
 REVOKE ALL ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, extensions.vector, integer) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, extensions.vector, integer) TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- Migration 46/46: 20261025170000_security_advisor_hardening_rpc_grants.sql
+-- ----------------------------------------------------------------------------
+
+-- ============================================================================
+-- Migration 046: Supabase Security Advisor Hardening - Explicit Privilege Revocation
+-- Resolves anonymous-executable SECURITY DEFINER findings by explicitly revoking
+-- PUBLIC and anon execution grants on sensitive RPCs and trigger functions.
+-- ============================================================================
+
+-- 1. Explicitly revoke anonymous access to notification read RPCs
+REVOKE ALL ON FUNCTION public.pooldocai_get_user_notifications(uuid, integer, integer, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.pooldocai_get_user_notifications(uuid, integer, integer, boolean) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.pooldocai_mark_notification_read(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.pooldocai_mark_notification_read(uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.pooldocai_mark_all_notifications_read(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.pooldocai_mark_all_notifications_read(uuid) TO authenticated, service_role;
+
+-- 2. Explicitly revoke public/anon/authenticated execution on trigger function
+REVOKE ALL ON FUNCTION public.pooldocai_touch_updated_at() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pooldocai_touch_updated_at() TO service_role;
 
