@@ -2,7 +2,7 @@
 :root{--navy:#0f2b46;--blue:#0878b9;--line:#d8e2ec;--muted:#5b6b7a;--bg:#f3f7fb}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#142536}header{background:var(--navy);color:white;padding:18px max(16px,calc((100vw - 1160px)/2));display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}header strong{font-size:1.2rem}header a{color:#d5efff}.wrap{max-width:1160px;margin:auto;padding:20px}.card{background:white;border:1px solid var(--line);border-radius:15px;padding:18px;margin:0 0 15px;box-shadow:0 3px 14px #0f2b4608}h2{font-size:1.05rem;margin:0 0 12px}label{display:block;font-size:.88rem;font-weight:700;margin:12px 0 5px}input,textarea,select{width:100%;padding:11px;border:1px solid #b9c9d8;border-radius:9px;font:inherit;background:white;color:#142536}textarea{min-height:80px}button,.btn{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:var(--blue);color:white}button.secondary{background:#e6eff6;color:var(--navy)}button.danger{background:#fff0ee;color:#9d2c22}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.metric{background:#f4f8fc;border:1px solid var(--line);padding:14px;border-radius:12px}.metric strong{display:block;font-size:1.5rem}.muted,.small{color:var(--muted);font-size:.85rem}.tabs{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:16px 0 20px;padding:8px;background:#e8eff6;border:1px solid var(--line);border-radius:13px}.tabs button{background:#fff;color:var(--navy);padding:10px 15px;white-space:nowrap;box-shadow:0 1px 2px #0f2b460c}.tabs button.active{background:var(--navy);color:white}.tabs button:focus-visible{outline:3px solid #58b9ec;outline-offset:2px}input[type=checkbox]{width:auto;min-width:18px;min-height:18px;accent-color:var(--blue)}.permission-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}.permission-grid label{display:flex;gap:8px;align-items:center;margin:0;padding:10px;border:1px solid var(--line);border-radius:9px;font-weight:500;background:#f8fbfe}.tablewrap{max-width:100%}.access-cell{min-width:120px}.document-preview{width:min(900px,96vw);max-height:85vh;overflow:auto;border:1px solid var(--line);border-radius:14px;padding:20px}.document-preview::backdrop{background:#061626b8}.chunk{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f8fc;border:1px solid var(--line);border-radius:10px;padding:12px;margin:9px 0}@media(max-width:760px){.permission-grid{grid-template-columns:1fr 1fr}.tabs{gap:7px}.tabs button{flex:1 1 auto}}@media(max-width:480px){.permission-grid{grid-template-columns:1fr}}.tabs button.active{background:var(--navy);color:white}.panel{display:none}.panel.active{display:block}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;border-bottom:1px solid var(--line);padding:9px;vertical-align:top}th{background:#f5f8fb}.tablewrap{overflow:auto}#status{padding:11px 13px;border-radius:9px;background:#eaf3fb;margin:12px 0}#status.error{background:#fff0ee;color:#8e261e}#status.ok{background:#e9f8ef;color:#155b36}.hidden{display:none!important}.notice{background:#fff7df;border:1px solid #f1d68a;border-radius:10px;padding:12px}.badge{display:inline-block;border-radius:20px;background:#e8f3fc;padding:3px 8px;font-size:.78rem;font-weight:700}.footer{font-size:.8rem;color:var(--muted);padding:14px 0 30px}@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.wrap{padding:12px}table{min-width:620px}}@media(max-width:480px){.grid{grid-template-columns:1fr}}
 </style>  <script src="/js/config.js"></script>
   <link rel="stylesheet" href="css/design-tokens.css" />
-</head><body><header><div><strong>PoolDocAI · Account Portal</strong><div class="small" style="color:#c9d9e7">Company operations and platform administration</div></div><div class="row"><a href="/index.html">Public website</a><a href="/demo.html">Public demo</a><div id="notificationBellWrap" class="hidden" style="position:relative;display:inline-block"><button id="notificationBellBtn" type="button" aria-label="Notifications" aria-expanded="false" aria-haspopup="true" style="background:transparent;border:none;cursor:pointer;color:white;font-size:18px;position:relative;padding:4px 8px;">🔔<span id="unreadNotificationBadge" class="hidden" style="position:absolute;top:0;right:2px;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:bold;padding:1px 5px;line-height:1;">0</span></button><div id="notificationInboxPanel" class="hidden" role="region" aria-label="Notifications Inbox" style="position:absolute;right:0;top:100%;width:340px;max-width:90vw;background:#ffffff;color:#1e293b;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.25);border:1px solid #cbd5e1;z-index:1000;padding:12px;margin-top:6px;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;"><div><strong style="font-size:14px;color:#0f2b46;display:block;">Notifications</strong><span id="notificationCompanyContext" class="muted small" style="font-size:10px;color:#64748b;display:block;"></span></div><div style="display:flex;gap:6px;"><button id="markAllReadBtn" type="button" class="small secondary" style="font-size:11px;padding:3px 8px;">Mark all read</button><button id="closeNotificationInboxBtn" type="button" class="small secondary" style="font-size:11px;padding:3px 6px;">✕</button></div></div><div id="notificationListWrap" style="max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"><div id="notificationEmptyState" class="muted small" style="text-align:center;padding:16px 8px;">No notifications.</div></div></div></div><button id="logoutBtn" class="secondary hidden">Sign out</button></div></header><main class="wrap">
+</head><body><header><div><strong>PoolDocAI · Account Portal</strong><div class="small" style="color:#c9d9e7">Company operations and platform administration</div></div><div class="row"><a href="/index.html">Public website</a><a href="/demo.html">Public demo</a><div id="notificationBellWrap" class="hidden" style="position:relative;display:inline-block"><button id="notificationBellBtn" type="button" aria-label="Notifications" aria-expanded="false" aria-haspopup="true" style="background:transparent;border:none;cursor:pointer;color:white;font-size:18px;position:relative;padding:4px 8px;">🔔<span id="unreadNotificationBadge" class="hidden" style="position:absolute;top:0;right:2px;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:bold;padding:1px 5px;line-height:1;">0</span></button><div id="notificationInboxPanel" class="hidden" role="region" aria-label="Notifications Inbox" style="position:absolute;right:0;top:100%;width:340px;max-width:90vw;background:#ffffff;color:#1e293b;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.25);border:1px solid #cbd5e1;z-index:1000;padding:12px;margin-top:6px;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;"><div><strong style="font-size:14px;color:#0f2b46;display:block;">Notifications</strong><span id="notificationCompanyContext" class="muted small" style="font-size:10px;color:#64748b;display:block;"></span></div><div style="display:flex;gap:6px;"><button id="markAllReadBtn" type="button" class="small secondary" style="font-size:11px;padding:3px 8px;">Mark all read</button><button id="closeNotificationInboxBtn" type="button" class="small secondary" style="font-size:11px;padding:3px 6px;">✕</button></div></div><div id="notificationListWrap" style="max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"><div id="notificationEmptyState" class="muted small" style="text-align:center;padding:16px 8px;">No notifications.</div></div><div id="adminPushNotificationOptInWrap" style="padding:8px 4px 4px;border-top:1px solid #e2e8f0;margin-top:8px;display:flex;justify-content:space-between;align-items:center;"><span id="adminPushStatusLabel" style="font-size:11px;color:#475569;">Device push alerts: Disabled</span><button id="toggleAdminPushBtn" type="button" class="small secondary" style="font-size:10px;padding:3px 8px;">Enable alerts</button></div></div></div><button id="logoutBtn" class="secondary hidden">Sign out</button></div></header><main class="wrap">
 <section id="loginCard" class="card"><h2>Secure sign in</h2><p class="muted">Use your individual PoolDocAI account. Your company and permissions are determined by your authenticated membership, not by a URL or browser setting.</p><label for="email">Email</label><input id="email" type="email" autocomplete="username" required><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required><div class="row" style="margin-top:12px"><button id="loginBtn">Sign in</button><button id="resetBtn" class="secondary">Send password reset</button></div><p class="small">Accounts must be provisioned by the platform owner. This portal does not create privileged accounts by itself.</p></section>
 <div id="status" role="status" aria-live="polite">Sign in to view your account.</div><section id="portal" class="hidden"><div class="card"><div class="row" style="justify-content:space-between"><div><h2 id="welcomeTitle">Account overview</h2><div class="muted" id="roleLine"></div></div><div id="companyPickerWrap" class="hidden" style="min-width:230px"><label for="companyPicker">Company (platform owner)</label><select id="companyPicker"></select></div></div><div class="grid" id="metrics"></div></div>
 <div class="tabs" role="tablist"><button class="active" data-tab="overview">Overview</button><button data-tab="requests">Service requests</button><button data-tab="jobs" id="jobsTab">Service notes</button><button data-tab="customers">Customers</button><button data-tab="team">Team &amp; access</button><button data-tab="manuals">SOPs &amp; manuals</button><button data-tab="billing">Plan &amp; billing</button><button data-tab="platform" id="platformTab" class="hidden">Platform analytics</button><button data-tab="notifications" id="notificationsTab">Notifications <span id="tabUnreadBadge" class="hidden" style="background:#ef4444;color:white;border-radius:10px;font-size:10px;padding:1px 5px;">0</span></button><button data-tab="troubleshooter">Troubleshooter</button></div>
@@ -203,7 +203,115 @@ $('markAllReadBtn').onclick=async()=>{
 $('panelMarkAllReadBtn').onclick=$('markAllReadBtn').onclick;
 $('refreshNotificationsBtn').onclick=()=>loadNotifications();
 
-async function loadPortal(){if(!session)return showLogin();$('loginCard').classList.add('hidden');$('portal').classList.remove('hidden');$('logoutBtn').classList.remove('hidden');say('Loading your account…');try{const u=session.user;const pa=await client.from('platform_admins').select('user_id').eq('user_id',u.id).maybeSingle();isPlatformAdmin=!!pa.data;if(isPlatformAdmin){const c=await client.from('companies').select('*').order('created_at',{ascending:false});if(c.error)throw c.error;companies=c.data||[];$('companyPickerWrap').classList.remove('hidden');$('platformTab').classList.remove('hidden');$('companyPicker').innerHTML='<option value="">Select company…</option>'+companies.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$('companyPicker').onchange=()=>{selectedCompany=companies.find(x=>x.id===$('companyPicker').value)||null;loadCompanyData();};$('welcomeTitle').textContent='Platform owner dashboard';$('roleLine').textContent='Platform-wide administration';await loadPlatform();await refreshPlatformRateCards();await refreshTempTrials();}else{const m=await client.from('company_members').select('*,companies(*)').eq('user_id',u.id).eq('status','active');if(m.error)throw m.error;if(!m.data?.length)throw new Error('This login is not assigned to an active company. Ask your PoolDocAI administrator to provision your company membership.');member=m.data[0];member=m.data[0];selectedCompany=member.companies;companies=m.data.map(x=>x.companies).filter(Boolean);$('welcomeTitle').textContent=selectedCompany.name;$('roleLine').textContent=`${member.role.replace('_',' ')} · ${selectedCompany.status}`;$('platformTab').classList.add('hidden');if(companies.length>1){$('companyPickerWrap').classList.remove('hidden');$('companyPicker').innerHTML='<option value="">Switch company workspace…</option>'+companies.map(x=>`<option value="${x.id}" ${x.id===selectedCompany.id?'selected':''}>${esc(x.name)}</option>`).join('');$('companyPicker').onchange=()=>{selectedCompany=companies.find(x=>x.id===$('companyPicker').value)||null;member=m.data.find(x=>x.company_id===selectedCompany?.id)||null;loadCompanyData();void loadNotifications();};}else{$('companyPickerWrap').classList.add('hidden');}}await loadCompanyData();say('Signed in. Data shown is limited by your account permissions.','ok');void loadNotifications();}catch(e){say(e.message||'Could not load account data.','error');}}
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+  return outputArray;
+}
+
+async function initAdminPushControls() {
+  const toggleBtn = $('toggleAdminPushBtn');
+  const statusLabel = $('adminPushStatusLabel');
+  if (!toggleBtn || !statusLabel) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    statusLabel.textContent = 'Push alerts not supported';
+    toggleBtn.classList.add('hidden');
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    statusLabel.textContent = 'Push alerts blocked in browser';
+    toggleBtn.textContent = 'Blocked';
+    toggleBtn.disabled = true;
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      statusLabel.textContent = 'Device push alerts: Enabled';
+      toggleBtn.textContent = 'Disable alerts';
+    } else {
+      statusLabel.textContent = 'Device push alerts: Disabled';
+      toggleBtn.textContent = 'Enable alerts';
+    }
+  } catch (err) {
+    statusLabel.textContent = 'Device alerts: Unavailable';
+  }
+
+  toggleBtn.onclick = async () => {
+    const companyId = selectedCompany?.id || null;
+    if (!client || !session || !companyId) {
+      say('Select a company workspace before configuring alerts.', 'error');
+      return;
+    }
+    toggleBtn.disabled = true;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+        await client.rpc('pooldocai_unregister_push_subscription', { p_endpoint: sub.endpoint });
+        statusLabel.textContent = 'Device push alerts: Disabled';
+        toggleBtn.textContent = 'Enable alerts';
+        say('Push alerts disabled for this device.', 'ok');
+      } else {
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') {
+          statusLabel.textContent = 'Push alerts blocked';
+          toggleBtn.textContent = 'Blocked';
+          toggleBtn.disabled = true;
+          say('Notification permission was not granted.', 'error');
+          return;
+        }
+        const vapidKey = window.POOLDOCAI_CONFIG?.vapidPublicKey;
+        const subOptions = { userVisibleOnly: true };
+        if (vapidKey) { subOptions.applicationServerKey = urlBase64ToUint8Array(vapidKey); }
+        sub = await reg.pushManager.subscribe(subOptions).catch((e) => {
+          console.warn('Browser push subscription failed', e);
+          return null;
+        });
+        if (sub) {
+          const raw = sub.toJSON();
+          const p256dh = raw.keys?.p256dh || '';
+          const auth = raw.keys?.auth || '';
+          const { error: regErr } = await client.rpc('pooldocai_register_push_subscription', {
+            p_company_id: companyId,
+            p_endpoint: sub.endpoint,
+            p_p256dh: p256dh,
+            p_auth: auth,
+            p_user_agent: navigator.userAgent
+          });
+          if (regErr) {
+            say('Device registered locally, but server registration failed: ' + regErr.message, 'error');
+          } else {
+            statusLabel.textContent = 'Device push alerts: Enabled';
+            toggleBtn.textContent = 'Disable alerts';
+            say('Device alerts enabled for this company.', 'ok');
+          }
+        } else {
+          say('Could not activate push on this browser.', 'error');
+        }
+      }
+    } catch (err) {
+      say('Push configuration error: ' + (err?.message || 'unknown'), 'error');
+    } finally {
+      toggleBtn.disabled = false;
+    }
+  };
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/app-sw.js', { scope: '/' })
+      .then(reg => { void initAdminPushControls(); })
+      .catch(err => console.error('[SW] Admin app SW registration error:', err));
+  });
+}
+
+async function loadPortal(){if(!session)return showLogin();$('loginCard').classList.add('hidden');$('portal').classList.remove('hidden');$('logoutBtn').classList.remove('hidden');say('Loading your account…');try{const u=session.user;const pa=await client.from('platform_admins').select('user_id').eq('user_id',u.id).maybeSingle();isPlatformAdmin=!!pa.data;if(isPlatformAdmin){const c=await client.from('companies').select('*').order('created_at',{ascending:false});if(c.error)throw c.error;companies=c.data||[];$('companyPickerWrap').classList.remove('hidden');$('platformTab').classList.remove('hidden');$('companyPicker').innerHTML='<option value="">Select company…</option>'+companies.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$('companyPicker').onchange=()=>{selectedCompany=companies.find(x=>x.id===$('companyPicker').value)||null;loadCompanyData();};$('welcomeTitle').textContent='Platform owner dashboard';$('roleLine').textContent='Platform-wide administration';await loadPlatform();await refreshPlatformRateCards();await refreshTempTrials();}else{const m=await client.from('company_members').select('*,companies(*)').eq('user_id',u.id).eq('status','active');if(m.error)throw m.error;if(!m.data?.length)throw new Error('This login is not assigned to an active company. Ask your PoolDocAI administrator to provision your company membership.');member=m.data[0];member=m.data[0];selectedCompany=member.companies;companies=m.data.map(x=>x.companies).filter(Boolean);$('welcomeTitle').textContent=selectedCompany.name;$('roleLine').textContent=`${member.role.replace('_',' ')} · ${selectedCompany.status}`;$('platformTab').classList.add('hidden');if(companies.length>1){$('companyPickerWrap').classList.remove('hidden');$('companyPicker').innerHTML='<option value="">Switch company workspace…</option>'+companies.map(x=>`<option value="${x.id}" ${x.id===selectedCompany.id?'selected':''}>${esc(x.name)}</option>`).join('');$('companyPicker').onchange=()=>{selectedCompany=companies.find(x=>x.id===$('companyPicker').value)||null;member=m.data.find(x=>x.company_id===selectedCompany?.id)||null;loadCompanyData();void loadNotifications();};}else{$('companyPickerWrap').classList.add('hidden');}}await loadCompanyData();say('Signed in. Data shown is limited by your account permissions.','ok');void loadNotifications();void initAdminPushControls();}catch(e){say(e.message||'Could not load account data.','error');}}
 async function loadCompanyData(){if(!selectedCompany)return;const c=selectedCompany;const canManage=isPlatformAdmin||member?.role==='company_admin';const canViewNotes=isPlatformAdmin||member?.role==='company_admin'||member?.can_view_job_notes===true;const canEditNotes=isPlatformAdmin||member?.role==='company_admin'||member?.can_edit_job_notes===true;const canUploadDocs=isPlatformAdmin||member?.role==='company_admin'||member?.can_upload_documents===true;const canReviewDocs=isPlatformAdmin||member?.role==='company_admin'||member?.can_review_documents===true;const [req,jobs,cust,team,inv,manuals,usage]=await Promise.all([client.from('service_requests').select('*').eq('company_id',c.id).order('created_at',{ascending:false}).limit(100),client.from('technician_job_records').select('*').eq('tenant_id',c.id).order('created_at',{ascending:false}).limit(100),client.from('service_customers').select('*').eq('company_id',c.id).order('created_at',{ascending:false}).limit(100),client.from('company_members').select('*').eq('company_id',c.id).order('created_at'),(canManage?client.from('technician_invitation_requests').select('*').eq('company_id',c.id).order('created_at',{ascending:false}):Promise.resolve({data:[],error:null})),client.from('company_manuals').select('*').eq('company_id',c.id).order('created_at',{ascending:false}),client.from('platform_usage_events').select('*').eq('company_id',c.id).order('created_at',{ascending:false}).limit(30)]);for(const r of [req,jobs,cust,team,inv,manuals,usage])if(r.error)throw r.error;
 const activeSeatCount=team.data.filter(x=>x.status==='active').length;$('seatUsageLine').textContent=`${activeSeatCount} of ${c.seat_limit} seats in use`;$('metrics').innerHTML=[['Account status',c.status],['Plan',c.plan_name],['Active seats',`${activeSeatCount} / ${c.seat_limit}`]].map(x=>`<div class="metric"><span class="muted">${esc(x[0])}</span><strong>${esc(x[1])}</strong></div>`).join('');$('accountSummary').innerHTML=`<p><b>Company:</b> ${esc(c.name)}</p><p><b>Billing email:</b> ${esc(c.billing_email||'Not configured')}</p><p><b>Billing status:</b> ${esc(c.billing_status)}</p><p><b>Subscription period ends:</b> ${fmt(c.current_period_end)}</p><p><b>Created:</b> ${fmt(c.created_at)}</p>`;
 $('requestRows').innerHTML=req.data.map(x=>`<tr><td>${fmt(x.created_at)}</td><td>${esc(x.request_summary)}</td><td>${esc(x.priority)}</td><td>${esc(x.status)}</td><td>${esc(team.data.find(t=>t.user_id===x.assigned_technician)?.display_name||x.assigned_technician||'Unassigned')}</td></tr>`).join('')||'<tr><td colspan="5">No requests yet.</td></tr>';

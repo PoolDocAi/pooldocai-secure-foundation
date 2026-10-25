@@ -11,6 +11,7 @@ import * as cheerio from 'cheerio';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
 import { ResendEmailAdapter, UnconfiguredEmailAdapter, processEmailBatch } from './email-service.js';
+import { WebPushAdapter, UnconfiguredPushAdapter, processPushBatch } from './push-service.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const MAX_BYTES = Math.min(Number(process.env.MAX_DOWNLOAD_BYTES || 25 * 1024 * 1024), 25 * 1024 * 1024);
@@ -26,6 +27,12 @@ const EMBEDDING_DIMENSIONS = 768;
 const RESEND_KEY = process.env.RESEND_API_KEY;
 const EMAIL_FROM = process.env.EMAIL_FROM_ADDRESS || 'PoolDocAI <notifications@pooldocai.com>';
 const emailAdapter = RESEND_KEY ? new ResendEmailAdapter(RESEND_KEY, EMAIL_FROM) : new UnconfiguredEmailAdapter();
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:security@pooldocai.com';
+const pushAdapter = (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
+  ? new WebPushAdapter({ vapidPublicKey: VAPID_PUBLIC_KEY, vapidPrivateKey: VAPID_PRIVATE_KEY, vapidSubject: VAPID_SUBJECT })
+  : new UnconfiguredPushAdapter();
 function utcMonthStartDate() { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
 if (!SUPABASE_URL || !SERVICE_KEY || !SECRET) throw new Error('Startup configuration error: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and DOC_WORKER_SECRET are required.');
 if (!/^https:\/\//i.test(SUPABASE_URL)) throw new Error('Startup configuration error: SUPABASE_URL must use HTTPS.');
@@ -635,6 +642,7 @@ const server = http.createServer(async (req,res) => {
         service: 'pooldocai-document-worker',
         database: 'ok',
         email_provider: RESEND_KEY ? 'resend' : 'unconfigured',
+        push_provider: (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) ? 'vapid' : 'unconfigured',
         queue,
         thresholdsMinutes: { oldQueued: queuedMinutes, stuckProcessing: stuckMinutes },
         checkedAt: nowIso
@@ -645,7 +653,7 @@ const server = http.createServer(async (req,res) => {
     }
   }
   if (req.method !== 'POST' || req.url !== '/process') {
-    if (!(req.method === 'POST' && req.url === '/email/process')) return json(res,404,{error:'Not found'});
+    if (!(req.method === 'POST' && (req.url === '/email/process' || req.url === '/push/process'))) return json(res,404,{error:'Not found'});
   }
   try {
     let body=''; for await (const part of req) { body += part; if (body.length > 100_000) throw new Error('Request too large.'); }
@@ -669,6 +677,22 @@ const server = http.createServer(async (req,res) => {
       }
       const result = await processEmailBatch(db, emailAdapter, {
         workerId: payload.workerId || `render_worker_http_${process.pid}`,
+        batchSize: Number(payload.batchSize) || 10,
+        leaseSeconds: Number(payload.leaseSeconds) || 120
+      });
+      return json(res, 200, { ok: true, ...result });
+    }
+    if (req.url === '/push/process') {
+      if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+        return json(res, 503, {
+          ok: false,
+          error: 'PUSH_PROVIDER_UNCONFIGURED',
+          push_provider: 'unconfigured',
+          message: 'External push provider credentials are not configured.'
+        });
+      }
+      const result = await processPushBatch(db, pushAdapter, {
+        workerId: payload.workerId || `render_worker_push_http_${process.pid}`,
         batchSize: Number(payload.batchSize) || 10,
         leaseSeconds: Number(payload.leaseSeconds) || 120
       });
@@ -724,10 +748,33 @@ async function pollEmailQueue() {
     emailBusy = false;
   }
 }
+let pushBusy = false;
+async function pollPushQueue() {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    // Fail-closed: external sends disabled when provider unconfigured.
+    // Leaves all pending push queue rows safely intact for future delivery.
+    return;
+  }
+  if (pushBusy) return;
+  pushBusy = true;
+  try {
+    await processPushBatch(db, pushAdapter, {
+      workerId: `render_worker_push_${process.pid}`,
+      batchSize: 10,
+      leaseSeconds: 120
+    });
+  } catch (err) {
+    console.error('Push delivery queue polling failed', String(err?.message || 'unknown').slice(0, 160));
+  } finally {
+    pushBusy = false;
+  }
+}
 setInterval(() => { void pollQueue(); }, 2500);
 void pollQueue();
 setInterval(() => { void pollWebhookQueue(); }, 5000);
 void pollWebhookQueue();
 setInterval(() => { void pollEmailQueue(); }, 5000);
 void pollEmailQueue();
-server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable document, service-webhook, and email queues enabled`));
+setInterval(() => { void pollPushQueue(); }, 5000);
+void pollPushQueue();
+server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable document, service-webhook, email, and web-push queues enabled`));

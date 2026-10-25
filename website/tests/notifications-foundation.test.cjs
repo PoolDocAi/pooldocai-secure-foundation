@@ -11,10 +11,20 @@ const migration043 = fs.readFileSync(
   path.join(root, "supabase", "migrations", "20261024150000_email_delivery_foundation.sql"),
   "utf8"
 );
+const migration044 = fs.readFileSync(
+  path.join(root, "supabase", "migrations", "20261024160000_web_push_delivery_foundation.sql"),
+  "utf8"
+);
 const emailService = fs.readFileSync(
   path.join(root, "document-worker", "src", "email-service.js"),
   "utf8"
 );
+const pushService = fs.readFileSync(
+  path.join(root, "document-worker", "src", "push-service.js"),
+  "utf8"
+);
+const techSw = fs.readFileSync(path.join(root, "website", "technician-sw.js"), "utf8");
+const appSw = fs.readFileSync(path.join(root, "website", "app-sw.js"), "utf8");
 const workerServer = fs.readFileSync(
   path.join(root, "document-worker", "src", "server.js"),
   "utf8"
@@ -276,4 +286,50 @@ assert.ok(adminHtml.includes('id="notificationCompanyContext"'), "admin.html inc
   assert.match(workerServer, /email_provider:\s*RESEND_KEY\s*\?\s*'resend'\s*:\s*'unconfigured'/i, "exposes non-sensitive email_provider health status");
 }
 
-console.log("PASS: All TASK-007 Part-1 & Part-2 Company Notification Foundation tests passed successfully.");
+// 11. TASK-007 Part-3: Web Push Delivery Foundation & Android-First PWA Integration
+{
+  // 11a. Migration 044 schema & RLS assertions
+  assert.match(migration044, /CREATE TABLE IF NOT EXISTS public\.user_push_subscriptions/i, "creates user_push_subscriptions table");
+  assert.match(migration044, /CONSTRAINT user_push_subscriptions_user_endpoint_key UNIQUE\s*\(user_id,\s*endpoint\)/i, "enforces unique user endpoint");
+  assert.match(migration044, /status text NOT NULL DEFAULT 'active' CHECK \(status IN \('active', 'revoked'\)\)/i, "supports active and revoked status");
+  assert.match(migration044, /ALTER TABLE public\.user_push_subscriptions ENABLE ROW LEVEL SECURITY/i, "enables RLS on user_push_subscriptions");
+  assert.match(migration044, /CREATE POLICY user_push_subscriptions_select_own/i, "restricts SELECT to own company subscriptions");
+
+  // 11b. Registration & Unregistration RPCs
+  assert.match(migration044, /FUNCTION public\.pooldocai_register_push_subscription/i, "defines register push RPC");
+  assert.match(migration044, /FUNCTION public\.pooldocai_unregister_push_subscription/i, "defines unregister push RPC");
+  assert.match(migration044, /GRANT EXECUTE ON FUNCTION public\.pooldocai_register_push_subscription.+TO authenticated/i, "authorizes authenticated users for registration");
+
+  // 11c. Outbox Batch Claim & Finish RPCs
+  assert.match(migration044, /FUNCTION public\.pooldocai_claim_push_delivery_batch/i, "defines claim push RPC");
+  assert.match(migration044, /FOR UPDATE OF q SKIP LOCKED/i, "uses SKIP LOCKED for push claiming");
+  assert.match(migration044, /FUNCTION public\.pooldocai_finish_push_delivery/i, "defines finish push RPC");
+  assert.match(migration044, /p_revoked_endpoints/i, "accepts revoked endpoints in finish RPC");
+  assert.match(migration044, /SET status = 'revoked'/i, "auto-revokes dead endpoints on 404/410");
+
+  // 11d. Push service module assertions
+  assert.match(pushService, /export function buildNotificationPushPayload/i, "exports buildNotificationPushPayload");
+  assert.match(pushService, /export function encryptPushPayload/i, "exports encryptPushPayload (RFC 8291)");
+  assert.match(pushService, /export function createVapidAuthHeader/i, "exports createVapidAuthHeader (RFC 8292)");
+  assert.match(pushService, /export class UnconfiguredPushAdapter/i, "exports UnconfiguredPushAdapter");
+  assert.match(pushService, /export class WebPushAdapter/i, "exports WebPushAdapter");
+  assert.match(pushService, /export class MockPushAdapter/i, "exports MockPushAdapter");
+  assert.match(pushService, /export async function processPushBatch/i, "exports processPushBatch");
+
+  // 11e. Worker server push integration assertions
+  assert.match(workerServer, /import\s*\{\s*WebPushAdapter,\s*UnconfiguredPushAdapter,\s*processPushBatch\s*\}\s*from '\.\/push-service\.js'/i, "imports push adapter in worker");
+  assert.match(workerServer, /req\.url === '\/push\/process'/i, "worker handles POST /push/process");
+  assert.match(workerServer, /pollPushQueue/i, "worker polls push queue");
+  assert.match(workerServer, /push_provider:\s*\(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY\)\s*\?\s*'vapid'\s*:\s*'unconfigured'/i, "worker health endpoint includes push_provider");
+
+  // 11f. UI Opt-In Controls & Service Worker
+  assert.ok(techHtml.includes('id="togglePushBtn"'), "technician.html includes explicit opt-in toggle button");
+  assert.ok(adminHtml.includes('id="toggleAdminPushBtn"'), "admin.html includes explicit opt-in toggle button");
+  assert.match(techSw, /self\.addEventListener\('push'/i, "technician-sw.js includes push listener");
+  assert.match(techSw, /self\.addEventListener\('notificationclick'/i, "technician-sw.js includes notificationclick listener");
+  assert.match(techSw, /cache\.match\('\/technician'\)[\s\S]*cache\.match\('\/technician\.html'\)/i, "technician-sw.js includes resilient offline navigation fallback");
+  assert.match(appSw, /self\.addEventListener\('push'/i, "app-sw.js includes push listener");
+  assert.match(appSw, /self\.addEventListener\('notificationclick'/i, "app-sw.js includes notificationclick listener");
+}
+
+console.log("PASS: All TASK-007 Part-1, Part-2 & Part-3 Company Notification Foundation tests passed successfully.");

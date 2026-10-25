@@ -2,10 +2,29 @@
   "name": "PoolDocAI Technician",
   "short_name": "PoolDocAI Tech",
   "description": "Field technician diagnostic notes and job close-out",
-  "start_url": "/technician.html",
+  "start_url": "/technician",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f3f7fb",
   "theme_color": "#0f2b46",
-  "icons": [{"src":"/technician-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+  "icons": [
+    {
+      "src": "/pooldocai-app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pooldocai-app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/technician-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

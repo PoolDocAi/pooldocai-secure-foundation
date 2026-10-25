@@ -1671,3 +1671,193 @@ BEGIN
   DELETE FROM public.companies WHERE id IN (v_co_email, v_co_inactive);
   DELETE FROM auth.users WHERE id IN (v_user_admin, v_user_tech, v_user_susp);
 END $$;
+
+
+-- ============================================================================
+-- SECTION 12: Web Push Delivery Outbox, Device Subscriptions & Lease Fencing (TASK-007 Part-3)
+-- ============================================================================
+DO $$
+DECLARE
+  v_co_push uuid := gen_random_uuid();
+  v_co_other uuid := gen_random_uuid();
+  v_user_admin uuid := gen_random_uuid();
+  v_user_tech uuid := gen_random_uuid();
+  v_user_other uuid := gen_random_uuid();
+  v_sub_id uuid;
+  v_sub_id_2 uuid;
+  v_unreg_ok boolean;
+  v_notif_id uuid;
+  v_queue_row record;
+  v_claimed_q_id uuid;
+  v_claimed_attempts integer;
+  v_claimed_lease_token text;
+  v_claimed_subs jsonb;
+  v_finish_ok boolean;
+  v_sub_status text;
+  v_batch_cnt integer;
+BEGIN
+  -- 1. Create Test Fixtures
+  INSERT INTO auth.users (id, email) VALUES
+    (v_user_admin, 'admin_push_ci@test.com'),
+    (v_user_tech, 'tech_push_ci@test.com'),
+    (v_user_other, 'other_push_ci@test.com');
+
+  INSERT INTO public.companies (id, name, status, plan_name, seat_limit) VALUES
+    (v_co_push, 'Push Delivery Test Co', 'active', 'Founders Tier', 5),
+    (v_co_other, 'Other Push Co', 'active', 'Founders Tier', 5);
+
+  INSERT INTO public.company_members (company_id, user_id, role, status, can_view_job_notes, can_edit_job_notes) VALUES
+    (v_co_push, v_user_admin, 'company_admin', 'active', true, true),
+    (v_co_push, v_user_tech, 'technician', 'active', true, true),
+    (v_co_other, v_user_other, 'technician', 'active', true, true);
+
+  -- 2. Test Device Push Registration RPC
+  -- Impersonate tech user
+  EXECUTE format('SET LOCAL "request.jwt.claim.sub" = %L', v_user_tech::text);
+  EXECUTE 'SET LOCAL "request.jwt.claim.role" = ''authenticated''';
+
+  -- Register tech device 1
+  v_sub_id := public.pooldocai_register_push_subscription(
+    p_company_id := v_co_push,
+    p_endpoint := 'https://fcm.googleapis.com/fcm/send/tech_device_alpha_1',
+    p_p256dh := 'p256dh_sample_key_11111111111111111111111111111111111111111111111111111111111111111',
+    p_auth := 'auth_secret_sample_key_11111',
+    p_user_agent := 'Mozilla/5.0 (Android Chrome PWA)'
+  );
+
+  IF v_sub_id IS NULL THEN
+    RAISE EXCEPTION 'Failed to register push subscription for tech';
+  END IF;
+
+  -- Verify subscription row
+  SELECT status INTO v_sub_status FROM public.user_push_subscriptions WHERE id = v_sub_id;
+  IF v_sub_status <> 'active' THEN
+    RAISE EXCEPTION 'Expected active push subscription status, got %', v_sub_status;
+  END IF;
+
+  -- Test Idempotent Key Update / Upsert
+  v_sub_id_2 := public.pooldocai_register_push_subscription(
+    p_company_id := v_co_push,
+    p_endpoint := 'https://fcm.googleapis.com/fcm/send/tech_device_alpha_1',
+    p_p256dh := 'p256dh_sample_key_updated_2222222222222222222222222222222222222222222222222222222',
+    p_auth := 'auth_secret_sample_key_22222',
+    p_user_agent := 'Mozilla/5.0 (Android Chrome PWA v2)'
+  );
+
+  IF v_sub_id <> v_sub_id_2 THEN
+    RAISE EXCEPTION 'Expected upsert on duplicate endpoint to return same subscription ID';
+  END IF;
+
+  -- Register second device for tech (multiple device support)
+  PERFORM public.pooldocai_register_push_subscription(
+    p_company_id := v_co_push,
+    p_endpoint := 'https://fcm.googleapis.com/fcm/send/tech_device_beta_2',
+    p_p256dh := 'p256dh_sample_key_beta_22222222222222222222222222222222222222222222222222222222222',
+    p_auth := 'auth_secret_sample_key_beta2'
+  );
+
+  -- 3. Test Device Unregistration RPC
+  v_unreg_ok := public.pooldocai_unregister_push_subscription('https://fcm.googleapis.com/fcm/send/tech_device_beta_2');
+  IF NOT v_unreg_ok THEN
+    RAISE EXCEPTION 'Failed to unregister push subscription';
+  END IF;
+
+  SELECT status INTO v_sub_status FROM public.user_push_subscriptions WHERE endpoint = 'https://fcm.googleapis.com/fcm/send/tech_device_beta_2';
+  IF v_sub_status <> 'revoked' THEN
+    RAISE EXCEPTION 'Expected revoked status after unregister, got %', v_sub_status;
+  END IF;
+
+  -- Reset role to service_role for publishing and claiming
+  RESET "request.jwt.claim.sub";
+  RESET "request.jwt.claim.role";
+
+  -- 4. Test Notification Publishing with Push Delivery Outbox
+  v_notif_id := public.pooldocai_publish_company_notification(
+    p_company_id := v_co_push,
+    p_event_type := 'service_request_created',
+    p_title := 'New Service Request',
+    p_body := 'Pump motor replacement required',
+    p_dedupe_key := 'push-test-notif-1',
+    p_target_role := 'technician'
+  );
+
+  -- Tech has an active push subscription -> web_push must be enqueued as 'pending'
+  SELECT delivery_status INTO v_queue_row.delivery_status
+  FROM public.notification_delivery_queue
+  WHERE notification_id = v_notif_id AND user_id = v_user_tech AND channel = 'web_push';
+
+  IF v_queue_row.delivery_status <> 'pending' THEN
+    RAISE EXCEPTION 'Expected web_push queue row to be pending for tech with active subscription, got %', v_queue_row.delivery_status;
+  END IF;
+
+  -- 5. Test Atomic Batch Claiming with Skip-Locked & Lease Token
+  SELECT queue_id, attempts, lease_token, subscriptions
+  INTO v_claimed_q_id, v_claimed_attempts, v_claimed_lease_token, v_claimed_subs
+  FROM public.pooldocai_claim_push_delivery_batch('worker_ci_push_1', 5, 120)
+  WHERE notification_id = v_notif_id;
+
+  IF v_claimed_q_id IS NULL THEN
+    RAISE EXCEPTION 'Failed to claim pending web_push queue item';
+  END IF;
+  IF v_claimed_attempts <> 1 THEN
+    RAISE EXCEPTION 'Expected attempts to increment to 1, got %', v_claimed_attempts;
+  END IF;
+  IF v_claimed_lease_token NOT LIKE 'claim_%' THEN
+    RAISE EXCEPTION 'Expected unguessable lease token claim_<uuid>, got %', v_claimed_lease_token;
+  END IF;
+  IF jsonb_array_length(v_claimed_subs) <> 1 THEN
+    RAISE EXCEPTION 'Expected exactly 1 active subscription for tech (since device 2 was revoked), got %', jsonb_array_length(v_claimed_subs);
+  END IF;
+
+  -- 6. Test Lease Fencing
+  -- Rogue lease token must return false
+  v_finish_ok := public.pooldocai_finish_push_delivery(
+    p_queue_id := v_claimed_q_id,
+    p_lease_token := 'rogue_lease_token',
+    p_success := true
+  );
+  IF v_finish_ok THEN
+    RAISE EXCEPTION 'Rogue worker lease token was illegally accepted';
+  END IF;
+
+  -- 7. Test 404/410 Auto-Revocation during Delivery Finalization
+  -- Finish with success and pass dead endpoint for revocation
+  v_finish_ok := public.pooldocai_finish_push_delivery(
+    p_queue_id := v_claimed_q_id,
+    p_lease_token := v_claimed_lease_token,
+    p_success := true,
+    p_provider_message_id := 'fcm_receipt_success_123',
+    p_revoked_endpoints := ARRAY['https://fcm.googleapis.com/fcm/send/tech_device_alpha_1']
+  );
+
+  IF NOT v_finish_ok THEN
+    RAISE EXCEPTION 'Valid finish_push_delivery unexpectedly returned false';
+  END IF;
+
+  -- Verify delivery status
+  SELECT delivery_status, provider_message_id INTO v_queue_row.delivery_status, v_queue_row.provider_message_id
+  FROM public.notification_delivery_queue WHERE id = v_claimed_q_id;
+
+  IF v_queue_row.delivery_status <> 'delivered' OR v_queue_row.provider_message_id <> 'fcm_receipt_success_123' THEN
+    RAISE EXCEPTION 'Delivered state incorrect: status=%, provider_id=%', v_queue_row.delivery_status, v_queue_row.provider_message_id;
+  END IF;
+
+  -- Verify dead endpoint was automatically revoked in user_push_subscriptions
+  SELECT status INTO v_sub_status
+  FROM public.user_push_subscriptions
+  WHERE endpoint = 'https://fcm.googleapis.com/fcm/send/tech_device_alpha_1';
+
+  IF v_sub_status <> 'revoked' THEN
+    RAISE EXCEPTION 'Expected endpoint in p_revoked_endpoints to be automatically revoked, got status %', v_sub_status;
+  END IF;
+
+  -- 8. Teardown Section 12 Test Fixtures
+  DELETE FROM public.user_push_subscriptions WHERE company_id IN (v_co_push, v_co_other);
+  DELETE FROM public.notification_delivery_queue WHERE company_id IN (v_co_push, v_co_other);
+  DELETE FROM public.user_notifications WHERE company_id IN (v_co_push, v_co_other);
+  DELETE FROM public.company_notifications WHERE company_id IN (v_co_push, v_co_other);
+  DELETE FROM public.user_notification_preferences WHERE company_id IN (v_co_push, v_co_other);
+  DELETE FROM public.company_members WHERE company_id IN (v_co_push, v_co_other);
+  DELETE FROM public.companies WHERE id IN (v_co_push, v_co_other);
+  DELETE FROM auth.users WHERE id IN (v_user_admin, v_user_tech, v_user_other);
+END $$;

@@ -1,7 +1,8 @@
 /* PoolDocAI app-shell worker: app navigation only; never intercepts Supabase/API requests. */
-const CACHE_NAME = 'pooldocai-secure-app-v2';
+const CACHE_NAME = 'pooldocai-secure-app-v3';
 const APP_PATHS = new Set(['/app', '/app.html']);
 const STATIC_PATHS = new Set(['/app.webmanifest', '/pooldocai-app-icon.svg', '/pooldocai-app-icon-192.png', '/pooldocai-app-icon-512.png']);
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
@@ -9,6 +10,7 @@ self.addEventListener('install', (event) => {
     await self.skipWaiting();
   })());
 });
+
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
@@ -16,6 +18,7 @@ self.addEventListener('activate', (event) => {
     await self.clients.claim();
   })());
 });
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -50,4 +53,51 @@ self.addEventListener('fetch', (event) => {
       }
     })());
   }
+});
+
+// Push notification delivery handler
+self.addEventListener('push', (event) => {
+  let data = {};
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch {
+      data = { body: event.data.text() };
+    }
+  }
+
+  const title = data.title || 'PoolDocAI Notification';
+  const options = {
+    body: data.body || 'You have a new company update.',
+    icon: '/pooldocai-app-icon-192.png',
+    badge: '/pooldocai-app-icon.svg',
+    tag: data.tag || 'pooldocai-alert',
+    renotify: true,
+    data: {
+      url: data.url || '/app.html',
+      companyId: data.companyId || null,
+      notificationId: data.notificationId || null
+    }
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Deep-link navigation on notification click
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetPath = event.notification.data?.url || '/app.html';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url && (client.url.includes('/app') || client.url.includes('/admin')) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetPath);
+      }
+    })
+  );
 });
