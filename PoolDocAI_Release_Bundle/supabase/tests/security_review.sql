@@ -1086,9 +1086,9 @@ BEGIN
     RAISE EXCEPTION 'Expected 2 delivered in_app queue records, got %', v_cnt;
   END IF;
 
-  SELECT count(*) INTO v_cnt FROM public.notification_delivery_queue WHERE notification_id = v_notif_1 AND channel = 'email' AND delivery_status = 'deferred';
+  SELECT count(*) INTO v_cnt FROM public.notification_delivery_queue WHERE notification_id = v_notif_1 AND channel = 'email' AND delivery_status = 'pending';
   IF v_cnt <> 2 THEN
-    RAISE EXCEPTION 'Expected 2 deferred email queue records, got %', v_cnt;
+    RAISE EXCEPTION 'Expected 2 pending email queue records, got %', v_cnt;
   END IF;
 
   SELECT count(*) INTO v_cnt FROM public.notification_delivery_queue WHERE notification_id = v_notif_1 AND channel = 'web_push' AND delivery_status = 'deferred';
