@@ -20,7 +20,7 @@ This specification reconciles the staging architecture with the actual codebase,
 | **Document Processing Worker** | Render Private Worker (Production) | Render Background Worker (`pooldocai-worker-staging`) | Docker container running `document-worker/Dockerfile`; uses `DOC_WORKER_SECRET`, `MAX_DOWNLOAD_BYTES`, `DOC_WORKER_REQUIRE_HMAC=true` |
 | **AI Inference (Google Gemini)** | Production Cloud Project (Tier 1 Quotas) | Dedicated Google AI Project (`pooldocai-ai-staging`) | Dedicated `GEMINI_API_KEY`; strict $50 monthly budget hard cap; isolated model rate cards |
 | **Payment & Billing (Stripe)** | Stripe Live Account (`pk_live_*`) | Stripe Test Mode (`pk_test_*`, `sk_test_*`) | Stripe test-clock simulation; test card numbers (4242...); dedicated `whsec_test_*` webhook secret |
-| **Email & Lead Intake** | Formspree endpoint `xzedoqqq` | Mailpit / Formspree staging form | Catch-all test mailbox; dummy recipient domains (`@test.pooldocai.com`) |
+| **Email & Lead Intake** | Formspree endpoints `mrpppgkw` (Waitlist), `mdeeeodk` (Sales/Founders), `xjyyyvov` (Contact) | Mailpit / Formspree staging form | Catch-all test mailbox; dummy recipient domains (`@test.pooldocai.com`) |
 
 ---
 

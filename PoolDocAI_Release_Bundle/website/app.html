@@ -1175,8 +1175,8 @@
     <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4" role="document">
       <div class="flex items-center justify-between border-b border-slate-200 pb-3 gap-3"><h3 id="privacyModalTitle" class="font-extrabold text-lg text-slate-900">Privacy, Data Handling &amp; Terms of Use</h3><button id="closePrivacyModalBtn" type="button" aria-label="Close privacy and terms policy" class="text-slate-400 hover:text-slate-700 text-xl font-bold">&times;</button></div>
       <div class="space-y-4 text-xs sm:text-sm text-slate-700 leading-relaxed">
-        <p><strong>Information collected and why.</strong> Waitlist and Founders Program forms may collect your name, company, work email, phone number, role, truck count, product preferences, and optional feedback. Demo service inquiries may include your name, phone, email, and conversation summary. This information is used to manage registrations and inquiries, assess early-access interest, and respond to requests.</p>
-        <p><strong>Service providers.</strong> Formspree processes waitlist and demo inquiry submissions. Supabase hosts the troubleshooting request service, and the AI model provider configured for the live troubleshooting service (currently planned as Google Gemini) processes submitted troubleshooting text to generate responses. The configured provider should be confirmed before launch. These providers may process submitted information to deliver their services under their respective terms and privacy practices. PoolDocAI does not sell waitlist contact details.</p>
+        <p><strong>Information collected and why.</strong> Waitlist and Founders Program forms may collect your name, company, work email, phone number, role, truck count, product preferences, and optional feedback. This information is used to manage registrations and inquiries, assess early-access interest, and respond to requests.</p>
+        <p><strong>Service providers.</strong> Formspree processes waitlist and Founders Program interest submissions. Supabase hosts the troubleshooting request service, and the AI model provider configured for the live troubleshooting service (currently planned as Google Gemini) processes submitted troubleshooting text to generate responses. The configured provider should be confirmed before launch. These providers may process submitted information to deliver their services under their respective terms and privacy practices. PoolDocAI does not sell waitlist contact details.</p>
         <p><strong>Retention and requests.</strong> Information is retained for as long as reasonably needed to manage inquiries, administer early access, maintain service records, and meet applicable legal obligations, subject to each provider’s retention practices. To ask a question or request deletion, reply to a PoolDocAI registration email and identify the email address you used. Before production launch, the operating business’s legal name and a monitored privacy-contact email must be provided here.</p>
         <p><strong>Data minimization.</strong> Do not enter passwords, payment card details, or sensitive personal information in the troubleshooter. Information submitted to an AI service may be processed to generate the requested response.</p>
         <p><strong>Demo limitations.</strong> The public demo does not create a real service appointment, dispatch a repair truck, place a parts order, or guarantee a response verified by a licensed technician. Real emergencies require emergency services or the appropriate utility.</p>
@@ -1286,7 +1286,9 @@
         }
       } catch(err) { console.warn('Learning-loop capture will need retry:',err?.message||'network issue'); }
     }
-    const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
+    const WAITLIST_ENDPOINT = 'https://formspree.io/f/mrpppgkw';
+    const FOUNDERS_SALES_ENDPOINT = 'https://formspree.io/f/mdeeeodk';
+    const GENERAL_CONTACT_ENDPOINT = 'https://formspree.io/f/xjyyyvov';
 
     function openWaitlistSuccessPopup(customTitle, customBody) {
       const modal = document.getElementById('waitlistSuccessModal');
@@ -3267,7 +3269,7 @@
         `📋 **Request a Pool Service Technician / Call a Licensed Professional**`,
         `Here is your complete **Pre-Job Summary** and step-by-step instructions to prepare for the technician's arrival:`,
         `**1. Pre-Job Summary:**\n• **Equipment / Context:** ${equipLabel}\n• **Reported Issue:** ${primaryIssue}\n• **Completed & Ruled-Out Checks (${sessionContext.ruledOut.length}):**\n${checksSummaryText}${waterResultsLine ? `\n\n${waterResultsLine}` : ''}`,
-        `**2. How to Prepare for the Visit:**\n• **Step 1 — Secure the Equipment:** ${safetyPrepStep}\n• **Step 2 — Snap 2 Quick Photos:** Take a clear photo of the equipment **model/serial nameplate label** and a wide photo of the **equipment pad / plumbing** (plus any active error code on the display).\n• **Step 3 — Clear Pad Access:** Unlock side gates, secure pets indoors, and clear any items blocking access to the equipment pad and breaker sub-panel.\n• **Step 4 — Send Your Pre-Job Summary Below:** Enter your **Name, Phone Number, and Email Address** below so the licensed technician receives this summary and brings the right parts on the first visit:`
+        `**2. How to Prepare for the Visit:**\n• **Step 1 — Secure the Equipment:** ${safetyPrepStep}\n• **Step 2 — Snap 2 Quick Photos:** Take a clear photo of the equipment **model/serial nameplate label** and a wide photo of the **equipment pad / plumbing** (plus any active error code on the display).\n• **Step 3 — Clear Pad Access:** Unlock side gates, secure pets indoors, and clear any items blocking access to the equipment pad and breaker sub-panel.\n• **Step 4 — Connect With Your Service Company:** In a full PoolDocAI deployment, this Pre-Job Summary is automatically routed to your pool service company's private dispatch queue. In this public preview, live technician dispatch is disabled; you can save or share the summary above directly with your local professional, or join our early-access waitlist below.`
       ].join('\n\n');
 
       return {
@@ -4595,86 +4597,20 @@
       await requestSupabaseTroubleshootingTurn(q, 'troubleshoot');
     }
 
-    // Submit the in-chat Service Technician / Licensed Pro Request form to Formspree
+    // In-chat service technician request submission guard:
+    // Public demo mode does not dispatch technicians or transmit PII to external form providers.
     async function submitInChatServiceRequest(formEl) {
-      const nameVal = formEl.querySelector('[name="sr_name"]')?.value.trim() || '';
-      const phoneVal = formEl.querySelector('[name="sr_phone"]')?.value.trim() || '';
-      const emailVal = formEl.querySelector('[name="sr_email"]')?.value.trim() || '';
-      const ackChecked = formEl.querySelector('[name="sr_waitlist_ack"]')?.checked || false;
-      const submitBtn = formEl.querySelector('button[type="submit"]');
-      const errBox = formEl.querySelector('.sr-form-error');
-
-      if (!nameVal || !phoneVal || !emailVal || !ackChecked) {
-        if (errBox) {
-          errBox.textContent = 'Please enter your Name, Phone Number, Email Address, and check the acknowledgement box.';
-          errBox.classList.remove('hidden');
-        }
-        return;
-      }
-
-      if (errBox) errBox.classList.add('hidden');
+      const errBox = formEl?.querySelector?.('.sr-form-error');
+      const submitBtn = formEl?.querySelector?.('button[type="submit"]');
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Submitting Demo Request...';
       }
-
-      const eqSummary = getSessionEquipmentLabel(' • ');
-      const transcriptSummary = conversationHistory
-        .filter(t => t.userMsg || t.aiReply)
-        .slice(-10)
-        .map((t, i) => `Turn ${i + 1}: User="${String(t.userMsg || '').slice(0, 180)}" | PoolDocAI="${String(t.aiReply || '').slice(0, 220)}"`)
-        .join(' || ')
-        .slice(0, 4000);
-
-      try {
-        const res = await fetch(WAITLIST_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({
-            request_type: 'In-Chat Technician / Licensed Pro Request + Pre-Job Summary',
-            name: nameVal,
-            phone: phoneVal,
-            email: emailVal,
-            equipment_context: eqSummary,
-            reported_symptom: sessionContext.symptom || 'Equipment Troubleshooting',
-            ruled_out_checks: sessionContext.ruledOut.join(' -> ') || 'None',
-            pre_job_summary_transcript: transcriptSummary,
-            waitlist_and_info_acknowledged: true,
-            _gotcha: formEl.querySelector('[name="_gotcha"]')?.value || ''
-          })
-        });
-        if (!res.ok) throw new Error('Submission failed');
-
-        conversationHistory.push({
-          userMsg: `Demo request recorded: ${nameVal} • ${phoneVal} • ${emailVal}`,
-          aiReply: `✅ **DEMO PREVIEW RECORDED:** Thank you, **${nameVal}**. In a live company deployment, this Pre-Job Summary is routed to your dispatch queue. Your contact info has been saved to the PoolDocAI waitlist. **No appointment or dispatch was created by this demo.**`, 
-          citation: "Outcome: Demo preview recorded; no actual dispatch",
-          outcomeBanner: "DEMO PREVIEW RECORDED — No appointment or dispatch was created.",
-          choices: []
-        });
-        renderInteractiveConversation({
-          customer: `${nameVal} (${phoneVal} • ${emailVal})`,
-          equipment: eqSummary,
-          issue: sessionContext.symptom || 'Demo service inquiry',
-          stepsCompleted: `${conversationHistory.length} turns included in demo summary`,
-          actionTaken: `Recorded demo inquiry and summary for ${nameVal}; no technician was contacted or dispatched.`,
-          parts: 'For review only — no parts ordered',
-          status: "DEMO PREVIEW — No appointment or dispatch created"
-        });
-        openWaitlistSuccessPopup(
-          'Demo Request Recorded',
-          `Thank you, ${nameVal}. Your contact information and demo inquiry were saved to the PoolDocAI waitlist. No appointment or dispatch was created.`
-        );
-      } catch (e) {
-        if (errBox) {
-          errBox.textContent = 'Connection error sending request. Please check your connection and try again.';
-          errBox.classList.remove('hidden');
-        }
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Submit Demo Request & Join Waitlist →';
-        }
+      const noticeMsg = 'Public demo notice: Live technician dispatch is disabled. To request early access or company onboarding, please join the waitlist below.';
+      if (errBox) {
+        errBox.textContent = noticeMsg;
+        errBox.classList.remove('hidden');
       }
+      console.warn('In-chat service request submission blocked in public demo: no tenant dispatch queue exists.');
     }
 
     function sourceBadgeHtml(citation) {
@@ -4737,7 +4673,7 @@
         } else if (isCaution && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="demoCautionCheckbox" type="checkbox" class="w-4 h-4 rounded accent-amber-400 cursor-pointer" /><span>I understand the caution and have reviewed the non-invasive check described above. I will skip it if I am unsure.</span></label><div class="flex flex-wrap items-center gap-2"><button id="demoCautionContinueBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Show Cautionary Guidance &rarr;</button><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-slate-800 text-sky-200 border border-slate-600 font-bold text-xs cursor-pointer">Skip this check / Show an alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Request Technician / Call Licensed Pro" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold text-xs cursor-pointer">Request Technician / Call Licensed Pro</button></div><div id="demoUnlockedCautionStep" class="hidden p-3 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200 whitespace-pre-line">${escapeHtml(step.unlockedStep || '')}</div></div>`;
         } else if (isServiceForm && isLatest) {
-          specialControlHtml = `<form class="in-chat-service-request-form mt-3.5 p-4 rounded-2xl bg-slate-950 border border-sky-500/50 space-y-3"><input type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true" class="hidden" /><div class="text-xs font-extrabold text-sky-300 uppercase tracking-wider">📋 Demo Request — Record a Pre-Job Summary</div><div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5"><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Full Name *</label><input type="text" name="sr_name" required autocomplete="name" placeholder="Jane Doe" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Phone Number *</label><input type="tel" name="sr_phone" required autocomplete="tel" placeholder="(555) 234-5678" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Email Address *</label><input type="email" name="sr_email" required autocomplete="email" placeholder="jane@example.com" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div></div><label class="flex items-start gap-2.5 text-xs text-slate-200 cursor-pointer pt-1"><input type="checkbox" name="sr_waitlist_ack" required class="mt-0.5 w-4 h-4 rounded accent-sky-400 cursor-pointer" /><span><strong>I would like to join the PoolDocAI waitlist / request more information.</strong> This public demo records an inquiry only; it does not contact a local repair company or dispatch a technician. *</span></label><div class="sr-form-error hidden text-xs text-rose-400 font-semibold" role="alert"></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs sm:text-sm cursor-pointer">Submit Demo Request &amp; Join Waitlist &rarr;</button></form>`;
+          specialControlHtml = `<div class="in-chat-demo-dispatch-notice mt-3.5 p-4 rounded-2xl bg-slate-950 border border-sky-500/50 space-y-3"><div class="flex items-center gap-2"><span class="inline-flex items-center rounded-md bg-amber-500/20 text-amber-300 px-2 py-0.5 text-xs font-bold uppercase tracking-wider">Demo Preview — Non-Dispatch</span></div><div class="text-xs sm:text-sm font-bold text-white">📋 Pre-Job Summary Generated (Public Demo Mode)</div><p class="text-xs text-slate-300 leading-relaxed">Live technician dispatch and customer service-request submission are disabled in this public demonstration. In a production company deployment, customer pre-job summaries are transmitted securely to that company's private, tenant-isolated dispatch queue.</p><p class="text-xs text-slate-400 leading-relaxed">To test company-managed workflows or request early platform access, please join the official waitlist or apply for the Founders Program below.</p><div class="pt-1"><a href="#pilotInterestForm" class="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition cursor-pointer">Join Early Access Waitlist &darr;</a></div></div>`;
         }
         const homeownerHighRiskInstruction = currentSurfaceMode !== 'tech' && /(?:\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring)\b)/i.test(cautionRiskText);
         const dangerousChemicalMixInstruction = isDangerousChemicalMixInstruction(cautionRiskText);
@@ -5180,10 +5116,10 @@
         return;
       }
       const votes = [...document.querySelectorAll('input[name="priorityVote"]:checked')].map(e => e.value).join(', ') || '—';
-      if (!WAITLIST_ENDPOINT) { showFormMessage('foundersFormError', 'The Founders Program form is not connected yet. Please contact the site owner.', true); return; }
+      if (!FOUNDERS_SALES_ENDPOINT) { showFormMessage('foundersFormError', 'The Founders Program form is not connected yet. Please contact the site owner.', true); return; }
       btn.disabled = true; btn.textContent = 'Sending Founders Program Interest…';
       try {
-        const response = await fetch(WAITLIST_ENDPOINT, {
+        const response = await fetch(FOUNDERS_SALES_ENDPOINT, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({
             form_type: 'founders_program_interest', name: getFormValue('leadName'), company: getFormValue('leadCompany'), email: getFormValue('leadEmail'),
