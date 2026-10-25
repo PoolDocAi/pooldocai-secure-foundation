@@ -504,6 +504,13 @@ async function runLiveStagingIntegrationTests() {
       const ok = res.status === 400 || res.status === 401 || res.status === 403;
       recordLiveResult("3F", "Anonymous download of confirmed private canary rejected (DENY)", ok, `Status ${res.status}`);
     }
+
+    // Storage Canary Cleanup: Guaranteed removal of ephemeral test files
+    try {
+      await authReq(sessions.adminA, canaryPathA, { method: "DELETE" });
+      await authReq(sessions.adminB, canaryPathB, { method: "DELETE" });
+      console.log("  [STORAGE CLEANUP] Ephemeral test canaries successfully removed from staging bucket.");
+    } catch (_) {}
   } else {
     const res = await anonReq(`/storage/v1/object/company-manuals/${TENANT_A.companyId}/doc.pdf`);
     const ok = res.status === 400 || res.status === 401 || res.status === 403;
