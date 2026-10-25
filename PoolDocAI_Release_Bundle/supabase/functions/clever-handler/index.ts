@@ -3033,39 +3033,44 @@ Deno.serve(async (req: Request) => {
   // Declared before the family matcher; the active industry catalog is hydrated later in this handler.
   let industryCatalogRows: AnyRecord[] = [];
 
-  // 1) Retrieve relevance-ranked records using the existing search RPC.
-  try {
-    const { data, error } = await supabase.rpc("search_kb_entries", {
-      p_category: category || null,
-      p_brand: brand || null,
-      // Include the selected family/exact model in retrieval text as well as the
-      // explicit brand/category filters, but cap input length to keep search focused.
-      p_query: diagnosticSearchQuery,
-      p_has_no_screen: hasNoScreen,
-      p_limit: 8,
-    });
-    if (error) throw error;
-    rpcRows = getRows(data);
-    kbRows = rpcRows;
-  } catch (error) {
-    rpcError = error instanceof Error ? error.message : String(error);
-    console.error("PoolDocAI search_kb_entries RPC failed:", rpcError);
-  }
-
-  // 2) Important database fix: an RPC may return only metadata even when kb_entries
-  // stores additional text columns. Fetch the complete matched rows server-side by ID.
-  const ids = getRowIds(rpcRows);
-  if (ids.length) {
-    fullRowFetchAttempted = true;
+  // 1) Gated legacy prototype retrieval: search_kb_entries and kb_entries were pre-migration
+  // prototype objects never present in production schema. Gating behind explicit flag
+  // eliminates predictable DB errors and dead-path noise on every diagnostic turn.
+  const ENABLE_LEGACY_PROTOTYPE_KB = Boolean(Deno.env.get("ENABLE_LEGACY_PROTOTYPE_KB") === "true");
+  if (ENABLE_LEGACY_PROTOTYPE_KB) {
     try {
-      const { data, error } = await supabase.from("kb_entries").select("*").in("id", ids).limit(12);
+      const { data, error } = await supabase.rpc("search_kb_entries", {
+        p_category: category || null,
+        p_brand: brand || null,
+        // Include the selected family/exact model in retrieval text as well as the
+        // explicit brand/category filters, but cap input length to keep search focused.
+        p_query: diagnosticSearchQuery,
+        p_has_no_screen: hasNoScreen,
+        p_limit: 8,
+      });
       if (error) throw error;
-      const fullRows = getRows(data);
-      fullRowFetchRowCount = fullRows.length;
-      if (fullRows.length) kbRows = mergeRows(rpcRows, fullRows);
+      rpcRows = getRows(data);
+      kbRows = rpcRows;
     } catch (error) {
-      fullRowFetchError = error instanceof Error ? error.message : String(error);
-      console.warn("PoolDocAI could not fetch full kb_entries rows; will continue using RPC matches and fallback guidance:", fullRowFetchError);
+      rpcError = error instanceof Error ? error.message : String(error);
+      console.error("PoolDocAI search_kb_entries RPC failed:", rpcError);
+    }
+
+    // 2) Important database fix: an RPC may return only metadata even when kb_entries
+    // stores additional text columns. Fetch the complete matched rows server-side by ID.
+    const ids = getRowIds(rpcRows);
+    if (ids.length) {
+      fullRowFetchAttempted = true;
+      try {
+        const { data, error } = await supabase.from("kb_entries").select("*").in("id", ids).limit(12);
+        if (error) throw error;
+        const fullRows = getRows(data);
+        fullRowFetchRowCount = fullRows.length;
+        if (fullRows.length) kbRows = mergeRows(rpcRows, fullRows);
+      } catch (error) {
+        fullRowFetchError = error instanceof Error ? error.message : String(error);
+        console.warn("PoolDocAI could not fetch full kb_entries rows; will continue using RPC matches and fallback guidance:", fullRowFetchError);
+      }
     }
   }
 
@@ -3089,6 +3094,11 @@ Deno.serve(async (req: Request) => {
           id: r.id,
           title: r.title,
           document_title: r.title,
+          canonical_title: r.canonical_title || r.title,
+          publication_number: r.publication_number || r.package_number || null,
+          revision: r.revision || null,
+          content_sha256: r.content_sha256 || r.sha256 || null,
+          product_name: r.product_name || null,
           source_url: r.source_url,
           file_name: r.title,
           page_number: r.page_number,
@@ -3166,6 +3176,9 @@ Deno.serve(async (req: Request) => {
     if (requestIsWaterQualityCase && !isRelevantWaterQualityProcedure(procedures[index].title, procedures[index].procedureText, waterQualityCaseTopic)) return [];
     const item: AnyRecord = {
       title: textValue(row.title ?? row.name ?? row.manual_title ?? row.document_title, 200) || `Matched KB entry ${index + 1}`,
+      canonicalTitle: textValue(row.canonical_title ?? row.canonicalTitle, 250) || undefined,
+      publicationNumber: textValue(row.publication_number ?? row.publicationNumber, 80) || undefined,
+      revision: textValue(row.revision, 40) || undefined,
       brand: textValue(row.brand ?? row.manufacturer, 100) || undefined,
       modelFamily: textValue(row.model_family ?? row.modelFamily, 100) || undefined,
       category: textValue(row.category ?? row.type, 100) || undefined,
@@ -3176,6 +3189,7 @@ Deno.serve(async (req: Request) => {
       retrievalMethod: textValue(row.retrieval_method, 20) || undefined,
       fileName: textValue(row.file_name ?? row.filename ?? row.source_file, 200) || undefined,
       url: textValue(row.source_url ?? row.url ?? row.manual_url, 1000) || undefined,
+      sha256: textValue(row.content_sha256 ?? row.sha256, 64) || undefined,
     };
     return [item];
   }).slice(0, 8);

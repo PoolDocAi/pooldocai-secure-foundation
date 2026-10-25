@@ -357,6 +357,106 @@ function classifyEquipment(title, text) {
   return { manufacturer, category, model };
 }
 
+function extractDocumentProvenance(title, text, originalFilename = '') {
+  const bodyText = String(text || '');
+  const bodySample = bodyText.slice(0, 30000);
+  const sample = `${title || ''} ${originalFilename || ''} ${bodySample}`.toLowerCase();
+
+  // 1. Manufacturer
+  let manufacturer = null;
+  if (/\bpentair\b/i.test(bodySample) || /\bpentair\b/i.test(title)) manufacturer = 'Pentair';
+  else if (/\bhayward\b/i.test(bodySample) || /\bhayward\b/i.test(title)) manufacturer = 'Hayward';
+  else if (/\bjandy\b|\bfluidra\b/i.test(bodySample) || /\bjandy\b|\bfluidra\b/i.test(title)) manufacturer = 'Jandy';
+  else if (/\braypak\b/i.test(bodySample) || /\braypak\b/i.test(title)) manufacturer = 'Raypak';
+
+  // 2. Family & Product & Model Normalized
+  let family = null;
+  let product = null;
+  let modelNormalized = null;
+
+  // IMPORTANT: Prioritize document body text over filename to avoid inheriting inaccurate filename cues.
+  // The SuperFlo High Performance Pump manual (P/N 350096) may have a misleading Drive filename suggesting
+  // "SuperFlo VS", but the document itself is the SuperFlo High Performance Pump guide (not SuperFlo VS/VST).
+  if (/\bsuperflo\b/i.test(bodySample) && /\bhigh\s*performance\s*pump\b/i.test(bodySample)) {
+    family = 'SuperFlo';
+    product = 'High Performance Pump';
+    modelNormalized = 'superflo';
+  } else if (/\bsuperflo\s*(?:vst|vs)\b/i.test(bodySample) && !/\bhigh\s*performance\b/i.test(bodySample)) {
+    family = 'SuperFlo';
+    product = 'SuperFlo VS/VST';
+    modelNormalized = 'superflo_vst';
+  } else if (/\bwhisperflo\b/i.test(bodySample)) {
+    family = 'WhisperFlo';
+    product = 'WhisperFlo High Performance Pump';
+    modelNormalized = 'whisperflo';
+  } else if (/\bintelliflo\b/i.test(bodySample)) {
+    family = 'IntelliFlo';
+    product = 'IntelliFlo VSF Variable Speed and Flow Pump';
+    modelNormalized = 'intelliflo_vsf';
+  } else {
+    modelNormalized = extractModel(title, text, manufacturer, 'pump');
+    family = modelNormalized ? modelNormalized.split('_')[0] : null;
+  }
+
+  // 3. Category
+  let category = 'pump';
+  if (/\b(?:filter|cartridge|sand|d\.?e\.)\b/i.test(sample) && !/\bpump\b/i.test(sample)) {
+    category = 'filter';
+  } else if (/\b(?:heater|heat pump)\b/i.test(sample)) {
+    category = 'heater';
+  } else if (/\b(?:salt cell|chlorinator)\b/i.test(sample)) {
+    category = 'salt system';
+  } else if (/\b(?:automation|controller)\b/i.test(sample)) {
+    category = 'automation';
+  }
+
+  // 4. Publication / Package Number & Revision & Publication Date
+  let publicationNumber = null;
+  let revision = null;
+  let publicationDate = null;
+
+  const pubMatch = bodySample.match(/\b(?:p\/n|part\s*(?:no\.?|number))\s*[:#\s]?\s*([0-9]{5,8})\b/i);
+  if (pubMatch) {
+    publicationNumber = `P/N ${pubMatch[1]}`;
+  }
+
+  const revMatch = bodySample.match(/\brev(?:\.|ision)?\s*[:#\s]?\s*([a-z0-9]{1,4})\b/i);
+  if (revMatch) {
+    revision = revMatch[1].toUpperCase();
+  }
+
+  const dateMatch = bodySample.match(/\b(0?[1-9]|1[0-2])[\/\-](0?[1-9]|[12]\d|3[01])[\/\-](\d{2}|\d{4})\b/);
+  if (dateMatch) {
+    const m = dateMatch[1].padStart(2, '0');
+    const d = dateMatch[2].padStart(2, '0');
+    let y = dateMatch[3];
+    if (y.length === 2) y = (parseInt(y, 10) > 50 ? '19' : '20') + y;
+    publicationDate = `${y}-${m}-${d}`;
+  }
+
+  // Canonical title
+  let canonicalTitle = null;
+  if (manufacturer && family && product) {
+    canonicalTitle = `${manufacturer} ${family} ${product} Installation and User's Guide`;
+  } else if (manufacturer && product) {
+    canonicalTitle = `${manufacturer} ${product} User's Guide`;
+  } else if (title) {
+    canonicalTitle = title.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
+  }
+
+  return {
+    manufacturer: manufacturer || 'Pentair',
+    family: family || 'SuperFlo',
+    product: product || 'High Performance Pump',
+    category,
+    modelNormalized: modelNormalized || 'superflo',
+    publicationNumber,
+    revision,
+    publicationDate,
+    canonicalTitle
+  };
+}
+
 async function queueManualForLearning(manual, chunks) {
   if (!manual.shared_learning_opt_in || !chunks.length) return 0;
   const { data: existing = [] } = await db.from('learning_review_queue').select('supporting_source_ids,status').eq('tenant_id', manual.company_id).eq('source_kind', 'company_manual').in('status', ['pending','approved']).limit(5000);
@@ -397,8 +497,11 @@ async function processManual(manualId, processingJobId = null) {
   await db.from('company_manuals').update({ extraction_status: 'processing', extraction_error: null }).eq('id', manual.id);
   try {
     let extracted;
-    if (manual.source_url) extracted = await fetchWebpage(manual.source_url);
-    else {
+    let contentSha256 = null;
+    if (manual.source_url) {
+      extracted = await fetchWebpage(manual.source_url);
+      contentSha256 = crypto.createHash('sha256').update(String(extracted.text || '')).digest('hex');
+    } else {
       const storagePath = String(manual.storage_path || '').trim();
       const expectedPrefix = `${manual.company_id}/`;
       if (!storagePath || !storagePath.startsWith(expectedPrefix) || storagePath.includes('..') || storagePath.includes('\\')) {
@@ -407,7 +510,22 @@ async function processManual(manualId, processingJobId = null) {
       const { data: file, error: downloadError } = await db.storage.from('company-manuals').download(storagePath);
       if (downloadError || !file) throw new Error('Could not read the private uploaded file.');
       const array = await file.arrayBuffer(); if (array.byteLength > MAX_BYTES) throw new Error('File exceeds the 25 MB extraction limit.');
+      contentSha256 = crypto.createHash('sha256').update(Buffer.from(array)).digest('hex');
       extracted = await extractFile(Buffer.from(array), manual.original_filename || manual.title, manual.content_type || 'application/octet-stream');
+    }
+    if (contentSha256) {
+      try {
+        const { data: dupData } = await db.rpc('pooldocai_check_manual_duplicate', {
+          p_company_id: manual.company_id,
+          p_sha256: contentSha256,
+          p_manual_id: manual.id
+        });
+        if (dupData && dupData[0]?.is_same_company_duplicate) {
+          console.warn(`Duplicate document detected for company ${manual.company_id}: SHA256 ${contentSha256}`);
+        }
+      } catch (dupErr) {
+        console.warn('Duplicate check skipped:', dupErr.message);
+      }
     }
     const raw = String(extracted.text || '').replace(/\u0000/g, '').trim();
     if (raw.length < 20) throw new Error('No usable text could be extracted. Check that the document is readable and not password-protected.');
@@ -417,20 +535,33 @@ async function processManual(manualId, processingJobId = null) {
     if (!chunks.length) throw new Error('No usable chunks could be produced from this document.');
     const { data: company } = await db.from('companies').select('industry_key').eq('id', manual.company_id).maybeSingle();
     const industryKey = String(company?.industry_key || manual.industry_key || 'pool');
+    const provenance = extractDocumentProvenance(manual.title || extracted.title, raw, manual.original_filename);
     const equipmentTags = classifyEquipment(manual.title || extracted.title, raw);
+    if (provenance.modelNormalized) equipmentTags.model = provenance.modelNormalized;
+    if (provenance.manufacturer) equipmentTags.manufacturer = provenance.manufacturer;
+    if (provenance.category) equipmentTags.category = provenance.category;
     let embeddings = [];
     let embeddingModel = null;
     try { embeddings = await embedDocumentChunks(chunks); embeddingModel = GEMINI_EMBEDDING_MODEL; }
     catch (embeddingError) { console.warn('Semantic embedding was unavailable; keyword retrieval will remain enabled.', String(embeddingError?.message || '').slice(0,180)); }
     await db.from('company_manual_chunks').delete().eq('manual_id', manual.id).eq('company_id', manual.company_id);
-    const rows = chunks.map((chunk, i) => ({ company_id: manual.company_id, manual_id: manual.id, industry_key: industryKey, chunk_index: i, title: String(extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: chunk.pageNumber, page_start: chunk.pageStart, page_end: chunk.pageEnd, content_text: chunk.content, content_redacted: scrub(chunk.content).slice(0, 1200), embedding: embeddings[i] ? `[${embeddings[i].join(',')}]` : null, embedding_model: embeddings[i] ? embeddingModel : null, embedded_at: embeddings[i] ? new Date().toISOString() : null }));
+    const rows = chunks.map((chunk, i) => ({ company_id: manual.company_id, manual_id: manual.id, industry_key: industryKey, chunk_index: i, title: String(provenance.canonicalTitle || extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: chunk.pageNumber, page_start: chunk.pageStart, page_end: chunk.pageEnd, content_text: chunk.content, content_redacted: scrub(chunk.content).slice(0, 1200), embedding: embeddings[i] ? `[${embeddings[i].join(',')}]` : null, embedding_model: embeddings[i] ? embeddingModel : null, embedded_at: embeddings[i] ? new Date().toISOString() : null }));
     for (let i=0; i<rows.length; i+=20) { const { error: chunkError } = await db.from('company_manual_chunks').insert(rows.slice(i,i+20)); if (chunkError) throw new Error(`Could not index document chunks (${chunkError.code}).`); }
     const effectiveManufacturer = manual.manufacturer_normalized || equipmentTags.manufacturer || null;
     const effectiveModel = manual.model_normalized || equipmentTags.model || null;
     const effectiveCategory = manual.equipment_category || equipmentTags.category || 'manual';
-    const effectiveTitle = manual.title || extracted.title || 'Company document';
+    const effectiveTitle = provenance.canonicalTitle || manual.title || extracted.title || 'Company document';
     const { error: updateError } = await db.from('company_manuals').update({
       title: effectiveTitle,
+      canonical_title: provenance.canonicalTitle || effectiveTitle,
+      source_publisher: provenance.manufacturer || effectiveManufacturer,
+      product_name: provenance.product || null,
+      model_family: provenance.family || null,
+      publication_number: provenance.publicationNumber || null,
+      revision: provenance.revision || null,
+      publication_date: provenance.publicationDate || null,
+      content_sha256: contentSha256,
+      source_locator: manual.storage_path ? `storage://${manual.storage_path}` : (manual.source_url || null),
       industry_key: industryKey,
       manufacturer_normalized: manual.manufacturer_normalized || equipmentTags.manufacturer,
       model_normalized: manual.model_normalized || equipmentTags.model,
@@ -469,9 +600,14 @@ async function processManual(manualId, processingJobId = null) {
       status: 'ready',
       chunks: rows.length,
       embeddedChunks: embeddings.length,
-      manufacturer: manual.manufacturer_normalized || equipmentTags.manufacturer,
-      modelNormalized: manual.model_normalized || equipmentTags.model,
-      equipmentCategory: manual.equipment_category || equipmentTags.category,
+      manufacturer: effectiveManufacturer,
+      modelNormalized: effectiveModel,
+      equipmentCategory: effectiveCategory,
+      canonicalTitle: provenance.canonicalTitle || effectiveTitle,
+      publicationNumber: provenance.publicationNumber || null,
+      revision: provenance.revision || null,
+      publicationDate: provenance.publicationDate || null,
+      contentSha256,
       industryKey,
       extractedCharacters: raw.length,
       queuedForLearningReview: queued,

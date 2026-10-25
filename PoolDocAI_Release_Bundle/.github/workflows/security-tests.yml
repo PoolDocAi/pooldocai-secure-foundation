@@ -78,6 +78,8 @@ jobs:
         run: node website/tests/diagnostic-benchmark-001.test.cjs
       - name: Test Pentair SuperFlo VST E2E hybrid retrieval and multi-tenant isolation
         run: node website/tests/handler-e2e-superflo-benchmark.test.cjs
+      - name: Test manual pilot provenance contract, duplicate guard, and isolation gates
+        run: node website/tests/manual-pilot-provenance-and-isolation.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
