@@ -254,11 +254,15 @@ Assert-Test "-RotateOnly exits before live integration test execution" ($scriptC
 Assert-Test "Implements DPAPI pre-mutation backup with UTC timestamp (.bak.)" ($scriptContent -match '\.bak\.\$')
 Assert-Test "Implements idempotent existing credential check (Test-GoTruePassword)" ($scriptContent -match 'Test-GoTruePassword')
 Assert-Test "Implements Save-DpapiStoreAtomic helper function" ($scriptContent -match 'function\s+Save-DpapiStoreAtomic')
+Assert-Test "Implements Resolve-PendingMutationJournal helper function" ($scriptContent -match 'function\s+Resolve-PendingMutationJournal')
+Assert-Test "Implements Test-GoTruePassword with structured status" ($scriptContent -match 'Status\s*=\s*"InvalidCredentials"')
 Assert-Test "Uses Win32 [System.IO.File]::Replace for atomic store replacement" ($scriptContent -match '\[System\.IO\.File\]::Replace')
 Assert-Test "Enforces deserialization integrity check prior to file replace" ($scriptContent -match 'Import-Clixml[\s\S]*?\$verify\.Count\s+-ne\s+\$Store\.Count')
 Assert-Test "Implements corrupted store auto-recovery from latest backup (.bak.*)" ($scriptContent -match 'Get-ChildItem[\s\S]*?\$baseName\.bak\.\*[\s\S]*?Sort-Object\s+LastWriteTime\s+-Descending')
 Assert-Test "Implements pre-mutation pending journal write prior to GoTrue PUT" ($scriptContent -match '\$journalEntry[\s\S]*?PendingRole[\s\S]*?Export-Clixml[\s\S]*?\$updateUrl')
-Assert-Test "Implements startup crash recovery check for pending mutation journal" ($scriptContent -match 'if\s*\(Test-Path\s+\$journalPath\)[\s\S]*?PendingRole')
+Assert-Test "Validates target project and host guard before journal recovery" ($scriptContent -match 'TargetProject\s+-ne\s+\$ExpectedProject')
+Assert-Test "Validates approved identity before journal recovery" ($scriptContent -match 'unknown or unauthorized identity')
+Assert-Test "Quarantines corrupted journal file to preserve evidence" ($scriptContent -match '\.corrupt\.\$')
 
 # Helper to run script in a subprocess with arbitrary switch arguments
 function Run-RotationWithArgs([string]$arguments) {
@@ -395,6 +399,252 @@ try {
 } finally {
     if (Test-Path $testDir) {
         Remove-Item -Path $testDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ----------------------------------------------------------------------------
+# 7. Executable Fault-Injection Tests: Pending Journal Recovery Control Flow
+# ----------------------------------------------------------------------------
+Write-Host "`n--- Test Suite 7: Executable Fault Injection on Journal Recovery ---" -ForegroundColor Cyan
+
+# Extract helper functions for isolated execution harness
+$funcSave = $ast.Find({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Save-DpapiStoreAtomic' }, $true).Extent.Text
+$funcResolve = $ast.Find({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Resolve-PendingMutationJournal' }, $true).Extent.Text
+$funcTestGoTrue = $ast.Find({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $args[0].Name -eq 'Test-GoTruePassword' }, $true).Extent.Text
+
+$fiDir = Join-Path $env:TEMP ("pooldocai_fi_suite_" + [System.Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $fiDir -Force | Out-Null
+
+function Run-RecoveryExecutionHarness([string]$setupScript) {
+    $runnerScript = Join-Path $fiDir "runner.ps1"
+    $fullScript = @"
+`$ErrorActionPreference = 'Stop'
+$funcSave
+$funcTestGoTrue
+$funcResolve
+
+$setupScript
+"@
+    [System.IO.File]::WriteAllText($runnerScript, $fullScript)
+
+    $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+    $pinfo.FileName = "powershell.exe"
+    $pinfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$runnerScript`""
+    $pinfo.RedirectStandardOutput = $true
+    $pinfo.RedirectStandardError = $true
+    $pinfo.UseShellExecute = $false
+    $pinfo.CreateNoWindow = $true
+
+    $proc = [System.Diagnostics.Process]::Start($pinfo)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit(10000)
+
+    return @{
+        ExitCode = $proc.ExitCode
+        StdOut = $stdout
+        StdErr = $stderr
+        Combined = "$stdout`n$stderr"
+    }
+}
+
+try {
+    $credPath = Join-Path $fiDir "creds.xml"
+    $journalPath = "$credPath.journal.xml"
+
+    $approvedAcctsSnippet = @"
+`$approved = @(
+    @{ Role = "company_a_admin"; Id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"; Email = "staging_admin_aquapure@pooldocai.test"; CompanyId = "11111111-1111-4111-8111-111111111111" },
+    @{ Role = "company_a_tech"; Id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"; Email = "staging_tech_aquapure@pooldocai.test"; CompanyId = "11111111-1111-4111-8111-111111111111" }
+)
+`$store = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
+"@
+
+    # 7A. Fault Injection: Connection Timeout -> Fails Closed & Journal Preserved
+    & {
+        $entry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = ConvertTo-SecureString "RecoverSecret123" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $entry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+function Test-GoTruePassword { return @{ Status = 'Indeterminate'; Error = 'Simulated connection timeout'; StatusCode = `$null } }
+
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Unable to determine if interrupted mutation")
+        Assert-Test "Fault Injection: Connection timeout during journal recovery fails closed and preserves journal" ($failedClosed -and $jStillExists)
+    }
+
+    # 7B. Fault Injection: HTTP 500 Server Error -> Fails Closed & Journal Preserved
+    & {
+        $setup = @"
+$approvedAcctsSnippet
+function Test-GoTruePassword { return @{ Status = 'Indeterminate'; Error = 'HTTP 500 Database error'; StatusCode = 500 } }
+
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Unable to determine if interrupted mutation")
+        Assert-Test "Fault Injection: GoTrue HTTP 500 during journal recovery fails closed and preserves journal" ($failedClosed -and $jStillExists)
+    }
+
+    # 7C. Fault Injection: Corrupted Journal Clixml -> Fails Closed & Quarantined
+    & {
+        [System.IO.File]::WriteAllText($journalPath, "<<<CORRUPTED NON-XML DATA HEADER>>>")
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $quarantined = Get-ChildItem -Path $fiDir -Filter "*journal.xml.corrupt.*"
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "is\s+corrupted|Quarantined")
+        Assert-Test "Fault Injection: Corrupted journal clixml fails closed and quarantines file to preserve evidence" ($failedClosed -and $quarantined.Count -ge 1)
+    }
+
+    # 7D. Fault Injection: Unknown / Unauthorized Identity -> Fails Closed & Journal Preserved
+    & {
+        $badEntry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "00000000-0000-0000-0000-000000000000" # Unauthorized UUID
+            PendingEmail = "attacker@malicious.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = ConvertTo-SecureString "RecoverSecret123" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $badEntry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "unknown or unauthorized identity|references unknown")
+        Assert-Test "Fault Injection: Unknown/unauthorized identity in journal fails closed and preserves file" ($failedClosed -and $jStillExists)
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # 7E. Fault Injection: Target Project Mismatch -> Fails Closed & Journal Preserved
+    & {
+        $mismatchEntry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "owfeebydlyacssqpnmkq.supabase.co"
+            TargetProject = "owfeebydlyacssqpnmkq" # PROD
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = ConvertTo-SecureString "RecoverSecret123" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $mismatchEntry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "target project mismatch")
+        Assert-Test "Fault Injection: Target project mismatch in journal fails closed and preserves file" ($failedClosed -and $jStillExists)
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # 7F. Fault Injection: Failed Primary-Store Commit -> Journal Preserved & Fails Closed
+    & {
+        $entry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = ConvertTo-SecureString "RecoverSecret123" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $entry | Export-Clixml -Path $journalPath
+
+        $badCredPath = "Z:\nonexistent_drive_unwritable\creds.xml"
+        $setup = @"
+$approvedAcctsSnippet
+function Test-GoTruePassword { return @{ Status = 'Success'; User = @{ id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }; AccessToken = 'tok123' } }
+
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$badCredPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0)
+        Assert-Test "Fault Injection: Failed DPAPI store commit during recovery fails closed and preserves journal" ($failedClosed -and $jStillExists)
+    }
+
+    # 7G. Remote Mutation Succeeded -> Recovered into DPAPI & Journal Cleanly Removed
+    & {
+        $setup = @"
+$approvedAcctsSnippet
+function Test-GoTruePassword { return @{ Status = 'Success'; User = @{ id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }; AccessToken = 'tok123' } }
+
+`$result = Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+if (`$result.Status -ne 'Recovered') { exit 2 }
+if (-not (Test-Path '$credPath')) { exit 3 }
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $recoveredOk = ($res.ExitCode -eq 0) -and (-not $jStillExists) -and (Test-Path $credPath)
+        Assert-Test "Remote mutation succeeded: Credential recovered into DPAPI store and journal removed" $recoveredOk
+    }
+
+    # 7H. Definitive Discard: GoTrue returns 400 InvalidCredentials -> Safely Discarded
+    & {
+        $entry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = ConvertTo-SecureString "NeverAppliedSecret" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $entry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+function Test-GoTruePassword { return @{ Status = 'InvalidCredentials'; StatusCode = 400; Error = 'Invalid credentials' } }
+
+`$result = Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+if (`$result.Status -ne 'Discarded') { exit 2 }
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $discardedOk = ($res.ExitCode -eq 0) -and (-not $jStillExists)
+        Assert-Test "Remote mutation definitively rejected (HTTP 400): Journal safely cleared without error" $discardedOk
+    }
+} finally {
+    if (Test-Path $fiDir) {
+        Remove-Item -Path $fiDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
