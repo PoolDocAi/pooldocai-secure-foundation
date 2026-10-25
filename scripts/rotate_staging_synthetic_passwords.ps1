@@ -26,11 +26,23 @@
 param(
     [string]$StagingUrl = "https://rzkgmvyyeclrpomrlyft.supabase.co",
     [switch]$DryRun,
+    [switch]$RotateOnly,
+    [switch]$RunLiveTests,
     [System.Security.SecureString]$AdminKey = $null,
     [System.Security.SecureString]$AnonKey = $null
 )
 
 $ErrorActionPreference = "Stop"
+
+# Parameter exclusivity validation
+$activeModes = @()
+if ($DryRun) { $activeModes += "-DryRun" }
+if ($RotateOnly) { $activeModes += "-RotateOnly" }
+if ($RunLiveTests) { $activeModes += "-RunLiveTests" }
+if ($activeModes.Count -gt 1) {
+    Write-Error "[FATAL] Incompatible mode switches specified: $($activeModes -join ', '). Please specify only one mode."
+    exit 1
+}
 
 # Non-browser CLI User-Agent to avoid Supabase sb_secret_ 401 browser block
 $cliUserAgent = "PoolDocAI-Staging-Admin-CLI/1.0"
@@ -44,8 +56,12 @@ Write-Host " Target: $StagingUrl" -ForegroundColor Cyan
 Write-Host " User-Agent: $cliUserAgent" -ForegroundColor Cyan
 if ($DryRun) {
     Write-Host " MODE: DRY RUN (PREFLIGHT ONLY - ZERO MUTATIONS)" -ForegroundColor Yellow
+} elseif ($RotateOnly) {
+    Write-Host " MODE: ROTATE PASSWORDS ONLY (ISOLATED - ZERO INTEGRATION TESTS)" -ForegroundColor Magenta
+} elseif ($RunLiveTests) {
+    Write-Host " MODE: RUN LIVE TESTS ONLY (USING SAVED DPAPI CREDENTIALS)" -ForegroundColor Cyan
 } else {
-    Write-Host " MODE: LIVE ROTATION & TENANT-ISOLATION VERIFICATION" -ForegroundColor Magenta
+    Write-Host " MODE: FULL SEQUENCE (PASSWORD ROTATION + INTEGRATION TESTS)" -ForegroundColor Magenta
 }
 Write-Host "============================================================================`n" -ForegroundColor Cyan
 
@@ -195,7 +211,119 @@ function Write-SanitizedApiError {
     Write-Host "============================================================================`n" -ForegroundColor Red
 }
 
-# 3. Prompt for Staging Administrative Key (Non-echoing)
+# 3. Handle Independent Live Test Runner Mode (-RunLiveTests)
+if ($RunLiveTests) {
+    Write-Host "--- Mode: Run Live Staging Tests Using Saved DPAPI Credentials ---" -ForegroundColor Cyan
+    $credPath = Join-Path $env:USERPROFILE ".pooldocai_staging_credentials.xml"
+    if (-not (Test-Path $credPath)) {
+        Write-Error "[FATAL] Saved DPAPI credential store not found at: $credPath`nPlease run with -RotateOnly first to rotate and store credentials."
+        exit 1
+    }
+
+    # Prompt for Staging Publishable / Anon Key if not provided in environment
+    $secureAnonKey = $null
+    if ($null -ne $AnonKey) {
+        $secureAnonKey = $AnonKey
+        $bstrAnon = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureAnonKey)
+        $anonKeyPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstrAnon)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAnon)
+    } elseif ($env:STAGING_SUPABASE_ANON_KEY) {
+        Write-Host "Using STAGING_SUPABASE_ANON_KEY from environment." -ForegroundColor Green
+        $anonKeyPlain = $env:STAGING_SUPABASE_ANON_KEY
+    } else {
+        Write-Host "Please enter the Supabase Staging Publishable / Anon Key (from Staging API Settings)." -ForegroundColor Yellow
+        $secureAnonKey = Read-Host "Staging Publishable/Anon Key" -AsSecureString
+        if ($null -eq $secureAnonKey -or $secureAnonKey.Length -eq 0) {
+            Write-Error "No publishable key provided. Aborting."
+            exit 1
+        }
+        $bstrAnon = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureAnonKey)
+        $anonKeyPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstrAnon)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAnon)
+    }
+
+    # Validate publishable key format
+    if ($anonKeyPlain.StartsWith("sb_secret_")) {
+        Write-Error "[FATAL SECURITY VIOLATION] Invalid client credential type: Received a secret key ('sb_secret_...') in the publishable/anon key prompt."
+        exit 1
+    }
+
+    Write-Host "Loading DPAPI-encrypted credentials from: $credPath..." -ForegroundColor Cyan
+    $savedStore = Import-Clixml -Path $credPath
+
+    function Unprotect-Secret($sec) {
+        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+        $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        return $plain
+    }
+
+    Write-Host "Authenticating 4 synthetic users via GoTrue password grant..." -ForegroundColor Cyan
+    $authTokens = @{}
+    $tokenHeaders = @{
+        "apikey" = $anonKeyPlain
+        "Content-Type" = "application/json"
+        "Accept" = "application/json"
+    }
+    if ($anonKeyPlain.StartsWith("eyJ")) {
+        $tokenHeaders["Authorization"] = "Bearer $anonKeyPlain"
+    }
+
+    foreach ($acct in $approvedAccounts) {
+        $userPwd = Unprotect-Secret $savedStore[$acct.Role]
+        $loginUrl = "$StagingUrl/auth/v1/token?grant_type=password"
+        $loginBody = @{
+            email = $acct.Email
+            password = $userPwd
+        } | ConvertTo-Json
+
+        try {
+            $loginRes = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $tokenHeaders -Body $loginBody -UserAgent $cliUserAgent -MaximumRedirection 0
+        } catch {
+            Write-SanitizedApiError -Endpoint "/auth/v1/token?grant_type=password [POST]" -ErrorRecord $_ -AdminKeyType "none (publishable login)" -UserAgent $cliUserAgent -TargetHost $expectedHost -ProjectRef $stagingRef
+            exit 1
+        }
+
+        if (-not $loginRes.access_token -or $loginRes.user.id -ne $acct.Id) {
+            Write-Error "[FATAL] Invalid login response for $($acct.Email)"
+            exit 1
+        }
+
+        $authTokens[$acct.Role] = $loginRes.access_token
+        Write-Host "  [LOGIN SUCCESS] Verified session for $($acct.Email)" -ForegroundColor Green
+    }
+
+    # Execute Live Tenant-Isolation Test Suite
+    Write-Host "`n============================================================================" -ForegroundColor Cyan
+    Write-Host " EXECUTING REAL STAGING TENANT-ISOLATION SUITE (29 ASSERTIONS)" -ForegroundColor Cyan
+    Write-Host "============================================================================`n" -ForegroundColor Cyan
+
+    $env:STAGING_SUPABASE_URL = $StagingUrl
+    $env:STAGING_SUPABASE_ANON_KEY = $anonKeyPlain
+    $env:STAGING_AUTH_TOKENS = ($authTokens | ConvertTo-Json -Compress)
+    $env:REQUIRE_LIVE_STAGING = "1"
+
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    Push-Location $repoRoot
+    try {
+        node website/tests/staging-live-tenant-isolation.test.cjs
+        $testExit = $LASTEXITCODE
+        if ($testExit -eq 0) {
+            Write-Host "`n[TASK-008 PART-1C VERIFICATION]: ALL LIVE STAGING TESTS PASSED SUCCESSFULLY!" -ForegroundColor Green
+        } else {
+            Write-Error "[TASK-008 PART-1C VERIFICATION]: Live staging tests failed with exit code $testExit"
+        }
+        exit $testExit
+    } finally {
+        $env:STAGING_AUTH_TOKENS = $null
+        $env:STAGING_SUPABASE_URL = $null
+        $env:STAGING_SUPABASE_ANON_KEY = $null
+        $env:REQUIRE_LIVE_STAGING = $null
+        Pop-Location
+    }
+}
+
+# 4. Prompt for Staging Administrative Key (Non-echoing)
 $secureAdminKey = $null
 if ($null -ne $AdminKey) {
     $secureAdminKey = $AdminKey
@@ -449,7 +577,22 @@ try {
     [System.GC]::Collect()
 }
 
-# 9. Execute Live Tenant-Isolation Test Suite with Verified Tokens
+# 9. Handle RotateOnly Mode: Clean exit before integration tests
+if ($RotateOnly) {
+    Write-Host "`n============================================================================" -ForegroundColor Green
+    Write-Host " [PASSWORD ROTATION COMPLETE]: All 4 synthetic passwords successfully rotated" -ForegroundColor Green
+    Write-Host " and verified via genuine GoTrue login in project $expectedHost." -ForegroundColor Green
+    Write-Host " Encrypted credentials persisted to: $credPath" -ForegroundColor Green
+    Write-Host " ZERO INTEGRATION TESTS EXECUTED (-RotateOnly mode)." -ForegroundColor Green
+    Write-Host " To execute live integration tests independently, run:" -ForegroundColor Green
+    Write-Host "   powershell -NoProfile -ExecutionPolicy RemoteSigned -File `".\scripts\rotate_staging_synthetic_passwords.ps1`" -RunLiveTests" -ForegroundColor Green
+    Write-Host "============================================================================`n" -ForegroundColor Green
+    return
+}
+
+# 10. Execute Live Tenant-Isolation Test Suite with Verified Tokens (Full Sequence Mode)
+Write-Host "`n[PHASE 1 COMPLETE]: Password rotation and GoTrue login verification succeeded." -ForegroundColor Green
+Write-Host "Proceeding to Phase 2: Live Integration Tests..." -ForegroundColor Cyan
 Write-Host "`n============================================================================" -ForegroundColor Cyan
 Write-Host " EXECUTING REAL STAGING TENANT-ISOLATION SUITE (29 ASSERTIONS)" -ForegroundColor Cyan
 Write-Host "============================================================================`n" -ForegroundColor Cyan
@@ -467,10 +610,13 @@ try {
     if ($testExit -eq 0) {
         Write-Host "`n[TASK-008 PART-1C VERIFICATION]: ALL LIVE STAGING TESTS PASSED SUCCESSFULLY!" -ForegroundColor Green
     } else {
-        Write-Error "[TASK-008 PART-1C VERIFICATION]: Live staging tests failed with exit code $testExit"
+        Write-Error "[TASK-008 PART-1C VERIFICATION]: Live integration tests encountered failures (exit code $testExit). Note: Phase 1 Password Rotation was SUCCESSFUL and credentials remain saved in DPAPI."
     }
 } finally {
     $env:STAGING_AUTH_TOKENS = $null
+    $env:STAGING_SUPABASE_URL = $null
+    $env:STAGING_SUPABASE_ANON_KEY = $null
+    $env:REQUIRE_LIVE_STAGING = $null
     Pop-Location
 }
 

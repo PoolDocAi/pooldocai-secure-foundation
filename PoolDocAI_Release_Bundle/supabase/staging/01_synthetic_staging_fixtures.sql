@@ -70,7 +70,7 @@ BEGIN
       ''
     ) ON CONFLICT (id) DO UPDATE SET
       email = EXCLUDED.email,
-      encrypted_password = EXCLUDED.encrypted_password,
+      -- Note: Never overwrite encrypted_password on conflict to prevent resetting rotated passwords
       raw_user_meta_data = EXCLUDED.raw_user_meta_data,
       confirmation_token = COALESCE(auth.users.confirmation_token, ''),
       email_change = COALESCE(auth.users.email_change, ''),

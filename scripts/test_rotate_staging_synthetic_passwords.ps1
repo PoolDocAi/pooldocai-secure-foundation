@@ -241,6 +241,63 @@ Invoke-Expression $errFunctionBlock
 }
 
 # ----------------------------------------------------------------------------
+# 5. Decoupled Mode Switches & Exclusivity Tests (-RotateOnly / -RunLiveTests)
+# ----------------------------------------------------------------------------
+Write-Host "`n--- Test Suite 5: Decoupled Mode Switches & Exclusivity ---" -ForegroundColor Cyan
+
+# 5A. AST Checks
+Assert-Test "Defines -RotateOnly param switch" ($scriptContent -match '\[switch\]\$RotateOnly')
+Assert-Test "Defines -RunLiveTests param switch" ($scriptContent -match '\[switch\]\$RunLiveTests')
+Assert-Test "Contains mode exclusivity validation" ($scriptContent -match '\$activeModes\.Count\s+-gt\s+1')
+Assert-Test "-RotateOnly exits before live integration test execution" ($scriptContent -match 'if\s*\(\$RotateOnly\)[\s\S]*?return[\s\S]*?node\s+website/tests/staging-live-tenant-isolation\.test\.cjs')
+
+# Helper to run script in a subprocess with arbitrary switch arguments
+function Run-RotationWithArgs([string]$arguments) {
+    $scriptEscaped = $rotationScript.Replace("'", "''")
+
+    $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+    $pinfo.FileName = "powershell.exe"
+    $pinfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command `"& '$scriptEscaped' $arguments`""
+    $pinfo.RedirectStandardOutput = $true
+    $pinfo.RedirectStandardError = $true
+    $pinfo.UseShellExecute = $false
+    $pinfo.CreateNoWindow = $true
+
+    $proc = [System.Diagnostics.Process]::Start($pinfo)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit(10000)
+
+    return @{
+        ExitCode = $proc.ExitCode
+        StdOut = $stdout
+        StdErr = $stderr
+        Combined = "$stdout`n$stderr"
+    }
+}
+
+# 5B. Exclusivity: -DryRun + -RotateOnly
+& {
+    $res = Run-RotationWithArgs "-DryRun -RotateOnly"
+    $exclPassed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Incompatible mode switches specified")
+    Assert-Test "Rejects conflicting mode flags -DryRun and -RotateOnly" $exclPassed
+}
+
+# 5C. Exclusivity: -RotateOnly + -RunLiveTests
+& {
+    $res = Run-RotationWithArgs "-RotateOnly -RunLiveTests"
+    $exclPassed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Incompatible mode switches specified")
+    Assert-Test "Rejects conflicting mode flags -RotateOnly and -RunLiveTests" $exclPassed
+}
+
+# 5D. Exclusivity: -DryRun + -RunLiveTests
+& {
+    $res = Run-RotationWithArgs "-DryRun -RunLiveTests"
+    $exclPassed = ($res.ExitCode -ne 0) -and ($res.Combined -match "Incompatible mode switches specified")
+    Assert-Test "Rejects conflicting mode flags -DryRun and -RunLiveTests" $exclPassed
+}
+
+# ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
 Write-Host "`n============================================================================" -ForegroundColor Cyan

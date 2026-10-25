@@ -523,6 +523,10 @@ async function runLiveStagingIntegrationTests() {
   // ==========================================================================
   // SECTION 4: Diagnostic Cases & Technician Job Records Isolation
   // Schema alignment: diagnostic_cases and technician_job_records use tenant_id column
+  // Note: Migration 202610210001 & 202610210002 apply REVOKE ALL ON diagnostic_cases
+  // and technician_job_records FROM anon, authenticated.
+  // Direct REST queries return HTTP 401/403, which is a legitimate DENY-BY-DESIGN
+  // schema gate, distinguished here from positive authenticated API endpoint controls.
   // ==========================================================================
   console.log("\n--- SECTION 4: Diagnostic Cases & Technician Job Records Isolation ---");
   if (sessions?.techA && sessions?.techB) {
@@ -531,14 +535,14 @@ async function runLiveStagingIntegrationTests() {
       const res = await authReq(sessions.techA, "/rest/v1/diagnostic_cases?select=id,tenant_id");
       if (res.status === 401 || res.status === 403) {
         // Migration 202610210001 revokes all from authenticated on diagnostic_cases
-        recordLiveResult("4A", "diagnostic_cases authenticated access restricted by schema policy (ALLOW/RESTRICTED)", true, `Status ${res.status}`);
+        recordLiveResult("4A", "diagnostic_cases direct access restricted by schema policy (DENY-BY-DESIGN: REVOKE ALL confirmed; positive endpoint control pending)", true, `Status ${res.status}`);
       } else if (res.status === 200 && Array.isArray(res.json)) {
         if (res.json.length === 0) {
           liveResults.notRun++;
           console.log("  [LIVE NOT RUN] 4A: diagnostic_cases has 0 synthetic rows in staging (positive control fixture absent)");
         } else {
           const ok = res.json.every(d => d.tenant_id === TENANT_A.companyId);
-          recordLiveResult("4A", "AquaPure Tech reads only Company A diagnostic cases (ALLOW)", ok, `Status ${res.status}`);
+          recordLiveResult("4A", "AquaPure Tech reads only Company A diagnostic cases (POSITIVE CONTROL VERIFIED)", ok, `Status ${res.status}, count: ${res.json.length}`);
         }
       } else {
         recordLiveResult("4A", "diagnostic_cases query", false, `Unexpected status ${res.status}`);
@@ -549,14 +553,14 @@ async function runLiveStagingIntegrationTests() {
     {
       const res = await authReq(sessions.techB, "/rest/v1/diagnostic_cases?select=id,tenant_id");
       if (res.status === 401 || res.status === 403) {
-        recordLiveResult("4B", "diagnostic_cases authenticated access restricted by schema policy (ALLOW/RESTRICTED)", true, `Status ${res.status}`);
+        recordLiveResult("4B", "diagnostic_cases direct access restricted by schema policy (DENY-BY-DESIGN: REVOKE ALL confirmed; positive endpoint control pending)", true, `Status ${res.status}`);
       } else if (res.status === 200 && Array.isArray(res.json)) {
         if (res.json.length === 0) {
           liveResults.notRun++;
           console.log("  [LIVE NOT RUN] 4B: diagnostic_cases has 0 synthetic rows in staging (positive control fixture absent)");
         } else {
           const ok = res.json.every(d => d.tenant_id === TENANT_B.companyId);
-          recordLiveResult("4B", "BlueWave Tech reads only Company B diagnostic cases (ALLOW)", ok, `Status ${res.status}`);
+          recordLiveResult("4B", "BlueWave Tech reads only Company B diagnostic cases (POSITIVE CONTROL VERIFIED)", ok, `Status ${res.status}, count: ${res.json.length}`);
         }
       } else {
         recordLiveResult("4B", "diagnostic_cases query", false, `Unexpected status ${res.status}`);
@@ -579,14 +583,14 @@ async function runLiveStagingIntegrationTests() {
       const res = await authReq(sessions.techA, "/rest/v1/technician_job_records?select=id,tenant_id");
       if (res.status === 401 || res.status === 403) {
         // Migration 202610210002 revokes all from authenticated on technician_job_records
-        recordLiveResult("4D", "technician_job_records authenticated access restricted by schema policy (ALLOW/RESTRICTED)", true, `Status ${res.status}`);
+        recordLiveResult("4D", "technician_job_records direct access restricted by schema policy (DENY-BY-DESIGN: REVOKE ALL confirmed; positive endpoint control pending)", true, `Status ${res.status}`);
       } else if (res.status === 200 && Array.isArray(res.json)) {
         if (res.json.length === 0) {
           liveResults.notRun++;
           console.log("  [LIVE NOT RUN] 4D: technician_job_records has 0 synthetic rows in staging (positive control fixture absent)");
         } else {
           const ok = res.json.every(j => j.tenant_id === TENANT_A.companyId);
-          recordLiveResult("4D", "AquaPure Tech reads only Company A technician_job_records (ALLOW)", ok, `Status ${res.status}`);
+          recordLiveResult("4D", "AquaPure Tech reads only Company A technician_job_records (POSITIVE CONTROL VERIFIED)", ok, `Status ${res.status}, count: ${res.json.length}`);
         }
       } else {
         recordLiveResult("4D", "technician_job_records query", false, `Unexpected status ${res.status}`);
@@ -597,14 +601,14 @@ async function runLiveStagingIntegrationTests() {
     {
       const res = await authReq(sessions.techB, "/rest/v1/technician_job_records?select=id,tenant_id");
       if (res.status === 401 || res.status === 403) {
-        recordLiveResult("4E", "technician_job_records authenticated access restricted by schema policy (ALLOW/RESTRICTED)", true, `Status ${res.status}`);
+        recordLiveResult("4E", "technician_job_records direct access restricted by schema policy (DENY-BY-DESIGN: REVOKE ALL confirmed; positive endpoint control pending)", true, `Status ${res.status}`);
       } else if (res.status === 200 && Array.isArray(res.json)) {
         if (res.json.length === 0) {
           liveResults.notRun++;
           console.log("  [LIVE NOT RUN] 4E: technician_job_records has 0 synthetic rows in staging (positive control fixture absent)");
         } else {
           const ok = res.json.every(j => j.tenant_id === TENANT_B.companyId);
-          recordLiveResult("4E", "BlueWave Tech reads only Company B technician_job_records (ALLOW)", ok, `Status ${res.status}`);
+          recordLiveResult("4E", "BlueWave Tech reads only Company B technician_job_records (POSITIVE CONTROL VERIFIED)", ok, `Status ${res.status}, count: ${res.json.length}`);
         }
       } else {
         recordLiveResult("4E", "technician_job_records query", false, `Unexpected status ${res.status}`);
