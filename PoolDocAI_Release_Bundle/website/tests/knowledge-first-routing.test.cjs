@@ -874,6 +874,83 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
 
   assert.equal(negativeRun.citationVerified, false, 'Invented step must fail citation verification');
   assert.equal(negativeRun.fallbackSearchInvoked, true, 'Fallback search MUST BE INVOKED when model step is uncorroborated');
+
+  // 12c. Wrong page rejection: Cited page outside chunk page boundary
+  const manualChunkWithPages = {
+    id: 'kb-pt-chunk-p5',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    page_start: 5,
+    page_end: 7,
+    revision: 'Rev P',
+    symptom: 'Pump motor will not start, display is dead',
+    procedure_text: 'Inspect drive electronics and AC input voltage. Check breaker sizing. If display is dark and breaker trips immediately, inspect drive module for short circuit and verify power wiring. '.repeat(2)
+  };
+
+  const wrongPageRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-p5',
+      page_number: 42, // Wrong page!
+      step_instructions: 'Inspect drive electronics and AC input voltage.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(wrongPageRun.verified, false, 'Wrong page citation (p. 42 vs pp. 5-7) must fail verification');
+
+  // 12d. Wrong revision rejection: Cited revision does not match manual revision
+  const wrongRevRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-p5',
+      page_number: 5,
+      revision: 'Rev B', // Wrong revision (actual is Rev P)!
+      step_instructions: 'Inspect drive electronics and AC input voltage.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(wrongRevRun.verified, false, 'Wrong revision citation (Rev B vs Rev P) must fail verification');
+
+  // 12e. Fabricated citation ID rejection
+  const fabricatedIdRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-nonexistent-uuid-999',
+      step_instructions: 'Inspect drive electronics and AC input voltage.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(fabricatedIdRun.verified, false, 'Fabricated citation ID must fail verification');
+
+  // 12f. Invasive uncorroborated action rejection (replacing shaft seal on an electrical chunk)
+  const invasiveStepRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-p5',
+      page_number: 5,
+      step_instructions: 'Turn off the main breaker and replace the motor shaft seal and wet end o-ring.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(invasiveStepRun.verified, false, 'Invented replacement action absent from procedure must fail verification');
 }
 
 // 13. Static wiring assertions on handler source
