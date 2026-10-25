@@ -6,27 +6,42 @@
 # Safety Boundaries:
 # - Aborts immediately if host is NOT rzkgmvyyeclrpomrlyft.supabase.co
 # - Aborts immediately if host contains owfeebydlyacssqpnmkq (production)
+# - Validates nonsecret credential types locally BEFORE making any network call:
+#   * Rejects publishable keys (sb_publishable_) or anon JWTs for administrative operations
+#   * Rejects secret keys (sb_secret_) for client/publishable key operations
+#   * Parses JWT role claim without signature trust only for preliminary rejection
+# - Uses explicit non-browser CLI User-Agent (PoolDocAI-Staging-Admin-CLI/1.0)
+#   on ALL API requests to prevent Supabase 401 browser-block on sb_secret_ keys
 # - Supports modern sb_secret_ admin keys (apikey header only, avoids Invalid JWT error)
-#   as well as legacy service_role JWT keys.
+#   as well as legacy service_role JWT keys (apikey + Authorization: Bearer).
 # - Rotates passwords ONLY for the four pre-approved synthetic test accounts
 # - Pre-mutation DPAPI persistence: saves encrypted passwords before first API call
 # - Explicit -DryRun parameter for safe preflight with ZERO mutations
 # - Never creates users, deletes users, or touches database schemas
 # - Accepts admin key via non-echoing prompt (Read-Host -AsSecureString)
-# - Never echoes, logs, or transmits key material
+# - Never echoes, logs, or transmits key material; sanitized diagnostics on error
 # ============================================================================
 
 [CmdletBinding()]
 param(
     [string]$StagingUrl = "https://rzkgmvyyeclrpomrlyft.supabase.co",
-    [switch]$DryRun
+    [switch]$DryRun,
+    [System.Security.SecureString]$AdminKey = $null,
+    [System.Security.SecureString]$AnonKey = $null
 )
 
 $ErrorActionPreference = "Stop"
 
+# Non-browser CLI User-Agent to avoid Supabase sb_secret_ 401 browser block
+$cliUserAgent = "PoolDocAI-Staging-Admin-CLI/1.0"
+$stagingRef = "rzkgmvyyeclrpomrlyft"
+$expectedHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+$prodRef = "owfeebydlyacssqpnmkq"
+
 Write-Host "============================================================================" -ForegroundColor Cyan
 Write-Host " POOLDOCAI: STAGING SYNTHETIC PASSWORD ROTATION & VERIFICATION UTILITY" -ForegroundColor Cyan
 Write-Host " Target: $StagingUrl" -ForegroundColor Cyan
+Write-Host " User-Agent: $cliUserAgent" -ForegroundColor Cyan
 if ($DryRun) {
     Write-Host " MODE: DRY RUN (PREFLIGHT ONLY - ZERO MUTATIONS)" -ForegroundColor Yellow
 } else {
@@ -35,9 +50,6 @@ if ($DryRun) {
 Write-Host "============================================================================`n" -ForegroundColor Cyan
 
 # 1. Strict Target Host & Protocol Guard
-$expectedHost = "rzkgmvyyeclrpomrlyft.supabase.co"
-$prodRef = "owfeebydlyacssqpnmkq"
-
 $uri = [System.Uri]$StagingUrl
 if ($uri.Scheme -ne "https") {
     Write-Error "[FATAL SECURITY VIOLATION] Target URL must use HTTPS protocol. Received: '$($uri.Scheme)'"
@@ -88,19 +100,143 @@ $approvedAccounts = @(
     }
 )
 
+# Helper function: parse JWT payload role claim without signature trust (for pre-network validation only)
+function Get-JwtPayloadRole([string]$jwt) {
+    try {
+        $parts = $jwt.Split('.')
+        if ($parts.Length -lt 2) { return $null }
+        $payloadBase64 = $parts[1].Replace('-', '+').Replace('_', '/')
+        switch ($payloadBase64.Length % 4) {
+            2 { $payloadBase64 += "=="; break }
+            3 { $payloadBase64 += "="; break }
+        }
+        $bytes = [System.Convert]::FromBase64String($payloadBase64)
+        $json = [System.Text.Encoding]::UTF8.GetString($bytes)
+        $obj = $json | ConvertFrom-Json
+        return $obj.role
+    } catch {
+        return $null
+    }
+}
+
+# Helper function: safe, sanitized error reporting on API failure (zero secrets or headers leaked)
+function Write-SanitizedApiError {
+    param(
+        [string]$Endpoint,
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+        [string]$AdminKeyType,
+        [string]$UserAgent,
+        [string]$TargetHost,
+        [string]$ProjectRef
+    )
+
+    $statusCode = $null
+    $statusDesc = $null
+    $sanitizedBody = $null
+
+    if ($ErrorRecord.Exception.Response) {
+        $statusCode = [int]$ErrorRecord.Exception.Response.StatusCode
+        $statusDesc = $ErrorRecord.Exception.Response.StatusDescription
+        try {
+            $stream = $ErrorRecord.Exception.Response.GetResponseStream()
+            if ($stream) {
+                $reader = [System.IO.StreamReader]::new($stream)
+                $raw = $reader.ReadToEnd()
+                $reader.Close()
+                $errJson = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($errJson) {
+                    $parts = @()
+                    if ($errJson.error) { $parts += "error=$($errJson.error)" }
+                    if ($errJson.error_code) { $parts += "error_code=$($errJson.error_code)" }
+                    if ($errJson.msg) { $parts += "msg=$($errJson.msg)" }
+                    if ($errJson.message) { $parts += "message=$($errJson.message)" }
+                    $sanitizedBody = $parts -join "; "
+                } else {
+                    $clean = ($raw -replace '[^\w\s\-\.\,\:\;\=]', '')
+                    if ($clean.Length -gt 120) { $clean = $clean.Substring(0, 120) }
+                    $sanitizedBody = $clean
+                }
+            }
+        } catch {}
+    }
+
+    Write-Host "`n============================================================================" -ForegroundColor Red
+    Write-Host " [PREFLIGHT ERROR]: Staging API Request Failed" -ForegroundColor Red
+    Write-Host "============================================================================" -ForegroundColor Red
+    Write-Host "  Project Ref:        $ProjectRef ($TargetHost)" -ForegroundColor Red
+    Write-Host "  Endpoint:           $Endpoint" -ForegroundColor Red
+    Write-Host "  HTTP Status:        $statusCode $statusDesc" -ForegroundColor Red
+    Write-Host "  Admin Key Type:     $AdminKeyType" -ForegroundColor Red
+    Write-Host "  Client User-Agent:  $UserAgent" -ForegroundColor Red
+    if ($sanitizedBody) {
+        Write-Host "  Sanitized Message:  $sanitizedBody" -ForegroundColor Red
+    }
+    Write-Host "`n  Security Note: Zero request/response headers, raw tokens, or passwords logged." -ForegroundColor Yellow
+    Write-Host "  Diagnostics:" -ForegroundColor Yellow
+    if ($statusCode -eq 401) {
+        Write-Host "  - HTTP 401 Unauthorized returned by Supabase API gateway / GoTrue Auth service." -ForegroundColor Yellow
+        Write-Host "  - Request was dispatched with User-Agent '$UserAgent' and key type '$AdminKeyType'." -ForegroundColor Yellow
+        Write-Host "  - Verify that the administrative key was copied from the STAGING project ($ProjectRef)" -ForegroundColor Yellow
+        Write-Host "    under Supabase Dashboard -> Project Settings -> API (Secret key or service_role secret)." -ForegroundColor Yellow
+        Write-Host "  - Verify the key has not been revoked or regenerated." -ForegroundColor Yellow
+        Write-Host "  - Manual review required before further credential entry." -ForegroundColor Yellow
+    } else {
+        Write-Host "  - Unexpected HTTP error: $statusCode. Inspect network connection or Supabase status." -ForegroundColor Yellow
+    }
+    Write-Host "============================================================================`n" -ForegroundColor Red
+}
+
 # 3. Prompt for Staging Administrative Key (Non-echoing)
-Write-Host "Please enter the Supabase Staging Administrative Key (service_role or sb_secret_ key)." -ForegroundColor Yellow
-Write-Host "Input is completely masked and will not be echoed, logged, or saved to disk." -ForegroundColor Yellow
-$secureAdminKey = Read-Host "Staging Administrative Key" -AsSecureString
+$secureAdminKey = $null
+if ($null -ne $AdminKey) {
+    $secureAdminKey = $AdminKey
+} else {
+    Write-Host "Please enter the Supabase Staging Administrative Key (service_role or sb_secret_ key)." -ForegroundColor Yellow
+    Write-Host "Input is completely masked and will not be echoed, logged, or saved to disk." -ForegroundColor Yellow
+    $secureAdminKey = Read-Host "Staging Administrative Key" -AsSecureString
+}
 
 if ($null -eq $secureAdminKey -or $secureAdminKey.Length -eq 0) {
     Write-Error "No administrative key provided. Aborting."
     exit 1
 }
 
+# Convert admin key to transient string in memory for validation and header creation
+$bstrAdmin = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureAdminKey)
+$adminKeyPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstrAdmin)
+[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAdmin)
+
+# Nonsecret Credential-Type Validation for Administrative Key (Pre-network check)
+$adminKeyType = $null
+if ($adminKeyPlain.StartsWith("sb_publishable_")) {
+    Write-Error "[FATAL SECURITY VIOLATION] Invalid administrative credential type: Received a publishable key ('sb_publishable_...'). Administrative operations require an elevated service_role secret key ('sb_secret_...' or legacy service_role JWT)."
+    exit 1
+} elseif ($adminKeyPlain.StartsWith("sb_secret_")) {
+    $adminKeyType = "sb_secret_ (modern secret key)"
+} elseif ($adminKeyPlain.StartsWith("eyJ")) {
+    $role = Get-JwtPayloadRole -jwt $adminKeyPlain
+    if ($role -eq "anon") {
+        Write-Error "[FATAL SECURITY VIOLATION] Invalid administrative credential type: Received an anon JWT (role: 'anon'). Administrative operations require a service_role secret key."
+        exit 1
+    } elseif ($role -ne "service_role") {
+        Write-Error "[FATAL SECURITY VIOLATION] Invalid administrative credential type: JWT role claim is '$role', expected 'service_role'. Administrative operations require a service_role secret key."
+        exit 1
+    }
+    $adminKeyType = "service_role (legacy JWT)"
+} else {
+    Write-Error "[FATAL SECURITY VIOLATION] Invalid administrative credential format. Expected a modern secret key ('sb_secret_...') or a legacy service_role JWT ('eyJ...')."
+    exit 1
+}
+Write-Host "  [CREDENTIAL CHECK] Staging administrative key validated as: $adminKeyType" -ForegroundColor Green
+
 # 4. Prompt for Staging Publishable / Anon Key (Non-echoing)
 $secureAnonKey = $null
-if ($env:STAGING_SUPABASE_ANON_KEY) {
+if ($null -ne $AnonKey) {
+    $secureAnonKey = $AnonKey
+    $bstrAnon = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureAnonKey)
+    $anonKeyPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstrAnon)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAnon)
+} elseif ($env:STAGING_SUPABASE_ANON_KEY) {
     Write-Host "`nUsing STAGING_SUPABASE_ANON_KEY from environment." -ForegroundColor Green
     $anonKeyPlain = $env:STAGING_SUPABASE_ANON_KEY
 } else {
@@ -115,10 +251,25 @@ if ($env:STAGING_SUPABASE_ANON_KEY) {
     [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAnon)
 }
 
-# Convert admin key to transient string in memory
-$bstrAdmin = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureAdminKey)
-$adminKeyPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstrAdmin)
-[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAdmin)
+# Nonsecret Credential-Type Validation for Publishable / Anon Key (Pre-network check)
+$anonKeyType = $null
+if ($anonKeyPlain.StartsWith("sb_secret_")) {
+    Write-Error "[FATAL SECURITY VIOLATION] Invalid client credential type: Received a secret key ('sb_secret_...') in the publishable/anon key prompt. Never use administrative secret keys for client operations."
+    exit 1
+} elseif ($anonKeyPlain.StartsWith("sb_publishable_")) {
+    $anonKeyType = "sb_publishable_ (modern publishable key)"
+} elseif ($anonKeyPlain.StartsWith("eyJ")) {
+    $role = Get-JwtPayloadRole -jwt $anonKeyPlain
+    if ($role -ne "anon") {
+        Write-Error "[FATAL SECURITY VIOLATION] Invalid client credential type: Expected anon JWT, but JWT role claim is '$role'."
+        exit 1
+    }
+    $anonKeyType = "anon (legacy JWT)"
+} else {
+    Write-Error "[FATAL SECURITY VIOLATION] Invalid publishable/anon key format. Expected a modern publishable key ('sb_publishable_...') or a legacy anon JWT ('eyJ...')."
+    exit 1
+}
+Write-Host "  [CREDENTIAL CHECK] Staging publishable/anon key validated as: $anonKeyType" -ForegroundColor Green
 
 # Helper function to build Admin Headers supporting modern sb_secret_ and legacy JWT keys
 function Get-AdminHeaders([string]$adminKey) {
@@ -156,9 +307,9 @@ try {
     foreach ($acct in $approvedAccounts) {
         $userUrl = "$StagingUrl/auth/v1/admin/users/$($acct.Id)"
         try {
-            $userRes = Invoke-RestMethod -Uri $userUrl -Method Get -Headers $adminHeaders -MaximumRedirection 0
+            $userRes = Invoke-RestMethod -Uri $userUrl -Method Get -Headers $adminHeaders -UserAgent $cliUserAgent -MaximumRedirection 0
         } catch {
-            Write-Error "[FATAL] Failed to fetch user $($acct.Email) via Auth Admin: $($_.Exception.Message)"
+            Write-SanitizedApiError -Endpoint "/auth/v1/admin/users/$($acct.Id)" -ErrorRecord $_ -AdminKeyType $adminKeyType -UserAgent $cliUserAgent -TargetHost $expectedHost -ProjectRef $stagingRef
             exit 1
         }
 
@@ -169,7 +320,13 @@ try {
 
         # Verify company membership
         $memberUrl = "$StagingUrl/rest/v1/company_members?user_id=eq.$($acct.Id)&select=id,company_id,role"
-        $memberRes = Invoke-RestMethod -Uri $memberUrl -Method Get -Headers $adminHeaders -MaximumRedirection 0
+        try {
+            $memberRes = Invoke-RestMethod -Uri $memberUrl -Method Get -Headers $adminHeaders -UserAgent $cliUserAgent -MaximumRedirection 0
+        } catch {
+            Write-SanitizedApiError -Endpoint "/rest/v1/company_members?user_id=eq.$($acct.Id)" -ErrorRecord $_ -AdminKeyType $adminKeyType -UserAgent $cliUserAgent -TargetHost $expectedHost -ProjectRef $stagingRef
+            exit 1
+        }
+
         if ($memberRes.Count -eq 0 -or $memberRes[0].company_id -ne $acct.CompanyId) {
             Write-Error "[FATAL] Membership mismatch for user $($acct.Email)! Expected company $($acct.CompanyId)"
             exit 1
@@ -182,6 +339,8 @@ try {
         Write-Host "`n============================================================================" -ForegroundColor Green
         Write-Host " [DRY RUN COMPLETE]: All 4 synthetic accounts confirmed with correct UUIDs," -ForegroundColor Green
         Write-Host " emails, and company memberships in project $expectedHost." -ForegroundColor Green
+        Write-Host " Preflight executed with Admin Key Type: $adminKeyType" -ForegroundColor Green
+        Write-Host " Client User-Agent: $cliUserAgent" -ForegroundColor Green
         Write-Host " ZERO MUTATIONS PERFORMED. Ready for authorized rotation execution." -ForegroundColor Green
         Write-Host "============================================================================`n" -ForegroundColor Green
         return
@@ -223,9 +382,9 @@ try {
         $updateHeaders["Content-Type"] = "application/json"
 
         try {
-            $updateRes = Invoke-RestMethod -Uri $updateUrl -Method Put -Headers $updateHeaders -Body $updateBody -MaximumRedirection 0
+            $updateRes = Invoke-RestMethod -Uri $updateUrl -Method Put -Headers $updateHeaders -Body $updateBody -UserAgent $cliUserAgent -MaximumRedirection 0
         } catch {
-            Write-Error "[FATAL] Failed to update password for $($acct.Email): $($_.Exception.Message)"
+            Write-SanitizedApiError -Endpoint "/auth/v1/admin/users/$($acct.Id) [PUT]" -ErrorRecord $_ -AdminKeyType $adminKeyType -UserAgent $cliUserAgent -TargetHost $expectedHost -ProjectRef $stagingRef
             exit 1
         }
 
@@ -243,9 +402,9 @@ try {
         } | ConvertTo-Json
 
         try {
-            $loginRes = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $tokenHeaders -Body $loginBody -MaximumRedirection 0
+            $loginRes = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $tokenHeaders -Body $loginBody -UserAgent $cliUserAgent -MaximumRedirection 0
         } catch {
-            Write-Error "[FATAL] GoTrue login failed for $($acct.Email): $($_.Exception.Message)"
+            Write-SanitizedApiError -Endpoint "/auth/v1/token?grant_type=password [POST]" -ErrorRecord $_ -AdminKeyType $adminKeyType -UserAgent $cliUserAgent -TargetHost $expectedHost -ProjectRef $stagingRef
             exit 1
         }
 
@@ -259,7 +418,13 @@ try {
 
         # Re-verify company membership unchanged post-rotation
         $postMemberUrl = "$StagingUrl/rest/v1/company_members?user_id=eq.$($acct.Id)&select=id,company_id,role"
-        $postMemberRes = Invoke-RestMethod -Uri $postMemberUrl -Method Get -Headers (Get-AdminHeaders -adminKey $adminKeyPlain) -MaximumRedirection 0
+        try {
+            $postMemberRes = Invoke-RestMethod -Uri $postMemberUrl -Method Get -Headers (Get-AdminHeaders -adminKey $adminKeyPlain) -UserAgent $cliUserAgent -MaximumRedirection 0
+        } catch {
+            Write-SanitizedApiError -Endpoint "/rest/v1/company_members?user_id=eq.$($acct.Id) [POST-CHECK]" -ErrorRecord $_ -AdminKeyType $adminKeyType -UserAgent $cliUserAgent -TargetHost $expectedHost -ProjectRef $stagingRef
+            exit 1
+        }
+
         if ($postMemberRes.Count -eq 0 -or $postMemberRes[0].company_id -ne $acct.CompanyId) {
             Write-Error "[FATAL] Post-rotation membership altered for $($acct.Email)!"
             exit 1
@@ -299,3 +464,4 @@ try {
     $env:STAGING_AUTH_TOKENS = $null
     Pop-Location
 }
+

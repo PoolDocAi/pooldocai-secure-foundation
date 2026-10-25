@@ -74,6 +74,7 @@ async function makeHttpsRequest(targetHost, path, options = {}) {
   const method = options.method || "GET";
   const headers = {
     "Accept": "application/json",
+    "User-Agent": "PoolDocAI-Staging-Test-Client/1.0",
     ...(options.headers || {})
   };
 

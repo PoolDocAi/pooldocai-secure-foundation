@@ -113,6 +113,98 @@ async function runStagingBundleTests() {
     console.log("PASS: Staging verification test suite verified (schema, RLS, RPCs, active role enforcement, negative control, bidirectional isolation).");
   }
 
+  // 5. Validate scripts/rotate_staging_synthetic_passwords.ps1
+  {
+    console.log("Validating scripts/rotate_staging_synthetic_passwords.ps1...");
+    const rotationScriptPath = path.join(root, "scripts", "rotate_staging_synthetic_passwords.ps1");
+    assert.ok(fs.existsSync(rotationScriptPath), "Rotation script must exist");
+    const scriptContent = fs.readFileSync(rotationScriptPath, "utf8");
+
+    // Non-browser User-Agent to prevent Supabase 401 browser-block on sb_secret_ keys
+    assert.match(
+      scriptContent,
+      /\$cliUserAgent\s*=\s*"PoolDocAI-Staging-Admin-CLI\/1\.0"/,
+      "Must define explicit non-browser User-Agent PoolDocAI-Staging-Admin-CLI/1.0"
+    );
+
+    // All Invoke-RestMethod calls must include -UserAgent $cliUserAgent
+    const irmCalls = scriptContent.match(/Invoke-RestMethod[^\r\n]+/g) || [];
+    assert.ok(irmCalls.length >= 5, "Must contain at least 5 Invoke-RestMethod calls");
+    for (const call of irmCalls) {
+      assert.ok(
+        call.includes("-UserAgent $cliUserAgent"),
+        `Invoke-RestMethod call missing -UserAgent: ${call}`
+      );
+      assert.ok(
+        call.includes("-MaximumRedirection 0"),
+        `Invoke-RestMethod call missing -MaximumRedirection 0: ${call}`
+      );
+    }
+
+    // JWT role claim parser for pre-network validation
+    assert.ok(
+      scriptContent.includes("function Get-JwtPayloadRole"),
+      "Must include Get-JwtPayloadRole for nonsecret pre-network credential validation"
+    );
+
+    // Sanitized API error reporter
+    assert.ok(
+      scriptContent.includes("function Write-SanitizedApiError"),
+      "Must include Write-SanitizedApiError for safe diagnostic reporting without secret leaks"
+    );
+
+    // Fail-closed checks for invalid credential types
+    assert.ok(
+      scriptContent.includes("sb_publishable_"),
+      "Must inspect and reject sb_publishable_ keys in admin prompt"
+    );
+    assert.ok(
+      scriptContent.includes("Received an anon JWT"),
+      "Must inspect and reject anon JWTs in admin prompt"
+    );
+    assert.ok(
+      scriptContent.includes("Never use administrative secret keys for client operations"),
+      "Must inspect and reject sb_secret_ keys in publishable prompt"
+    );
+
+    // Host & safety boundaries
+    assert.ok(
+      scriptContent.includes("rzkgmvyyeclrpomrlyft.supabase.co"),
+      "Must strictly target staging project rzkgmvyyeclrpomrlyft.supabase.co"
+    );
+    assert.ok(
+      scriptContent.includes("owfeebydlyacssqpnmkq"),
+      "Must strictly reject production project owfeebydlyacssqpnmkq"
+    );
+    assert.ok(
+      scriptContent.includes("-DryRun"),
+      "Must support explicit -DryRun switch for zero-mutation preflight"
+    );
+
+    console.log("PASS: Rotation utility verified (non-browser UA, fail-closed credential checks, sanitized 401 diagnostics, safety guards).");
+  }
+
+  // 6. Validate 03_synthetic_diagnostic_and_job_fixtures.sql and 04_teardown_diagnostic_and_job_fixtures.sql
+  {
+    console.log("Validating synthetic diagnostic & job fixture scripts (03 & 04)...");
+    const fixtures03Path = path.join(stagingDir, "03_synthetic_diagnostic_and_job_fixtures.sql");
+    const fixtures04Path = path.join(stagingDir, "04_teardown_diagnostic_and_job_fixtures.sql");
+    assert.ok(fs.existsSync(fixtures03Path), "03 fixture script must exist");
+    assert.ok(fs.existsSync(fixtures04Path), "04 teardown script must exist");
+
+    const content03 = fs.readFileSync(fixtures03Path, "utf8");
+    const content04 = fs.readFileSync(fixtures04Path, "utf8");
+
+    assert.ok(content03.includes("diagnostic_cases"), "03 must insert diagnostic_cases");
+    assert.ok(content03.includes("technician_job_records"), "03 must insert technician_job_records");
+    assert.ok(content03.includes("tenant_id"), "03 must align with tenant_id schema column");
+
+    assert.ok(content04.includes("DELETE FROM public.diagnostic_cases"), "04 must delete diagnostic_cases fixtures");
+    assert.ok(content04.includes("DELETE FROM public.technician_job_records"), "04 must delete technician_job_records fixtures");
+
+    console.log("PASS: Synthetic diagnostic and job fixtures & teardown scripts verified.");
+  }
+
   console.log("\n=== ALL STAGING BUNDLE & FIXTURE TESTS PASSED ===");
 }
 
