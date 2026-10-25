@@ -1,8 +1,10 @@
 // ============================================================================
-// POOLDOCAI TASK-008 PART-1: REAL AUTHENTICATED STAGING JWT/HTTP TENANT ISOLATION TESTS
-// Tests genuine signed-in HTTP/JWT requests against Supabase REST, Auth, Storage, and RPCs.
-// Verifies bidirectional multi-tenant isolation (Company A vs Company B),
-// anonymous access denial, revoked/inactive membership rejection, and security definer triage.
+// POOLDOCAI TASK-008 PART-1: SIMULATED / MOCK HTTP TENANT-ISOLATION TEST SUITE (MOCK)
+// NOTICE: This suite exercises an in-process simulated HTTP/JWT server for fast
+// unit regression testing. It validates the architectural RLS contract and HTTP
+// status semantics in-process, but DOES NOT represent deployed Supabase staging
+// environment verification. Live staging verification is performed by
+// staging-live-tenant-isolation.test.cjs against project rzkgmvyyeclrpomrlyft.
 // ============================================================================
 
 const assert = require("node:assert/strict");
@@ -438,23 +440,24 @@ async function makeHttpRequest(baseUrl, path, options = {}) {
 
 // Main Test Runner
 async function runStagingTenantIsolationHttpTests() {
-  console.log("=== POOLDOCAI TASK-008 PART-1: REAL AUTHENTICATED STAGING JWT/HTTP TENANT ISOLATION TESTS ===\n");
+  console.log("=== POOLDOCAI TASK-008 PART-1: SIMULATED / MOCK HTTP TENANT-ISOLATION TESTS (MOCK) ===");
+  console.log("NOTICE: In-process HTTP simulation; does NOT constitute live staging project execution.\n");
 
   // Spin up isolated HTTP server
   const server = createMockStagingServer();
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
-  console.log(`Test HTTP Server listening on ${baseUrl}`);
+  console.log(`Mock HTTP Server listening on ${baseUrl}`);
 
   const testMatrix = { passed: 0, failed: 0, skipped: 0 };
   const recordResult = (name, ok, details = "") => {
     if (ok) {
       testMatrix.passed++;
-      console.log(`  [PASS] ${name}`);
+      console.log(`  [MOCK PASS] ${name}`);
     } else {
       testMatrix.failed++;
-      console.error(`  [FAIL] ${name}: ${details}`);
+      console.error(`  [MOCK FAIL] ${name}: ${details}`);
     }
   };
 
@@ -798,11 +801,12 @@ async function runStagingTenantIsolationHttpTests() {
   }
 
   console.log(`\n================================================================`);
-  console.log(`RESULTS: ${testMatrix.passed} passed, ${testMatrix.failed} failed`);
+  console.log(`[MOCK SUITE RESULTS]: ${testMatrix.passed} passed, ${testMatrix.failed} failed`);
   console.log(`================================================================`);
 
   assert.equal(testMatrix.failed, 0, `All ${testMatrix.passed + testMatrix.failed} tests must pass!`);
-  console.log("\nPASS: ALL REAL AUTHENTICATED STAGING JWT/HTTP TENANT ISOLATION TESTS COMPLETED SUCCESSFULLY.");
+  console.log("\nPASS: ALL SIMULATED / MOCK HTTP TENANT ISOLATION TESTS COMPLETED SUCCESSFULLY.");
+  console.log("NOTE: These results reflect simulated in-process unit tests, not live staging Supabase verification.\n");
 }
 
 // Run test directly if executed via CLI
