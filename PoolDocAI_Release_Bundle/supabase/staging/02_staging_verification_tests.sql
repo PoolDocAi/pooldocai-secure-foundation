@@ -2,7 +2,7 @@
 -- POOLDOCAI STAGING POST-MIGRATION VERIFICATION SUITE
 -- Target: Staging Project rzkgmvyyeclrpomrlyft ONLY
 -- Performs read-only schema checks, RLS enforcement verification,
--- security RPC validation, and multi-tenant isolation tests.
+-- security RPC validation, negative controls, and multi-tenant isolation tests.
 --
 -- COMPATIBILITY NOTE:
 -- Contains standard PostgreSQL statements (no psql meta-commands).
@@ -17,6 +17,7 @@ DECLARE
   v_co_b_cnt integer;
   v_cross_tenant_cnt integer;
   v_push_sub_cnt integer;
+  v_members_cnt integer;
 BEGIN
   RAISE NOTICE '=== Starting PoolDocAI Staging Verification ===';
 
@@ -74,6 +75,20 @@ BEGIN
   PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
   EXECUTE 'SET LOCAL ROLE authenticated';
 
+  -- Assert that current role is non-superuser 'authenticated' and row_security_active returns true
+  IF current_user <> 'authenticated' THEN
+    RAISE EXCEPTION 'Security assertion failed: current_user is %, expected authenticated', current_user;
+  END IF;
+  IF NOT row_security_active('public.service_requests'::regclass) THEN
+    RAISE EXCEPTION 'Security assertion failed: Row Security is NOT active on public.service_requests';
+  END IF;
+  IF NOT row_security_active('public.user_push_subscriptions'::regclass) THEN
+    RAISE EXCEPTION 'Security assertion failed: Row Security is NOT active on public.user_push_subscriptions';
+  END IF;
+  IF NOT row_security_active('public.company_members'::regclass) THEN
+    RAISE EXCEPTION 'Security assertion failed: Row Security is NOT active on public.company_members';
+  END IF;
+
   SELECT count(*) INTO v_co_a_cnt
   FROM public.service_requests
   WHERE company_id = '11111111-1111-4111-8111-111111111111';
@@ -86,6 +101,11 @@ BEGIN
   -- Verify AquaPure Tech CANNOT see BlueWave Push Subscriptions
   SELECT count(*) INTO v_push_sub_cnt
   FROM public.user_push_subscriptions
+  WHERE company_id = '22222222-2222-4222-8222-222222222222';
+
+  -- Verify AquaPure Tech CANNOT see BlueWave Company Members
+  SELECT count(*) INTO v_members_cnt
+  FROM public.company_members
   WHERE company_id = '22222222-2222-4222-8222-222222222222';
 
   EXECUTE 'RESET ROLE';
@@ -102,7 +122,11 @@ BEGIN
     RAISE EXCEPTION 'CRITICAL RLS LEAK: AquaPure tech can read BlueWave push subscriptions! Found: %', v_push_sub_cnt;
   END IF;
 
-  RAISE NOTICE 'PASS: Multi-tenant tenant boundary verified: zero cross-tenant visibility.';
+  IF v_members_cnt <> 0 THEN
+    RAISE EXCEPTION 'CRITICAL RLS LEAK: AquaPure tech can read BlueWave company members! Found: %', v_members_cnt;
+  END IF;
+
+  RAISE NOTICE 'PASS: Multi-tenant tenant boundary verified under authenticated role: zero cross-tenant visibility.';
 
   -- Impersonate BlueWave Technician
   PERFORM set_config('request.jwt.claim.sub', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', true);
@@ -128,9 +152,33 @@ BEGIN
     RAISE EXCEPTION 'CRITICAL RLS LEAK: BlueWave tech can read AquaPure service requests! Found: %', v_cross_tenant_cnt;
   END IF;
 
+  -- 5. Negative Control: Anonymous role cannot read private tenant records
+  EXECUTE 'SET LOCAL ROLE anon';
+  BEGIN
+    SELECT count(*) INTO v_cross_tenant_cnt FROM public.service_requests;
+    IF v_cross_tenant_cnt <> 0 THEN
+      RAISE EXCEPTION 'CRITICAL SECURITY BREACH: Anonymous user can read service_requests! Found: %', v_cross_tenant_cnt;
+    END IF;
+  EXCEPTION WHEN insufficient_privilege THEN
+    -- Expected: permission denied by database grant
+    NULL;
+  END;
+
+  BEGIN
+    SELECT count(*) INTO v_cross_tenant_cnt FROM public.user_push_subscriptions;
+    IF v_cross_tenant_cnt <> 0 THEN
+      RAISE EXCEPTION 'CRITICAL SECURITY BREACH: Anonymous user can read user_push_subscriptions! Found: %', v_cross_tenant_cnt;
+    END IF;
+  EXCEPTION WHEN insufficient_privilege THEN
+    -- Expected: permission denied by database grant
+    NULL;
+  END;
+  EXECUTE 'RESET ROLE';
+  RAISE NOTICE 'PASS: Negative control verified: anonymous access completely denied (table privilege and RLS).';
+
   PERFORM set_config('request.jwt.claim.sub', '', true);
   PERFORM set_config('request.jwt.claim.role', '', true);
 
-  RAISE NOTICE 'PASS: Bi-directional multi-tenant tenant isolation verified.';
+  RAISE NOTICE 'PASS: Bi-directional multi-tenant tenant isolation verified with active RLS enforcement.';
   RAISE NOTICE '=== ALL STAGING CHECKS PASSED SUCCESSFULLY ===';
 END $$;

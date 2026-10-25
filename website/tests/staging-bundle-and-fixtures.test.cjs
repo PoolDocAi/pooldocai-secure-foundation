@@ -99,12 +99,18 @@ async function runStagingBundleTests() {
     assert.ok(verifyContent.includes("pooldocai_check_manual_duplicate"), "Must verify check_manual_duplicate RPC");
     assert.ok(verifyContent.includes("search_company_manual_chunks_hybrid"), "Must verify search_company_manual_chunks_hybrid RPC");
 
+    // Must verify active RLS enforcement and non-superuser authenticated role
+    assert.ok(verifyContent.includes("current_user <> 'authenticated'"), "Must assert current_user is authenticated");
+    assert.ok(verifyContent.includes("row_security_active('public.service_requests'::regclass)"), "Must assert row_security_active on service_requests");
+    assert.ok(verifyContent.includes("row_security_active('public.user_push_subscriptions'::regclass)"), "Must assert row_security_active on user_push_subscriptions");
+    assert.ok(verifyContent.includes("SET LOCAL ROLE anon"), "Must include negative control testing anonymous role denial");
+
     // Must verify bidirectional tenant isolation
     assert.ok(verifyContent.includes("AquaPure tech can read BlueWave service requests"), "Must verify AquaPure cannot read BlueWave requests");
     assert.ok(verifyContent.includes("BlueWave tech can read AquaPure service requests"), "Must verify BlueWave cannot read AquaPure requests");
     assert.ok(verifyContent.includes("AquaPure tech can read BlueWave push subscriptions"), "Must verify push subscription tenant isolation");
 
-    console.log("PASS: Staging verification test suite verified (schema, RLS, RPCs, bidirectional tenant isolation).");
+    console.log("PASS: Staging verification test suite verified (schema, RLS, RPCs, active role enforcement, negative control, bidirectional isolation).");
   }
 
   console.log("\n=== ALL STAGING BUNDLE & FIXTURE TESTS PASSED ===");
