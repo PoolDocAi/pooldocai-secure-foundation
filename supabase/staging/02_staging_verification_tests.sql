@@ -69,31 +69,34 @@ BEGIN
   RAISE NOTICE 'PASS: All required security RPCs verified (push, email, duplicate guard, hybrid retrieval).';
 
   -- 4. Verify Multi-Tenant Isolation (AquaPure vs BlueWave)
-  -- Impersonate AquaPure Technician
-  EXECUTE 'SET LOCAL "request.jwt.claim.sub" = ''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb''';
-  EXECUTE 'SET LOCAL "request.jwt.claim.role" = ''authenticated''';
+  -- Impersonate AquaPure Technician (switch role to non-superuser authenticated to enforce RLS)
+  PERFORM set_config('request.jwt.claim.sub', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', true);
+  PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
 
   SELECT count(*) INTO v_co_a_cnt
   FROM public.service_requests
   WHERE company_id = '11111111-1111-4111-8111-111111111111';
-
-  IF v_co_a_cnt <> 1 THEN
-    RAISE EXCEPTION 'AquaPure technician could not read own company service request (got %)', v_co_a_cnt;
-  END IF;
 
   -- Verify AquaPure Tech CANNOT see BlueWave Service Requests
   SELECT count(*) INTO v_cross_tenant_cnt
   FROM public.service_requests
   WHERE company_id = '22222222-2222-4222-8222-222222222222';
 
-  IF v_cross_tenant_cnt <> 0 THEN
-    RAISE EXCEPTION 'CRITICAL RLS LEAK: AquaPure tech can read BlueWave service requests! Found: %', v_cross_tenant_cnt;
-  END IF;
-
   -- Verify AquaPure Tech CANNOT see BlueWave Push Subscriptions
   SELECT count(*) INTO v_push_sub_cnt
   FROM public.user_push_subscriptions
   WHERE company_id = '22222222-2222-4222-8222-222222222222';
+
+  EXECUTE 'RESET ROLE';
+
+  IF v_co_a_cnt <> 1 THEN
+    RAISE EXCEPTION 'AquaPure technician could not read own company service request (got %)', v_co_a_cnt;
+  END IF;
+
+  IF v_cross_tenant_cnt <> 0 THEN
+    RAISE EXCEPTION 'CRITICAL RLS LEAK: AquaPure tech can read BlueWave service requests! Found: %', v_cross_tenant_cnt;
+  END IF;
 
   IF v_push_sub_cnt <> 0 THEN
     RAISE EXCEPTION 'CRITICAL RLS LEAK: AquaPure tech can read BlueWave push subscriptions! Found: %', v_push_sub_cnt;
@@ -102,25 +105,31 @@ BEGIN
   RAISE NOTICE 'PASS: Multi-tenant tenant boundary verified: zero cross-tenant visibility.';
 
   -- Impersonate BlueWave Technician
-  EXECUTE 'SET LOCAL "request.jwt.claim.sub" = ''dddddddd-dddd-4ddd-8ddd-dddddddddddd''';
-  EXECUTE 'SET LOCAL "request.jwt.claim.role" = ''authenticated''';
+  PERFORM set_config('request.jwt.claim.sub', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', true);
+  PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
 
   SELECT count(*) INTO v_co_b_cnt
   FROM public.service_requests
   WHERE company_id = '22222222-2222-4222-8222-222222222222';
-
-  IF v_co_b_cnt <> 1 THEN
-    RAISE EXCEPTION 'BlueWave technician could not read own company service request (got %)', v_co_b_cnt;
-  END IF;
 
   -- Verify BlueWave Tech CANNOT see AquaPure Service Requests
   SELECT count(*) INTO v_cross_tenant_cnt
   FROM public.service_requests
   WHERE company_id = '11111111-1111-4111-8111-111111111111';
 
+  EXECUTE 'RESET ROLE';
+
+  IF v_co_b_cnt <> 1 THEN
+    RAISE EXCEPTION 'BlueWave technician could not read own company service request (got %)', v_co_b_cnt;
+  END IF;
+
   IF v_cross_tenant_cnt <> 0 THEN
     RAISE EXCEPTION 'CRITICAL RLS LEAK: BlueWave tech can read AquaPure service requests! Found: %', v_cross_tenant_cnt;
   END IF;
+
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claim.role', '', true);
 
   RAISE NOTICE 'PASS: Bi-directional multi-tenant tenant isolation verified.';
   RAISE NOTICE '=== ALL STAGING CHECKS PASSED SUCCESSFULLY ===';
