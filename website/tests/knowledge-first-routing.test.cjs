@@ -1059,7 +1059,7 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
     active: true,
     reference_enabled: true,
     status: 'ready',
-    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and inspect the breaker while checking supply voltage and recording electrical measurements and safe troubleshooting observations.'
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and inspect breaker while checking supply voltage and recording safe electrical observations.'
   };
 
   const crossChunk2 = {
@@ -1075,7 +1075,7 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
     active: true,
     reference_enabled: true,
     status: 'ready',
-    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Remove the capacitor and inspect the impeller while ensuring motor shaft does not rotate and observing safe procedures.'
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Remove capacitor and inspect impeller while ensuring motor shaft does not rotate and observing safe procedures.'
   };
 
   const crossChunk3 = {
@@ -1091,7 +1091,7 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
     active: true,
     reference_enabled: true,
     status: 'ready',
-    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Rewire terminal A then inspect terminal B to ensure all wire strands are seated firmly under screw terminals.'
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Rewire terminal A and inspect terminal B to ensure all wire strands are seated firmly under screw terminals.'
   };
 
   // Replace breaker against "Replace fuse and inspect breaker" -> must FAIL
@@ -1162,7 +1162,7 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
   );
   assert.equal(passCapacitor.verified, true, 'Remove capacitor must verify when procedure authorizes removing capacitor');
 
-  // Rewire terminal B against "Rewire terminal A then inspect terminal B" -> must FAIL
+  // Rewire terminal B against "Rewire terminal A and inspect terminal B" -> must FAIL
   const failTerminalB = verifyCitation(
     {
       response_type: 'step',
@@ -1179,7 +1179,7 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
   );
   assert.equal(failTerminalB.verified, false, 'Rewire terminal B must fail when procedure only authorizes rewiring terminal A');
 
-  // Rewire terminal A against "Rewire terminal A then inspect terminal B" -> must PASS
+  // Rewire terminal A against "Rewire terminal A and inspect terminal B" -> must PASS
   const passTerminalA = verifyCitation(
     {
       response_type: 'step',
@@ -1195,6 +1195,166 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
     'Pump motor will not start, display is dead'
   );
   assert.equal(passTerminalA.verified, true, 'Rewire terminal A must verify when procedure authorizes rewiring terminal A');
+
+  // Positive Conjoined 1: "Replace fuse and breaker" -> must PASS for breaker
+  const crossChunkConj1 = {
+    id: 'kb-pt-conj-001',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Electrical Diagnostics',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace fuse and breaker after isolating AC power and checking line voltage.'
+  };
+  const passConjBreaker1 = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-conj-001',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Replace the breaker after checking line voltage.'
+    },
+    [crossChunkConj1],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(passConjBreaker1.verified, true, 'Replace fuse and breaker must corroborate breaker replacement');
+
+  // Positive Conjoined 2: "Replace the fuse and the breaker" -> must PASS
+  const crossChunkConj2 = {
+    id: 'kb-pt-conj-002',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Electrical Diagnostics',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and the breaker after isolating AC power and checking line voltage.'
+  };
+  const passConjBreaker2 = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-conj-002',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Replace the breaker after checking line voltage.'
+    },
+    [crossChunkConj2],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(passConjBreaker2.verified, true, 'Replace the fuse and the breaker must corroborate breaker replacement');
+
+  // Positive Conjoined 3: "Replace the fuse and replace the breaker" -> must PASS
+  const crossChunkConj3 = {
+    id: 'kb-pt-conj-003',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Electrical Diagnostics',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and replace the breaker after isolating AC power and checking line voltage.'
+  };
+  const passConjBreaker3 = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-conj-003',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Replace the breaker after checking line voltage.'
+    },
+    [crossChunkConj3],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(passConjBreaker3.verified, true, 'Replace the fuse and replace the breaker must corroborate breaker replacement');
+
+  // Passive Conjoined: "The fuse and breaker must be replaced" -> must PASS
+  const crossChunkPass = {
+    id: 'kb-pt-pass-001',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Electrical Diagnostics',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: The fuse and breaker must be replaced if electrical line voltage fault persists.'
+  };
+  const passPassiveBreaker = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-pass-001',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Replace the breaker after checking line voltage.'
+    },
+    [crossChunkPass],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(passPassiveBreaker.verified, true, 'Passive conjoined replacement must corroborate breaker replacement');
+
+  // Negated Conjoined: "Do not replace the fuse and breaker" -> must FAIL
+  const crossChunkNeg = {
+    id: 'kb-pt-neg-001',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Electrical Diagnostics',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Do not replace the fuse and breaker without isolating main power and checking line voltage.'
+  };
+  const failNegBreaker = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-neg-001',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Replace the breaker after checking line voltage.'
+    },
+    [crossChunkNeg],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(failNegBreaker.verified, false, 'Negated conjoined replacement must strictly fail verification');
 }
 
 // 13. Static wiring assertions on handler source

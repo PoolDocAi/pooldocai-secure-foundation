@@ -103,7 +103,7 @@ const store = {
       model_family: "SuperFlo VST",
       category: "pump",
       symptom: "Pump will not start, display is dead",
-      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and inspect the breaker while checking supply voltage and recording electrical measurements and safe troubleshooting observations."
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and inspect breaker while checking supply voltage and recording safe electrical observations."
     },
     {
       id: "chunk_pentair_cross_2",
@@ -121,7 +121,7 @@ const store = {
       model_family: "SuperFlo VST",
       category: "pump",
       symptom: "Pump will not start, display is dead",
-      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Remove the capacitor and inspect the impeller while ensuring motor shaft does not rotate and observing safe procedures."
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Remove capacitor and inspect impeller while ensuring motor shaft does not rotate and observing safe procedures."
     },
     {
       id: "chunk_pentair_cross_3",
@@ -139,7 +139,97 @@ const store = {
       model_family: "SuperFlo VST",
       category: "pump",
       symptom: "Pump will not start, display is dead",
-      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Rewire terminal A then inspect terminal B to ensure all wire strands are seated firmly under screw terminals."
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Rewire terminal A and inspect terminal B to ensure all wire strands are seated firmly under screw terminals."
+    },
+    {
+      id: "chunk_pentair_conj_pos_1",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Conjoined Component Replacement",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace fuse and breaker after checking line voltage and recording electrical measurements."
+    },
+    {
+      id: "chunk_pentair_conj_pos_2",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Dual Replacement with Determiners",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and the breaker after checking line voltage and verifying 0VAC."
+    },
+    {
+      id: "chunk_pentair_conj_pos_3",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Repeated Action Replacement",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and replace the breaker after checking line voltage and turning off circuit breaker."
+    },
+    {
+      id: "chunk_pentair_conj_pass_1",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Passive Conjoined Replacement",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: The fuse and breaker must be replaced if electrical line voltage fault persists."
+    },
+    {
+      id: "chunk_pentair_conj_neg_1",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Negated Conjoined Replacement",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Do not replace the fuse and breaker without checking line voltage and isolating main power."
     }
   ],
   diagnostic_cases: new Map(),
@@ -916,6 +1006,151 @@ async function runTestSuite() {
     assert.equal(json2f.knowledgeDiagnostics.forcedWebSearchAttempted, false, "Genuinely authorized replacement MUST NOT trigger web fallback");
     assert.equal(geminiCalls.length, 1, "Exactly one Gemini call should be made when citation is verified");
     console.log("PASS: Test 2F - Genuinely authorized drive control assembly replacement verified without fallback search.");
+
+    console.log("\\n--- TEST 2G1: Conjoined Positive - 'Replace fuse and breaker' ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Replace Fuse and Breaker",
+        step_instructions: "Replace the breaker after checking line voltage.",
+        safety_warning: "Isolate power.",
+        follow_up_question: "Is breaker replaced?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_conj_pos_1",
+        source_title: "Pentair SuperFlo VST Conjoined Component Replacement",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2g1 = makeDiagReq({ sessionId: "session_task005_2g1", query: "Pentair SuperFlo VST won't start" });
+    const res2g1 = await capturedHandler!(req2g1);
+    const json2g1 = await res2g1.json();
+    assert.equal(json2g1.sourceMode, "manual", "Conjoined 'replace fuse and breaker' must corroborate breaker replacement");
+    assert.equal(json2g1.knowledgeDiagnostics.forcedWebSearchAttempted, false);
+    console.log("PASS: Test 2G1 - Conjoined 'Replace fuse and breaker' verified for breaker.");
+
+    console.log("\\n--- TEST 2G2: Conjoined Positive with Determiners - 'Replace the fuse and the breaker' ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Replace Fuse and Breaker",
+        step_instructions: "Replace the breaker after checking line voltage.",
+        safety_warning: "Isolate power.",
+        follow_up_question: "Is breaker replaced?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_conj_pos_2",
+        source_title: "Pentair SuperFlo VST Dual Replacement with Determiners",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2g2 = makeDiagReq({ sessionId: "session_task005_2g2", query: "Pentair SuperFlo VST won't start" });
+    const res2g2 = await capturedHandler!(req2g2);
+    const json2g2 = await res2g2.json();
+    assert.equal(json2g2.sourceMode, "manual", "Conjoined 'replace the fuse and the breaker' must corroborate breaker replacement");
+    assert.equal(json2g2.knowledgeDiagnostics.forcedWebSearchAttempted, false);
+    console.log("PASS: Test 2G2 - Conjoined 'Replace the fuse and the breaker' verified.");
+
+    console.log("\\n--- TEST 2G3: Conjoined Positive with Repeated Action - 'Replace fuse and replace breaker' ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Replace Fuse and Breaker",
+        step_instructions: "Replace the breaker after checking line voltage.",
+        safety_warning: "Isolate power.",
+        follow_up_question: "Is breaker replaced?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_conj_pos_3",
+        source_title: "Pentair SuperFlo VST Repeated Action Replacement",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2g3 = makeDiagReq({ sessionId: "session_task005_2g3", query: "Pentair SuperFlo VST won't start" });
+    const res2g3 = await capturedHandler!(req2g3);
+    const json2g3 = await res2g3.json();
+    assert.equal(json2g3.sourceMode, "manual", "Conjoined repeated action 'replace fuse and replace breaker' must corroborate breaker replacement");
+    assert.equal(json2g3.knowledgeDiagnostics.forcedWebSearchAttempted, false);
+    console.log("PASS: Test 2G3 - Conjoined 'Replace the fuse and replace the breaker' verified.");
+
+    console.log("\\n--- TEST 2G4: Conjoined Passive - 'The fuse and breaker must be replaced' ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Replace Breaker",
+        step_instructions: "Replace the breaker after checking line voltage.",
+        safety_warning: "Isolate power.",
+        follow_up_question: "Is breaker replaced?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_conj_pass_1",
+        source_title: "Pentair SuperFlo VST Passive Conjoined Replacement",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2g4 = makeDiagReq({ sessionId: "session_task005_2g4", query: "Pentair SuperFlo VST won't start" });
+    const res2g4 = await capturedHandler!(req2g4);
+    const json2g4 = await res2g4.json();
+    assert.equal(json2g4.sourceMode, "manual", "Passive 'the fuse and breaker must be replaced' must corroborate breaker replacement");
+    assert.equal(json2g4.knowledgeDiagnostics.forcedWebSearchAttempted, false);
+    console.log("PASS: Test 2G4 - Passive 'The fuse and breaker must be replaced' verified.");
+
+    console.log("\\n--- TEST 2G5: Conjoined Negation - 'Do not replace the fuse and breaker' ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Replace Breaker",
+        step_instructions: "Replace the breaker after checking line voltage.",
+        safety_warning: "Isolate power.",
+        follow_up_question: "Is breaker replaced?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_conj_neg_1",
+        source_title: "Pentair SuperFlo VST Negated Conjoined Replacement",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+    mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback step.", choices: [] }), steps: [] }));
+
+    const req2g5 = makeDiagReq({ sessionId: "session_task005_2g5", query: "Pentair SuperFlo VST won't start" });
+    const res2g5 = await capturedHandler!(req2g5);
+    const json2g5 = await res2g5.json();
+    assert.equal(json2g5.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Negated conjoined action MUST fail verification");
+    console.log("PASS: Test 2G5 - Negated 'Do not replace the fuse and breaker' strictly rejected.");
   }
 
   // --------------------------------------------------------------------------

@@ -1131,30 +1131,32 @@ const OBJECT_BOUNDARY_REGEX = /\b(?:after|before|while|during|with|from|to|at|by
 const INVASIVE_ACTIONS = [
   {
     type: "replacement",
-    verbs: ["replace", "replacing", "swap", "swapping", "substitute", "substituting"],
+    verbs: ["replace", "replacing", "replaced", "swap", "swapping", "swapped", "substitute", "substituting", "substituted"],
     nouns: ["replacement", "swap", "substitution"]
   },
   {
     type: "removal",
-    verbs: ["remove", "removing", "uninstall", "uninstalling", "pull", "extract", "extracting", "take off"],
+    verbs: ["remove", "removing", "removed", "uninstall", "uninstalling", "uninstalled", "pull", "extract", "extracting", "extracted", "take off"],
     nouns: ["removal", "uninstall", "extraction"]
   },
   {
     type: "rewiring",
-    verbs: ["rewire", "rewiring", "splice", "splicing", "bypass", "bypassing", "jumper", "jumpering"],
+    verbs: ["rewire", "rewiring", "rewired", "splice", "splicing", "spliced", "bypass", "bypassing", "bypassed", "jumper", "jumpering", "jumpered"],
     nouns: ["rewiring", "splice", "bypass", "jumper"]
   },
   {
     type: "rebuild",
-    verbs: ["rebuild", "rebuilding", "overhaul", "overhauling", "disassemble", "disassembling", "tear down"],
+    verbs: ["rebuild", "rebuilding", "rebuilt", "overhaul", "overhauling", "overhauled", "disassemble", "disassembling", "disassembled", "tear down"],
     nouns: ["rebuild", "overhaul", "disassembly", "teardown"]
   },
   {
     type: "opening_enclosure",
-    verbs: ["open", "opening", "access", "accessing"],
+    verbs: ["open", "opening", "opened", "access", "accessing", "accessed"],
     nouns: ["access", "opening"]
   }
 ];
+
+const ALLOWED_DET_MODIFIERS = "(?:the|a|an|new|old|defective|damaged|failed|main|existing|spare|primary|secondary|both|all|each)";
 
 function extractActionTargetPairs(instructionText: string): ActionTargetPair[] {
   const lower = String(instructionText || "").toLowerCase();
@@ -1221,30 +1223,55 @@ function isActionCorroboratedOnTarget(pair: ActionTargetPair, procText: string):
   const actionTerms = [...group.verbs, ...group.nouns].map(escapeRegexForBinding).join("|");
 
   // Pattern 1: Direct action verb governing target: "replace [the] breaker"
-  const directRegex = new RegExp(`\\b(?:${actionTerms})\\s+(?:the\\s+|a\\s+|an\\s+|new\\s+|damaged\\s+|defective\\s+|failed\\s+|all\\s+|main\\s+)?(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
+  const directRegex = new RegExp(`\\b(?:${actionTerms})\\s+(?:${ALLOWED_DET_MODIFIERS}\\s+)*(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
   if (directRegex.test(lowerProc)) {
-    const negationRegex = new RegExp(`\\b(?:do not|don't|never|must not|should not)\\s+(?:[a-z]+\\s+){0,2}(?:${actionTerms})\\s+(?:the\\s+|a\\s+|an\\s+)?(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
+    const negationRegex = new RegExp(`\\b(?:do not|don't|never|must not|should not)\\s+(?:[a-z]+\\s+){0,3}(?:${actionTerms})\\s+(?:${ALLOWED_DET_MODIFIERS}\\s+)*(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
     if (!negationRegex.test(lowerProc)) {
       return true;
     }
   }
 
   // Pattern 2: Conjoined objects governed by the action: "replace the fuse and breaker"
-  const conjoinedRegex = new RegExp(`\\b(?:${actionTerms})\\s+(?:the\\s+|a\\s+|an\\s+)?(?:[a-z0-9_-]+\\s+){1,3}(?:and|or)\\s+(?:the\\s+|a\\s+|an\\s+)?(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
+  // Conjunction must link two objects governed by the SAME verb.
+  // Between "and|or" and target, only determiners/modifiers or repeating the same action verb are allowed.
+  // Any independent action verb (inspect, check, measure, etc.) prevents conjoined attribution.
+  // The first object cannot cross clause/preposition boundaries (while, after, before, then, etc.).
+  const conjoinedRegex = new RegExp(
+    `\\b(?:${actionTerms})\\s+(?:${ALLOWED_DET_MODIFIERS}\\s+)*(?:(?!\\b(?:after|before|while|during|with|from|to|at|by|without|until|then|when|if|so|because|once)\\b)[a-z0-9_-]+(?:\\s*,\\s*|\\s+)){1,5}(?:and|or)\\s+(?:(?:${actionTerms})\\s+)?(?:${ALLOWED_DET_MODIFIERS}\\s+)*${escapedTarget}\\b`,
+    "i"
+  );
   if (conjoinedRegex.test(lowerProc)) {
-    return true;
+    const negationRegex = new RegExp(
+      `\\b(?:do not|don't|never|must not|should not)\\s+(?:[a-z]+\\s+){0,3}(?:${actionTerms})\\s+(?:${ALLOWED_DET_MODIFIERS}\\s+)*(?:[a-z0-9_-]+(?:\\s*,\\s*|\\s+)){1,5}(?:and|or)\\s+(?:(?:${actionTerms})\\s+)?(?:${ALLOWED_DET_MODIFIERS}\\s+)*${escapedTarget}\\b`,
+      "i"
+    );
+    if (!negationRegex.test(lowerProc)) {
+      return true;
+    }
   }
 
-  // Pattern 3: Nominalized phrase: "<target> replacement"
-  const nominalizedRegex = new RegExp(`\\b(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\s+(?:${actionTerms})\\b`, "i");
+  // Pattern 3: Nominalized phrase: "<target> replacement" or "<obj1> and <target> replacement"
+  const nominalizedRegex = new RegExp(
+    `\\b(?:${escapedTarget}|(?:[a-z0-9_-]+\\s+){1,2}(?:and|or)\\s+(?:${ALLOWED_DET_MODIFIERS}\\s+)*${escapedTarget})\\s+(?:${actionTerms})\\b`,
+    "i"
+  );
   if (nominalizedRegex.test(lowerProc)) {
     return true;
   }
 
-  // Pattern 4: Passive clause: "<target> must be replaced"
-  const passiveRegex = new RegExp(`\\b${escapedTarget}\\s+(?:must be|should be|is|are|to be)\\s+(?:${actionTerms})\\b`, "i");
+  // Pattern 4: Passive clause: "<target> must be replaced" or "<obj1> and <target> must be replaced"
+  const passiveRegex = new RegExp(
+    `\\b(?:${escapedTarget}|(?:[a-z0-9_-]+\\s+){1,2}(?:and|or)\\s+(?:${ALLOWED_DET_MODIFIERS}\\s+)*${escapedTarget})\\s+(?:must be|should be|is|are|to be|requires?)\\s+(?:${actionTerms})\\b`,
+    "i"
+  );
   if (passiveRegex.test(lowerProc)) {
-    return true;
+    const negationRegex = new RegExp(
+      `\\b(?:${escapedTarget}|(?:[a-z0-9_-]+\\s+){1,2}(?:and|or)\\s+(?:${ALLOWED_DET_MODIFIERS}\\s+)*${escapedTarget})\\s+(?:must not be|should not be|is not to be|cannot be)\\s+(?:${actionTerms})\\b`,
+      "i"
+    );
+    if (!negationRegex.test(lowerProc)) {
+      return true;
+    }
   }
 
   return false;
