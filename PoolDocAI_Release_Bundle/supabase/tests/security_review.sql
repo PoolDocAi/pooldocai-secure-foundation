@@ -1687,7 +1687,8 @@ DECLARE
   v_sub_id_2 uuid;
   v_unreg_ok boolean;
   v_notif_id uuid;
-  v_queue_row record;
+  v_queue_status text;
+  v_queue_provider_id text;
   v_claimed_q_id uuid;
   v_claimed_attempts integer;
   v_claimed_lease_token text;
@@ -1782,12 +1783,12 @@ BEGIN
   );
 
   -- Tech has an active push subscription -> web_push must be enqueued as 'pending'
-  SELECT delivery_status INTO v_queue_row.delivery_status
+  SELECT delivery_status INTO v_queue_status
   FROM public.notification_delivery_queue
   WHERE notification_id = v_notif_id AND user_id = v_user_tech AND channel = 'web_push';
 
-  IF v_queue_row.delivery_status <> 'pending' THEN
-    RAISE EXCEPTION 'Expected web_push queue row to be pending for tech with active subscription, got %', v_queue_row.delivery_status;
+  IF v_queue_status <> 'pending' THEN
+    RAISE EXCEPTION 'Expected web_push queue row to be pending for tech with active subscription, got %', v_queue_status;
   END IF;
 
   -- 5. Test Atomic Batch Claiming with Skip-Locked & Lease Token
@@ -1835,11 +1836,11 @@ BEGIN
   END IF;
 
   -- Verify delivery status
-  SELECT delivery_status, provider_message_id INTO v_queue_row.delivery_status, v_queue_row.provider_message_id
+  SELECT delivery_status, provider_message_id INTO v_queue_status, v_queue_provider_id
   FROM public.notification_delivery_queue WHERE id = v_claimed_q_id;
 
-  IF v_queue_row.delivery_status <> 'delivered' OR v_queue_row.provider_message_id <> 'fcm_receipt_success_123' THEN
-    RAISE EXCEPTION 'Delivered state incorrect: status=%, provider_id=%', v_queue_row.delivery_status, v_queue_row.provider_message_id;
+  IF v_queue_status <> 'delivered' OR v_queue_provider_id <> 'fcm_receipt_success_123' THEN
+    RAISE EXCEPTION 'Delivered state incorrect: status=%, provider_id=%', v_queue_status, v_queue_provider_id;
   END IF;
 
   -- Verify dead endpoint was automatically revoked in user_push_subscriptions
