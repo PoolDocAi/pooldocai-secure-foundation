@@ -182,7 +182,8 @@ test('TASK-007 Part-2: Stale Worker Lease Fencing Detection', async () => {
             body: 'Job assigned',
             event_data: {},
             attempts: 2,
-            idempotency_key: 'email-n-2-u-2'
+            idempotency_key: 'email-n-2-u-2',
+            lease_token: 'claim_stale_uuid'
           }],
           error: null
         };
@@ -200,4 +201,81 @@ test('TASK-007 Part-2: Stale Worker Lease Fencing Detection', async () => {
   assert.equal(summary.processed, 1);
   assert.equal(summary.successes, 0);
   assert.equal(summary.failures, 1, 'Fenced-out worker must be counted as failure');
+});
+
+test('TASK-007 Part-2: Fail-Closed Default When Email Provider Unconfigured', async () => {
+  const { UnconfiguredEmailAdapter, processEmailBatch } = await getEmailService();
+  const unconfiguredAdapter = new UnconfiguredEmailAdapter();
+
+  // 1. Unconfigured adapter must fail closed with explicit reason and zero receipt
+  const sendResult = await unconfiguredAdapter.send({
+    to: 'tech@example.com',
+    subject: 'Unconfigured Test',
+    text: 'Body text'
+  });
+
+  assert.equal(sendResult.success, false, 'Unconfigured adapter must not report success');
+  assert.equal(sendResult.retryable, false, 'Unconfigured adapter is non-retryable without config');
+  assert.equal(sendResult.error, 'EMAIL_PROVIDER_UNCONFIGURED');
+  assert.equal(sendResult.messageId, undefined, 'Must never produce a fake provider message ID');
+
+  // 2. processEmailBatch must fail closed and refuse to claim/process queue rows
+  let rpcClaimCalled = false;
+  const mockDb = {
+    rpc: async (fnName) => {
+      if (fnName === 'pooldocai_claim_email_delivery_batch') {
+        rpcClaimCalled = true;
+      }
+      return { data: [], error: null };
+    }
+  };
+
+  const summary = await processEmailBatch(mockDb, unconfiguredAdapter);
+  assert.equal(rpcClaimCalled, false, 'Must never claim real queue items when provider unconfigured');
+  assert.equal(summary.processed, 0);
+  assert.equal(summary.status, 'unconfigured');
+  assert.match(summary.warning, /Email provider unconfigured/);
+});
+
+test('TASK-007 Part-2: Per-Claim Unique Lease Token & ABA Prevention', async () => {
+  const { processEmailBatch, MockEmailAdapter } = await getEmailService();
+  const adapter = new MockEmailAdapter();
+
+  let capturedFinishToken = null;
+  const mockDb = {
+    rpc: async (fnName, params) => {
+      if (fnName === 'pooldocai_claim_email_delivery_batch') {
+        return {
+          data: [{
+            queue_id: 'q-aba-test',
+            notification_id: 'n-aba',
+            company_id: 'co-aba',
+            company_name: 'ABA Co',
+            user_id: 'u-aba',
+            recipient_email: 'aba@example.com',
+            recipient_role: 'technician',
+            event_type: 'service_request_created',
+            title: 'ABA Test',
+            body: 'Checking ABA lease tokens',
+            event_data: {},
+            attempts: 1,
+            idempotency_key: 'email-n-aba-u-aba',
+            lease_token: 'claim_unique_per_attempt_777'
+          }],
+          error: null
+        };
+      }
+      if (fnName === 'pooldocai_finish_email_delivery') {
+        capturedFinishToken = params.p_lease_token;
+        return { data: true, error: null };
+      }
+      return { data: null, error: null };
+    }
+  };
+
+  await processEmailBatch(mockDb, adapter, { workerId: 'worker_static_pid' });
+
+  // Assert finish was invoked with the unique DB-generated per-claim token, NOT the static worker ID
+  assert.equal(capturedFinishToken, 'claim_unique_per_attempt_777', 'Must pass per-claim lease token to prevent ABA');
+  assert.notEqual(capturedFinishToken, 'worker_static_pid', 'Must not rely on static worker ID for lease fencing');
 });

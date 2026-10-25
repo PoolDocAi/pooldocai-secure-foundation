@@ -10,7 +10,7 @@ import WordExtractor from 'word-extractor';
 import * as cheerio from 'cheerio';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
-import { ResendEmailAdapter, MockEmailAdapter, processEmailBatch } from './email-service.js';
+import { ResendEmailAdapter, UnconfiguredEmailAdapter, processEmailBatch } from './email-service.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const MAX_BYTES = Math.min(Number(process.env.MAX_DOWNLOAD_BYTES || 25 * 1024 * 1024), 25 * 1024 * 1024);
@@ -25,7 +25,7 @@ const GEMINI_EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-emb
 const EMBEDDING_DIMENSIONS = 768;
 const RESEND_KEY = process.env.RESEND_API_KEY;
 const EMAIL_FROM = process.env.EMAIL_FROM_ADDRESS || 'PoolDocAI <notifications@pooldocai.com>';
-const emailAdapter = RESEND_KEY ? new ResendEmailAdapter(RESEND_KEY, EMAIL_FROM) : new MockEmailAdapter();
+const emailAdapter = RESEND_KEY ? new ResendEmailAdapter(RESEND_KEY, EMAIL_FROM) : new UnconfiguredEmailAdapter();
 function utcMonthStartDate() { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
 if (!SUPABASE_URL || !SERVICE_KEY || !SECRET) throw new Error('Startup configuration error: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and DOC_WORKER_SECRET are required.');
 if (!/^https:\/\//i.test(SUPABASE_URL)) throw new Error('Startup configuration error: SUPABASE_URL must use HTTPS.');
@@ -634,6 +634,7 @@ const server = http.createServer(async (req,res) => {
         ok: healthy,
         service: 'pooldocai-document-worker',
         database: 'ok',
+        email_provider: RESEND_KEY ? 'resend' : 'unconfigured',
         queue,
         thresholdsMinutes: { oldQueued: queuedMinutes, stuckProcessing: stuckMinutes },
         checkedAt: nowIso
@@ -658,6 +659,14 @@ const server = http.createServer(async (req,res) => {
     } else if (req.headers['x-pooldocai-worker-secret'] !== SECRET) return json(res,401,{error:'Unauthorized'});
     const payload = JSON.parse(body || '{}');
     if (req.url === '/email/process') {
+      if (!RESEND_KEY) {
+        return json(res, 503, {
+          ok: false,
+          error: 'EMAIL_PROVIDER_UNCONFIGURED',
+          email_provider: 'unconfigured',
+          message: 'External email provider credentials are not configured.'
+        });
+      }
       const result = await processEmailBatch(db, emailAdapter, {
         workerId: payload.workerId || `render_worker_http_${process.pid}`,
         batchSize: Number(payload.batchSize) || 10,
@@ -696,6 +705,11 @@ async function pollQueue() {
 }
 let emailBusy = false;
 async function pollEmailQueue() {
+  if (!RESEND_KEY) {
+    // Fail-closed: external sends disabled when provider unconfigured.
+    // Leaves all pending email queue rows safely intact for future delivery.
+    return;
+  }
   if (emailBusy) return;
   emailBusy = true;
   try {

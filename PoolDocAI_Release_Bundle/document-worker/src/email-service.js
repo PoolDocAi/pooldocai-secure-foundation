@@ -179,7 +179,27 @@ export class ResendEmailAdapter {
 }
 
 /**
- * Mock Email Provider Adapter (for test suites and nonproduction environments)
+ * Unconfigured Email Provider Adapter (Fail-closed default)
+ * Used when no real provider API credentials exist in the environment.
+ * Strictly prevents mock delivery, fake receipt IDs, or silent message loss.
+ */
+export class UnconfiguredEmailAdapter {
+  constructor(reason = 'EMAIL_PROVIDER_UNCONFIGURED') {
+    this.reason = reason;
+  }
+
+  async send() {
+    return {
+      success: false,
+      retryable: false,
+      error: this.reason
+    };
+  }
+}
+
+/**
+ * Mock Email Provider Adapter (for test suites and isolated testing ONLY)
+ * Strictly prohibited from running against real database queues in polling servers.
  */
 export class MockEmailAdapter {
   constructor(options = {}) {
@@ -224,6 +244,16 @@ export class MockEmailAdapter {
  * Processes a batch of pending emails from notification_delivery_queue.
  */
 export async function processEmailBatch(db, adapter, options = {}) {
+  if (!adapter || adapter instanceof UnconfiguredEmailAdapter) {
+    return {
+      processed: 0,
+      successes: 0,
+      failures: 0,
+      status: 'unconfigured',
+      warning: 'Email provider unconfigured; queue polling paused to prevent fake deliveries.'
+    };
+  }
+
   const workerId = options.workerId || `worker_${process.pid}_${Math.random().toString(36).slice(2, 6)}`;
   const batchSize = Math.max(1, Math.min(Number(options.batchSize) || 10, 50));
   const leaseSeconds = Math.max(15, Math.min(Number(options.leaseSeconds) || 120, 600));
@@ -248,6 +278,7 @@ export async function processEmailBatch(db, adapter, options = {}) {
   let failures = 0;
 
   for (const item of batch) {
+    const leaseToken = item.lease_token || workerId;
     try {
       const { subject, text, html } = buildNotificationEmail(item, options);
       const deliveryResult = await adapter.send({
@@ -261,7 +292,7 @@ export async function processEmailBatch(db, adapter, options = {}) {
 
       const { data: finished, error: finishError } = await db.rpc('pooldocai_finish_email_delivery', {
         p_queue_id: item.queue_id,
-        p_lease_token: workerId,
+        p_lease_token: leaseToken,
         p_success: Boolean(deliveryResult.success),
         p_provider_message_id: deliveryResult.messageId || null,
         p_error: deliveryResult.error || null,
@@ -272,7 +303,7 @@ export async function processEmailBatch(db, adapter, options = {}) {
         console.error('Could not finalize email delivery', { queueId: item.queue_id, code: finishError.code });
         failures++;
       } else if (finished === false) {
-        console.warn('Worker was fenced out during email finalization (lease expired or reclaimed)', { queueId: item.queue_id, workerId });
+        console.warn('Worker was fenced out during email finalization (lease expired or reclaimed)', { queueId: item.queue_id, leaseToken });
         failures++;
       } else if (deliveryResult.success) {
         successes++;
@@ -288,7 +319,7 @@ export async function processEmailBatch(db, adapter, options = {}) {
       try {
         await db.rpc('pooldocai_finish_email_delivery', {
           p_queue_id: item.queue_id,
-          p_lease_token: workerId,
+          p_lease_token: leaseToken,
           p_success: false,
           p_provider_message_id: null,
           p_error: String(err?.message || 'unexpected_worker_error').slice(0, 255),

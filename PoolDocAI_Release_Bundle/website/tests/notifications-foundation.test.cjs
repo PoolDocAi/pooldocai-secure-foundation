@@ -260,6 +260,7 @@ assert.ok(adminHtml.includes('id="notificationCompanyContext"'), "admin.html inc
   // 10c. Email service module assertions
   assert.match(emailService, /export function buildNotificationEmail/i, "exports buildNotificationEmail");
   assert.match(emailService, /export class ResendEmailAdapter/i, "exports ResendEmailAdapter");
+  assert.match(emailService, /export class UnconfiguredEmailAdapter/i, "exports UnconfiguredEmailAdapter");
   assert.match(emailService, /export class MockEmailAdapter/i, "exports MockEmailAdapter");
   assert.match(emailService, /export async function processEmailBatch/i, "exports processEmailBatch");
 
@@ -268,9 +269,11 @@ assert.ok(adminHtml.includes('id="notificationCompanyContext"'), "admin.html inc
   assert.match(emailService, /\$\{appBaseUrl\}\/admin.+:\s*`\$\{appBaseUrl\}\/technician`/i, "routes admin role to admin portal and tech to technician portal");
 
   // 10e. Worker server integration assertions
-  assert.match(workerServer, /import\s*\{\s*ResendEmailAdapter,\s*MockEmailAdapter,\s*processEmailBatch\s*\}\s*from '\.\/email-service\.js'/i, "imports email-service into worker server");
+  assert.match(workerServer, /import\s*\{\s*ResendEmailAdapter,\s*UnconfiguredEmailAdapter,\s*processEmailBatch\s*\}\s*from '\.\/email-service\.js'/i, "imports fail-closed email adapters into worker server");
   assert.match(workerServer, /req\.url === '\/email\/process'/i, "supports POST /email/process endpoint");
   assert.match(workerServer, /pollEmailQueue/i, "implements periodic email queue polling");
+  assert.match(workerServer, /if \(!RESEND_KEY\)[\s\S]*?return;/i, "fails closed by pausing queue claim when provider unconfigured");
+  assert.match(workerServer, /email_provider:\s*RESEND_KEY\s*\?\s*'resend'\s*:\s*'unconfigured'/i, "exposes non-sensitive email_provider health status");
 }
 
 console.log("PASS: All TASK-007 Part-1 & Part-2 Company Notification Foundation tests passed successfully.");

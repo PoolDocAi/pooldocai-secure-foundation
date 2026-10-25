@@ -149,15 +149,18 @@ RETURNS TABLE (
   body text,
   event_data jsonb,
   attempts integer,
-  idempotency_key text
+  idempotency_key text,
+  lease_token text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
+#variable_conflict use_column
 DECLARE
   v_rec record;
   v_lease_interval interval := (least(greatest(p_lease_seconds, 15), 600) * interval '1 second');
+  v_claim_lease_token text;
   v_opted_out boolean;
   v_company_active boolean;
   v_member_active boolean;
@@ -165,23 +168,23 @@ DECLARE
   v_member_role text;
 BEGIN
   -- Recover stale/abandoned worker leases
-  UPDATE public.notification_delivery_queue
+  UPDATE public.notification_delivery_queue q_stale
   SET delivery_status = 'dead_letter',
       last_error = 'worker_lease_expired_max_attempts',
       updated_at = now()
-  WHERE channel = 'email'
-    AND delivery_status = 'sending'
-    AND leased_at < now() - v_lease_interval
-    AND attempts >= 5;
+  WHERE q_stale.channel = 'email'
+    AND q_stale.delivery_status = 'sending'
+    AND q_stale.leased_at < now() - v_lease_interval
+    AND q_stale.attempts >= 5;
 
-  UPDATE public.notification_delivery_queue
+  UPDATE public.notification_delivery_queue q_retry
   SET delivery_status = 'retrying',
       next_attempt_at = now(),
       updated_at = now()
-  WHERE channel = 'email'
-    AND delivery_status = 'sending'
-    AND leased_at < now() - v_lease_interval
-    AND attempts < 5;
+  WHERE q_retry.channel = 'email'
+    AND q_retry.delivery_status = 'sending'
+    AND q_retry.leased_at < now() - v_lease_interval
+    AND q_retry.attempts < 5;
 
   -- Select and lock candidate queue rows using SKIP LOCKED
   FOR v_rec IN
@@ -210,11 +213,11 @@ BEGIN
   LOOP
     -- 1. Check company status
     IF v_rec.q_co_status <> 'active' THEN
-      UPDATE public.notification_delivery_queue
+      UPDATE public.notification_delivery_queue q_fail
       SET delivery_status = 'failed',
           last_error = 'company_inactive_or_suspended',
           updated_at = now()
-      WHERE id = v_rec.q_id;
+      WHERE q_fail.id = v_rec.q_id;
       CONTINUE;
     END IF;
 
@@ -224,11 +227,11 @@ BEGIN
     WHERE m.company_id = v_rec.q_co_id AND m.user_id = v_rec.q_user_id;
 
     IF v_member_active IS NOT TRUE THEN
-      UPDATE public.notification_delivery_queue
+      UPDATE public.notification_delivery_queue q_mem
       SET delivery_status = 'failed',
           last_error = 'recipient_not_active_member',
           updated_at = now()
-      WHERE id = v_rec.q_id;
+      WHERE q_mem.id = v_rec.q_id;
       CONTINUE;
     END IF;
 
@@ -238,10 +241,10 @@ BEGIN
     WHERE user_id = v_rec.q_user_id AND company_id = v_rec.q_co_id AND channel = 'email';
 
     IF v_opted_out IS TRUE THEN
-      UPDATE public.notification_delivery_queue
+      UPDATE public.notification_delivery_queue q_opt
       SET delivery_status = 'opted_out',
           updated_at = now()
-      WHERE id = v_rec.q_id;
+      WHERE q_opt.id = v_rec.q_id;
       CONTINUE;
     END IF;
 
@@ -251,23 +254,25 @@ BEGIN
     WHERE u.id = v_rec.q_user_id;
 
     IF v_user_email IS NULL OR v_user_email = '' THEN
-      UPDATE public.notification_delivery_queue
+      UPDATE public.notification_delivery_queue q_no_email
       SET delivery_status = 'failed',
           last_error = 'recipient_email_missing',
           updated_at = now()
-      WHERE id = v_rec.q_id;
+      WHERE q_no_email.id = v_rec.q_id;
       CONTINUE;
     END IF;
 
-    -- 5. Atomically transition row to 'sending' with worker lease token
-    UPDATE public.notification_delivery_queue
+    -- 5. Atomically transition row to 'sending' with distinct unguessable per-claim lease token (ABA safe)
+    v_claim_lease_token := 'claim_' || gen_random_uuid()::text;
+
+    UPDATE public.notification_delivery_queue q_send
     SET delivery_status = 'sending',
-        lease_token = p_worker_id,
+        lease_token = v_claim_lease_token,
         leased_at = now(),
-        attempts = attempts + 1,
+        attempts = q_send.attempts + 1,
         idempotency_key = v_rec.q_idem_key,
         updated_at = now()
-    WHERE id = v_rec.q_id;
+    WHERE q_send.id = v_rec.q_id;
 
     -- Emit row to result set
     queue_id := v_rec.q_id;
@@ -283,6 +288,7 @@ BEGIN
     event_data := v_rec.q_data;
     attempts := v_rec.q_attempts + 1;
     idempotency_key := v_rec.q_idem_key;
+    lease_token := v_claim_lease_token;
 
     RETURN NEXT;
   END LOOP;

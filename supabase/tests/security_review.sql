@@ -1364,6 +1364,7 @@ DECLARE
   v_claimed_email text;
   v_claimed_role text;
   v_claimed_attempts integer;
+  v_claimed_lease_token text;
   v_queue_row record;
   v_finish_ok boolean;
   v_stale_claim_cnt integer := 0;
@@ -1427,10 +1428,10 @@ BEGIN
     RAISE EXCEPTION 'Expected 2 pending email queue items for active members, got %', v_batch_cnt;
   END IF;
 
-  -- 4. Test Atomic Claiming (Worker 1) with Concurrency Fencing
+  -- 4. Test Atomic Claiming (Worker 1) with Per-Claim Unguessable Lease Token
   -- Worker 1 claims batch of size 1
-  SELECT queue_id, idempotency_key, recipient_email, recipient_role, attempts
-  INTO v_claimed_q_id, v_claimed_idem, v_claimed_email, v_claimed_role, v_claimed_attempts
+  SELECT queue_id, idempotency_key, recipient_email, recipient_role, attempts, lease_token
+  INTO v_claimed_q_id, v_claimed_idem, v_claimed_email, v_claimed_role, v_claimed_attempts, v_claimed_lease_token
   FROM public.pooldocai_claim_email_delivery_batch('worker_ci_1', 1, 120)
   LIMIT 1;
 
@@ -1442,27 +1443,36 @@ BEGIN
     RAISE EXCEPTION 'Expected first claim attempt to be 1, got %', v_claimed_attempts;
   END IF;
 
+  IF v_claimed_lease_token IS NULL OR v_claimed_lease_token NOT LIKE 'claim_%' THEN
+    RAISE EXCEPTION 'Expected DB-generated per-claim lease token, got %', v_claimed_lease_token;
+  END IF;
+
   IF v_claimed_idem NOT LIKE 'email-' || v_notif_id::text || '-%' THEN
     RAISE EXCEPTION 'Unexpected idempotency key: %', v_claimed_idem;
   END IF;
 
-  -- Verify claimed row is in 'sending' state with lease token
+  -- Verify claimed row is in 'sending' state with the per-claim lease token
   SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id;
-  IF v_queue_row.delivery_status <> 'sending' OR v_queue_row.lease_token <> 'worker_ci_1' OR v_queue_row.leased_at IS NULL THEN
-    RAISE EXCEPTION 'Queue row not properly marked sending with lease token: status=%, token=%', v_queue_row.delivery_status, v_queue_row.lease_token;
+  IF v_queue_row.delivery_status <> 'sending' OR v_queue_row.lease_token <> v_claimed_lease_token OR v_queue_row.leased_at IS NULL THEN
+    RAISE EXCEPTION 'Queue row not properly marked sending with per-claim lease token: status=%, token=%', v_queue_row.delivery_status, v_queue_row.lease_token;
   END IF;
 
   -- 5. Test Concurrency & SKIP LOCKED
-  -- Worker 2 claims remaining batch of size 1 (should get the other recipient, not the row leased to worker_ci_1)
+  -- Worker 2 claims remaining batch of size 1 (should get the other recipient, with its own unique lease token)
   DECLARE
     v_claimed_q_id_2 uuid;
+    v_claimed_lease_token_2 text;
   BEGIN
-    SELECT queue_id INTO v_claimed_q_id_2
+    SELECT queue_id, lease_token INTO v_claimed_q_id_2, v_claimed_lease_token_2
     FROM public.pooldocai_claim_email_delivery_batch('worker_ci_2', 1, 120)
     LIMIT 1;
 
     IF v_claimed_q_id_2 IS NULL OR v_claimed_q_id_2 = v_claimed_q_id THEN
       RAISE EXCEPTION 'Worker 2 did not claim distinct unleased item: got % (worker 1 had %)', v_claimed_q_id_2, v_claimed_q_id;
+    END IF;
+
+    IF v_claimed_lease_token_2 = v_claimed_lease_token THEN
+      RAISE EXCEPTION 'Per-claim lease tokens must be distinct across workers: % vs %', v_claimed_lease_token_2, v_claimed_lease_token;
     END IF;
 
     -- Now all pending items are leased. Worker 3 should receive 0 rows
@@ -1471,10 +1481,10 @@ BEGIN
       RAISE EXCEPTION 'Expected 0 available rows for Worker 3, got %', v_batch_cnt;
     END IF;
 
-    -- 6. Test Delivery Finalization Success (Worker 1)
+    -- 6. Test Delivery Finalization Success (Worker 1 with exact per-claim lease token)
     v_finish_ok := public.pooldocai_finish_email_delivery(
       p_queue_id := v_claimed_q_id,
-      p_lease_token := 'worker_ci_1',
+      p_lease_token := v_claimed_lease_token,
       p_success := true,
       p_provider_message_id := 'resend_msg_test_001',
       p_error := NULL,
@@ -1494,7 +1504,7 @@ BEGIN
     -- Worker 1 attempts to re-finalize an already delivered item -> must return false
     v_finish_ok := public.pooldocai_finish_email_delivery(
       p_queue_id := v_claimed_q_id,
-      p_lease_token := 'worker_ci_1',
+      p_lease_token := v_claimed_lease_token,
       p_success := true,
       p_provider_message_id := 'duplicate_send_attempt'
     );
@@ -1505,58 +1515,65 @@ BEGIN
     -- Rogue worker with incorrect lease token -> must return false
     v_finish_ok := public.pooldocai_finish_email_delivery(
       p_queue_id := v_claimed_q_id_2,
-      p_lease_token := 'rogue_worker',
+      p_lease_token := 'rogue_claim_token',
       p_success := true
     );
     IF v_finish_ok THEN
       RAISE EXCEPTION 'Worker with wrong lease token unexpectedly finalized item';
     END IF;
 
-    -- 8. Test Lease Expiration and Stale Lease Reclamation
+    -- 8. Test Lease Expiration, Stale Reclamation & ABA Prevention
     -- Simulate Worker 2 crashed and its lease timed out (leased 300 seconds ago)
     UPDATE public.notification_delivery_queue
     SET leased_at = now() - interval '300 seconds'
     WHERE id = v_claimed_q_id_2;
 
-    -- Worker 4 claims batch with lease_seconds=60 -> should reclaim v_claimed_q_id_2
-    SELECT queue_id, attempts INTO v_claimed_q_id, v_claimed_attempts
-    FROM public.pooldocai_claim_email_delivery_batch('worker_ci_4', 1, 60)
-    WHERE queue_id = v_claimed_q_id_2;
+    -- Worker 4 claims batch with lease_seconds=60 -> should reclaim v_claimed_q_id_2 with a BRAND-NEW lease token
+    DECLARE
+      v_claimed_lease_token_4 text;
+    BEGIN
+      SELECT queue_id, attempts, lease_token INTO v_claimed_q_id, v_claimed_attempts, v_claimed_lease_token_4
+      FROM public.pooldocai_claim_email_delivery_batch('worker_ci_4', 1, 60)
+      WHERE queue_id = v_claimed_q_id_2;
 
-    IF v_claimed_q_id IS NULL THEN
-      RAISE EXCEPTION 'Worker 4 failed to reclaim expired lease item';
-    END IF;
-    IF v_claimed_attempts <> 2 THEN
-      RAISE EXCEPTION 'Expected reclaimed item attempt to increment to 2, got %', v_claimed_attempts;
-    END IF;
+      IF v_claimed_q_id IS NULL THEN
+        RAISE EXCEPTION 'Worker 4 failed to reclaim expired lease item';
+      END IF;
+      IF v_claimed_attempts <> 2 THEN
+        RAISE EXCEPTION 'Expected reclaimed item attempt to increment to 2, got %', v_claimed_attempts;
+      END IF;
+      IF v_claimed_lease_token_4 = v_claimed_lease_token_2 THEN
+        RAISE EXCEPTION 'ABA vulnerability: reclaimed item must receive a fresh distinct lease token';
+      END IF;
 
-    -- Stale Worker 2 now tries to finish after lease reclamation -> must return false (fenced out)
-    v_finish_ok := public.pooldocai_finish_email_delivery(
-      p_queue_id := v_claimed_q_id_2,
-      p_lease_token := 'worker_ci_2',
-      p_success := true
-    );
-    IF v_finish_ok THEN
-      RAISE EXCEPTION 'Expired Worker 2 successfully finalized after another worker reclaimed lease';
-    END IF;
+      -- Stale Worker 2 now tries to finish with its old token after reclamation -> must return false (fenced out)
+      v_finish_ok := public.pooldocai_finish_email_delivery(
+        p_queue_id := v_claimed_q_id_2,
+        p_lease_token := v_claimed_lease_token_2,
+        p_success := true
+      );
+      IF v_finish_ok THEN
+        RAISE EXCEPTION 'Expired Worker 2 successfully finalized after another worker reclaimed lease';
+      END IF;
 
-    -- 9. Test Retryable Failure with Exponential Backoff
-    v_finish_ok := public.pooldocai_finish_email_delivery(
-      p_queue_id := v_claimed_q_id_2,
-      p_lease_token := 'worker_ci_4',
-      p_success := false,
-      p_error := 'rate_limited: 429 Too Many Requests',
-      p_retryable := true
-    );
+      -- 9. Test Retryable Failure with Exponential Backoff (Worker 4 with v_claimed_lease_token_4)
+      v_finish_ok := public.pooldocai_finish_email_delivery(
+        p_queue_id := v_claimed_q_id_2,
+        p_lease_token := v_claimed_lease_token_4,
+        p_success := false,
+        p_error := 'rate_limited: 429 Too Many Requests',
+        p_retryable := true
+      );
 
-    IF NOT v_finish_ok THEN
-      RAISE EXCEPTION 'Expected retryable finish to return true';
-    END IF;
+      IF NOT v_finish_ok THEN
+        RAISE EXCEPTION 'Expected retryable finish to return true';
+      END IF;
 
-    SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id_2;
-    IF v_queue_row.delivery_status <> 'retrying' OR v_queue_row.next_attempt_at <= now() OR v_queue_row.last_error NOT LIKE 'rate_limited%' THEN
-      RAISE EXCEPTION 'Retry state incorrect: status=%, next_attempt_at=%, last_error=%', v_queue_row.delivery_status, v_queue_row.next_attempt_at, v_queue_row.last_error;
-    END IF;
+      SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id_2;
+      IF v_queue_row.delivery_status <> 'retrying' OR v_queue_row.next_attempt_at <= now() OR v_queue_row.last_error NOT LIKE 'rate_limited%' THEN
+        RAISE EXCEPTION 'Retry state incorrect: status=%, next_attempt_at=%, last_error=%', v_queue_row.delivery_status, v_queue_row.next_attempt_at, v_queue_row.last_error;
+      END IF;
+    END;
 
     -- 10. Test Dead-Letter Capping after 5 attempts
     -- Set attempts to 4, next_attempt_at in the past
@@ -1564,28 +1581,32 @@ BEGIN
     SET attempts = 4, next_attempt_at = now() - interval '5 seconds'
     WHERE id = v_claimed_q_id_2;
 
-    -- Worker 5 claims it (attempts becomes 5)
-    SELECT queue_id, attempts INTO v_claimed_q_id, v_claimed_attempts
-    FROM public.pooldocai_claim_email_delivery_batch('worker_ci_5', 1, 60)
-    WHERE queue_id = v_claimed_q_id_2;
+    DECLARE
+      v_claimed_lease_token_5 text;
+    BEGIN
+      -- Worker 5 claims it (attempts becomes 5)
+      SELECT queue_id, attempts, lease_token INTO v_claimed_q_id, v_claimed_attempts, v_claimed_lease_token_5
+      FROM public.pooldocai_claim_email_delivery_batch('worker_ci_5', 1, 60)
+      WHERE queue_id = v_claimed_q_id_2;
 
-    IF v_claimed_attempts <> 5 THEN
-      RAISE EXCEPTION 'Expected 5th attempt on claim, got %', v_claimed_attempts;
-    END IF;
+      IF v_claimed_attempts <> 5 THEN
+        RAISE EXCEPTION 'Expected 5th attempt on claim, got %', v_claimed_attempts;
+      END IF;
 
-    -- Worker 5 reports failure -> must transition to dead_letter even if retryable is true
-    v_finish_ok := public.pooldocai_finish_email_delivery(
-      p_queue_id := v_claimed_q_id_2,
-      p_lease_token := 'worker_ci_5',
-      p_success := false,
-      p_error := 'persistent_500_upstream',
-      p_retryable := true
-    );
+      -- Worker 5 reports failure -> must transition to dead_letter even if retryable is true
+      v_finish_ok := public.pooldocai_finish_email_delivery(
+        p_queue_id := v_claimed_q_id_2,
+        p_lease_token := v_claimed_lease_token_5,
+        p_success := false,
+        p_error := 'persistent_500_upstream',
+        p_retryable := true
+      );
 
-    SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id_2;
-    IF v_queue_row.delivery_status <> 'dead_letter' THEN
-      RAISE EXCEPTION 'Expected dead_letter status after 5 attempts, got %', v_queue_row.delivery_status;
-    END IF;
+      SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id_2;
+      IF v_queue_row.delivery_status <> 'dead_letter' THEN
+        RAISE EXCEPTION 'Expected dead_letter status after 5 attempts, got %', v_queue_row.delivery_status;
+      END IF;
+    END;
 
     -- 11. Test Delivery-Time Opt-Out Suppression
     -- Publish another notification targeting admin
