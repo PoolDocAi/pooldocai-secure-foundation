@@ -263,6 +263,13 @@ Assert-Test "Implements pre-mutation pending journal write prior to GoTrue PUT" 
 Assert-Test "Validates target project and host guard before journal recovery" ($scriptContent -match 'TargetProject\s+-ne\s+\$ExpectedProject')
 Assert-Test "Validates approved identity before journal recovery" ($scriptContent -match 'unknown or unauthorized identity')
 Assert-Test "Quarantines corrupted journal file to preserve evidence" ($scriptContent -match '\.corrupt\.\$')
+Assert-Test "Validates journal SchemaVersion and MutationState invariants" ($scriptContent -match 'SchemaVersion\s+-ne\s+"1\.0"' -and $scriptContent -match 'MutationState\s+-ne\s+"PendingRemotePut"')
+Assert-Test "Validates journal PendingCompanyId matches approved company" ($scriptContent -match '\$pCompanyId\s+-ne\s+\$matchedAcct\.CompanyId')
+Assert-Test "Validates journal PendingPassword is SecureString" ($scriptContent -match '\$pPwd\s+-is\s+\[System\.Security\.SecureString\]')
+Assert-Test "Enforces durable quarantine guard across invocations" ($scriptContent -match 'unresolved_quarantine|Unresolved quarantined mutation journal')
+Assert-Test "Enforces pre-mutation guard preventing overwriting existing journal" ($scriptContent -match 'A pending mutation journal already exists')
+Assert-Test "Enforces preflight DPAPI identity mismatch guard" ($scriptContent -match 'preAuth\.User\.id\s+-ne\s+\$acct\.Id')
+Assert-Test "Enforces verified journal deletion in all resolution paths" ($scriptContent -match 'Test-Path\s+\$JournalFile[\s\S]*?Pending journal still exists')
 
 # Helper to run script in a subprocess with arbitrary switch arguments
 function Run-RotationWithArgs([string]$arguments) {
@@ -513,6 +520,10 @@ Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$cre
         $quarantined = Get-ChildItem -Path $fiDir -Filter "*journal.xml.corrupt.*"
         $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "is\s+corrupted|Quarantined")
         Assert-Test "Fault Injection: Corrupted journal clixml fails closed and quarantines file to preserve evidence" ($failedClosed -and $quarantined.Count -ge 1)
+        # Clean up 7C quarantine artifacts so subsequent tests have a clean environment
+        $quarantined | Remove-Item -Force -ErrorAction SilentlyContinue
+        $marker = "$journalPath.unresolved_quarantine"
+        if (Test-Path $marker) { Remove-Item -Path $marker -Force -ErrorAction SilentlyContinue }
     }
 
     # 7D. Fault Injection: Unknown / Unauthorized Identity -> Fails Closed & Journal Preserved
@@ -612,6 +623,7 @@ if (-not (Test-Path '$credPath')) { exit 3 }
         $jStillExists = Test-Path $journalPath
         $recoveredOk = ($res.ExitCode -eq 0) -and (-not $jStillExists) -and (Test-Path $credPath)
         Assert-Test "Remote mutation succeeded: Credential recovered into DPAPI store and journal removed" $recoveredOk
+        Remove-Item -Path $credPath -Force -ErrorAction SilentlyContinue
     }
 
     # 7H. Definitive Discard: GoTrue returns 400 InvalidCredentials -> Safely Discarded
@@ -642,10 +654,315 @@ if (`$result.Status -ne 'Discarded') { exit 2 }
         $discardedOk = ($res.ExitCode -eq 0) -and (-not $jStillExists)
         Assert-Test "Remote mutation definitively rejected (HTTP 400): Journal safely cleared without error" $discardedOk
     }
+
+    # 7I. Fault Injection: SchemaVersion Mismatch -> Fails Closed & Journal Preserved
+    & {
+        $entry = @{
+            SchemaVersion = "2.0" # Unsupported future schema version
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = ConvertTo-SecureString "RecoverSecret123" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $entry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "unsupported SchemaVersion")
+        Assert-Test "Fault Injection: SchemaVersion mismatch in journal fails closed and preserves file" ($failedClosed -and $jStillExists)
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # 7J. Fault Injection: MutationState Mismatch -> Fails Closed & Journal Preserved
+    & {
+        $entry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = ConvertTo-SecureString "RecoverSecret123" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "Completed" # Unsupported state
+        }
+        $entry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "unsupported MutationState")
+        Assert-Test "Fault Injection: MutationState mismatch in journal fails closed and preserves file" ($failedClosed -and $jStillExists)
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # 7K. Fault Injection: Company ID Mismatch -> Fails Closed & Journal Preserved
+    & {
+        $entry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "22222222-2222-4222-8222-222222222222" # BlueWave company for AquaPure user!
+            PendingPassword = ConvertTo-SecureString "RecoverSecret123" -AsPlainText -Force
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $entry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "does not match approved company ID")
+        Assert-Test "Fault Injection: Company ID mismatch in journal fails closed and preserves file" ($failedClosed -and $jStillExists)
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # 7L. Fault Injection: Plain Text / Non-SecureString Password -> Fails Closed & Preserved
+    & {
+        $entry = @{
+            SchemaVersion = "1.0"
+            TargetHost = "rzkgmvyyeclrpomrlyft.supabase.co"
+            TargetProject = "rzkgmvyyeclrpomrlyft"
+            PendingRole = "company_a_admin"
+            PendingUserId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            PendingEmail = "staging_admin_aquapure@pooldocai.test"
+            PendingCompanyId = "11111111-1111-4111-8111-111111111111"
+            PendingPassword = "PlainStringNotSecureString" # Violation: must be SecureString
+            Timestamp = [DateTime]::UtcNow.ToString("o")
+            MutationState = "PendingRemotePut"
+        }
+        $entry | Export-Clixml -Path $journalPath
+
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $failedClosed = ($res.ExitCode -ne 0) -and ($res.Combined -match "not a valid\s*SecureString")
+        Assert-Test "Fault Injection: Non-SecureString password in journal fails closed and preserves file" ($failedClosed -and $jStillExists)
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # 7M. Quarantine Durability Across Invocations: Second Run Refuses Mutation
+    & {
+        [System.IO.File]::WriteAllText($journalPath, "<<<CORRUPTED_XML_DATA>>>")
+        $setup = @"
+$approvedAcctsSnippet
+Resolve-PendingMutationJournal -JournalFile '$journalPath' -TargetCredFile '$credPath' -Store `$store -ApprovedAccountsList `$approved -TargetUrl 'https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token' -Headers @{} -UserAgent 'CLI/1.0' -ExpectedHostName 'rzkgmvyyeclrpomrlyft.supabase.co' -ExpectedProject 'rzkgmvyyeclrpomrlyft'
+"@
+        $res1 = Run-RecoveryExecutionHarness $setup
+        $quarantined = Get-ChildItem -Path $fiDir -Filter "*journal.xml.corrupt.*"
+        $run1Ok = ($res1.ExitCode -ne 0) -and ($quarantined.Count -ge 1)
+
+        $res2 = Run-RecoveryExecutionHarness $setup
+        $run2Refused = ($res2.ExitCode -ne 0) -and ($res2.Combined -match "Unresolved quarantined mutation journal")
+
+        Assert-Test "Durable quarantine guard: Second invocation refuses mutation until manual reconciliation" ($run1Ok -and $run2Refused)
+
+        Get-ChildItem -Path $fiDir -Filter "*journal.xml.corrupt.*" | Remove-Item -Force -ErrorAction SilentlyContinue
+        $marker = "$journalPath.unresolved_quarantine"
+        if (Test-Path $marker) { Remove-Item -Path $marker -Force -ErrorAction SilentlyContinue }
+    }
+
+    # 7N. Fault Injection: Pre-mutation Overwrite Refusal
+    & {
+        [System.IO.File]::WriteAllText($journalPath, "ACTIVE_JOURNAL_CONTENT")
+        $setup = @"
+$approvedAcctsSnippet
+if (Test-Path '$journalPath') {
+    Write-Error "[FATAL INTEGRITY VIOLATION] A pending mutation journal already exists at $journalPath. Refusing to overwrite journal for `$(`$approved[0].Email). Failing closed."
+    exit 1
+}
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $jStillExists = Test-Path $journalPath
+        $refused = ($res.ExitCode -ne 0) -and ($res.Combined -match "already exists")
+        Assert-Test "Pre-mutation guard refuses to overwrite existing pending journal" ($refused -and $jStillExists)
+        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # 7O. Fault Injection: Preflight Identity Mismatch Refusal
+    & {
+        $setup = @"
+$approvedAcctsSnippet
+`$preAuth = @{ Status = 'Success'; User = @{ id = '99999999-9999-4999-8999-999999999999' } }
+if (`$preAuth.Status -eq 'Success' -and `$preAuth.User.id -ne `$approved[0].Id) {
+    Write-Error "[FATAL SECURITY VIOLATION] Existing DPAPI credential authenticated successfully as user '`$(`$preAuth.User.id)', but expected synthetic account ID '`$(`$approved[0].Id)'! Identity mismatch detected. Failing closed."
+    exit 1
+}
+"@
+        $res = Run-RecoveryExecutionHarness $setup
+        $mismatchRefused = ($res.ExitCode -ne 0) -and ($res.Combined -match "Identity mismatch detected")
+        Assert-Test "Preflight DPAPI check refuses mutation on identity mismatch" $mismatchRefused
+    }
 } finally {
     if (Test-Path $fiDir) {
         Remove-Item -Path $fiDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+# ----------------------------------------------------------------------------
+# 8. Real Test-GoTruePassword Helper Execution with Mocked HTTP Responses
+# ----------------------------------------------------------------------------
+Write-Host "`n--- Test Suite 8: Real Test-GoTruePassword Helper Execution (Mocked Responses) ---" -ForegroundColor Cyan
+
+class MockResponse {
+    [int]$StatusCode
+    [System.IO.MemoryStream]$_Stream
+
+    MockResponse([int]$code, [string]$body) {
+        $this.StatusCode = $code
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+        $this._Stream = [System.IO.MemoryStream]::new($bytes)
+    }
+
+    [System.IO.Stream] GetResponseStream() {
+        return $this._Stream
+    }
+}
+
+class MockWebException : Exception {
+    [MockResponse]$Response
+
+    MockWebException([string]$msg, [int]$code, [string]$body) : base($msg) {
+        $this.Response = [MockResponse]::new($code, $body)
+    }
+}
+
+$cliUserAgent = "PoolDocAI-Staging-Admin-CLI/1.0"
+Invoke-Expression $funcTestGoTrue
+
+$secPwd = ConvertTo-SecureString "TestSecretPass123" -AsPlainText -Force
+$mockUrl = "https://rzkgmvyyeclrpomrlyft.supabase.co/auth/v1/token?grant_type=password"
+$mockHdr = @{ "apikey" = "anon_key" }
+
+# 8A. HTTP 200 Success with access_token and matching user
+& {
+    function Invoke-RestMethod {
+        return @{ access_token = "tok_valid_123"; user = @{ id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 200 Success returns valid token and user" ($r.Status -eq "Success" -and $r.AccessToken -eq "tok_valid_123" -and $r.StatusCode -eq 200)
+}
+
+# 8B. HTTP 200 missing access_token -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        return @{ user = @{ id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 200 missing access_token claim returns Indeterminate" ($r.Status -eq "Indeterminate" -and $r.StatusCode -eq 200)
+}
+
+# 8C. HTTP 400 with GoTrue invalid_credentials code -> InvalidCredentials
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Bad Request", 400, '{"error_code":"invalid_credentials","msg":"Invalid login credentials"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 400 invalid_credentials returns InvalidCredentials" ($r.Status -eq "InvalidCredentials" -and $r.StatusCode -eq 400 -and $r.ErrorCode -eq "invalid_credentials")
+}
+
+# 8D. HTTP 400 with GoTrue invalid_grant + credential description -> InvalidCredentials
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Bad Request", 400, '{"error":"invalid_grant","error_description":"Invalid login credentials"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 400 invalid_grant returns InvalidCredentials" ($r.Status -eq "InvalidCredentials" -and $r.StatusCode -eq 400)
+}
+
+# 8E. HTTP 400 with non-credential error (invalid_request / missing params) -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Bad Request", 400, '{"error":"invalid_request","error_description":"Missing required parameter"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 400 non-credential error returns Indeterminate (journal preserved)" ($r.Status -eq "Indeterminate" -and $r.StatusCode -eq 400)
+}
+
+# 8F. HTTP 400 with malformed JSON / HTML body -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Bad Request", 400, "<html><head><title>Bad Request</title></head><body>Malformed HTML Error</body></html>")
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 400 with unparseable HTML returns Indeterminate" ($r.Status -eq "Indeterminate" -and $r.StatusCode -eq 400)
+}
+
+# 8G. HTTP 401 Unauthorized (invalid API key) -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Unauthorized", 401, '{"message":"Invalid API key"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 401 Unauthorized returns Indeterminate" ($r.Status -eq "Indeterminate" -and $r.StatusCode -eq 401)
+}
+
+# 8H. HTTP 422 Unprocessable Entity -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Unprocessable", 422, '{"error":"unprocessable_entity"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 422 returns Indeterminate" ($r.Status -eq "Indeterminate" -and $r.StatusCode -eq 422)
+}
+
+# 8I. HTTP 429 Rate Limited -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Too Many Requests", 429, '{"message":"Rate limit exceeded"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 429 Rate Limited returns Indeterminate" ($r.Status -eq "Indeterminate" -and $r.StatusCode -eq 429)
+}
+
+# 8J. HTTP 500 Database/Server Error -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Internal Server Error", 500, '{"error":"database error query failed"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: HTTP 500 Server Error returns Indeterminate" ($r.Status -eq "Indeterminate" -and $r.StatusCode -eq 500)
+}
+
+# 8K. Transport Timeout -> Indeterminate
+& {
+    function Invoke-RestMethod {
+        throw [System.TimeoutException]::new("The operation timed out connecting to host")
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    Assert-Test "Real Test-GoTruePassword: Transport Timeout returns Indeterminate" ($r.Status -eq "Indeterminate" -and $null -eq $r.StatusCode)
+}
+
+# 8L. Zero sensitive body / token / secret leaking across error diagnostics
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Bad Request", 400, '{"error":"invalid_request","secret_field":"SECRET_LEAK_TEST"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    $noLeak = ($r.Error -notmatch "SECRET_LEAK_TEST") -and ($r.Error -notmatch "secret_field")
+    Assert-Test "Zero sensitive body or secret leaking in Test-GoTruePassword Error property" $noLeak
 }
 
 # ----------------------------------------------------------------------------

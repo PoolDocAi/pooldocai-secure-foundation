@@ -600,7 +600,7 @@ try {
             [System.Security.SecureString]$SecurePwd,
             [string]$TargetUrl,
             [hashtable]$Headers,
-            [string]$UserAgent
+            [string]$UserAgent = $cliUserAgent
         )
         if ($null -eq $SecurePwd) {
             return @{
@@ -608,6 +608,7 @@ try {
                 AccessToken = $null
                 User = $null
                 StatusCode = $null
+                ErrorCode = $null
                 Error = "Null password provided"
             }
         }
@@ -616,6 +617,7 @@ try {
         [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 
         $body = @{ email = $Email; password = $plain } | ConvertTo-Json
+        $plain = $null
         try {
             $res = Invoke-RestMethod -Uri $TargetUrl -Method Post -Headers $Headers -Body $body -UserAgent $cliUserAgent -MaximumRedirection 0
             if ($res.access_token) {
@@ -624,6 +626,7 @@ try {
                     AccessToken = $res.access_token
                     User = $res.user
                     StatusCode = 200
+                    ErrorCode = $null
                     Error = $null
                 }
             } else {
@@ -632,7 +635,8 @@ try {
                     AccessToken = $null
                     User = $null
                     StatusCode = 200
-                    Error = "HTTP 200 response missing access_token"
+                    ErrorCode = "MISSING_ACCESS_TOKEN"
+                    Error = "HTTP 200 response missing access_token claim"
                 }
             }
         } catch {
@@ -650,24 +654,60 @@ try {
                 } catch {}
             }
 
-            # Definitive credential rejection: HTTP 400 with invalid credentials
-            if ($statusCode -eq 400) {
+            # Attempt safe local parse of GoTrue error response JSON
+            $parsedJson = $null
+            if (-not [string]::IsNullOrWhiteSpace($responseBody)) {
+                try {
+                    $parsedJson = $responseBody | ConvertFrom-Json
+                } catch {}
+            }
+
+            # Strict GoTrue Credential Rejection Classification:
+            # ONLY classify as definitive InvalidCredentials if HTTP 400 AND body explicitly contains recognized GoTrue credential rejection code/message
+            $isDefinitiveCredentialRejection = $false
+            $safeErrorCode = $null
+            if ($statusCode -eq 400 -and $null -ne $parsedJson) {
+                $errCode = if ($parsedJson.error_code) { [string]$parsedJson.error_code } else { "" }
+                $errDesc = if ($parsedJson.error_description) { [string]$parsedJson.error_description } else { "" }
+                $errMsg  = if ($parsedJson.msg) { [string]$parsedJson.msg } else { "" }
+                $err     = if ($parsedJson.error) { [string]$parsedJson.error } else { "" }
+
+                if ($errCode -eq "invalid_credentials" -or
+                    $errDesc -match "Invalid login credentials" -or
+                    $errMsg -match "Invalid login credentials" -or
+                    ($err -eq "invalid_grant" -and ($errDesc -match "credential|password|login" -or $errMsg -match "credential|password|login"))) {
+                    $isDefinitiveCredentialRejection = $true
+                    $safeErrorCode = if ($errCode) { $errCode } else { "invalid_credentials" }
+                }
+            }
+
+            if ($isDefinitiveCredentialRejection) {
                 return @{
                     Status = "InvalidCredentials"
                     AccessToken = $null
                     User = $null
                     StatusCode = 400
-                    Error = "Server returned HTTP 400 Invalid Credentials ($responseBody)"
+                    ErrorCode = $safeErrorCode
+                    Error = "GoTrue definitively rejected credentials (Status: 400, Code: $safeErrorCode)"
                 }
             }
 
-            # All other outcomes are INDETERMINATE: timeouts, network drops, 5xx server errors, rate limits
+            # All other outcomes are strictly INDETERMINATE (non-credential 400, 401, 422, 429, 5xx, timeouts, drops, unparseable bodies).
+            # Sanitized error message: ZERO raw body or secret leaking.
+            $safeErrorClass = if ($null -eq $statusCode) { "TransportTimeout" } else { "HTTP_$statusCode" }
+            $reportedCode = if ($null -ne $parsedJson) {
+                if ($parsedJson.error_code) { [string]$parsedJson.error_code }
+                elseif ($parsedJson.error) { [string]$parsedJson.error }
+                else { $safeErrorClass }
+            } else { $safeErrorClass }
+
             return @{
                 Status = "Indeterminate"
                 AccessToken = $null
                 User = $null
                 StatusCode = $statusCode
-                Error = "Indeterminate transport/server error: $($ex.Message) ($responseBody)"
+                ErrorCode = $reportedCode
+                Error = "Indeterminate GoTrue response (Classification: $safeErrorClass, Code: $reportedCode). State preserved."
             }
         }
     }
@@ -686,6 +726,19 @@ try {
             [string]$ExpectedProject
         )
 
+        $credDir = Split-Path -Parent $JournalFile
+        $journalBaseName = Split-Path -Leaf $JournalFile
+        $quarantineMarker = "$JournalFile.unresolved_quarantine"
+        $existingQuarantines = if (Test-Path $credDir) {
+            Get-ChildItem -Path $credDir -Filter "$journalBaseName.corrupt.*" -ErrorAction SilentlyContinue
+        } else { $null }
+
+        # Durable Quarantine Guard: If prior corrupted/unauthorized evidence exists, refuse execution across runs
+        if ((Test-Path $quarantineMarker) -or ($null -ne $existingQuarantines -and $existingQuarantines.Count -gt 0)) {
+            Write-Error "[FATAL SAFETY GUARD] Unresolved quarantined mutation journal evidence detected in $credDir. Previous corrupted or unauthorized journal evidence must be manually reconciled before rotation can proceed. Refusing mutation and failing closed."
+            exit 1
+        }
+
         if (-not (Test-Path $JournalFile)) {
             return $null
         }
@@ -697,9 +750,10 @@ try {
         try {
             $pendingJournal = Import-Clixml -Path $JournalFile
         } catch {
-            # Corrupted Clixml: DO NOT delete; quarantine for forensics and fail closed
+            # Corrupted Clixml: DO NOT delete; quarantine for forensics and set durable marker
             $quarantinePath = "$JournalFile.corrupt.$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssffffZ'))"
             Move-Item -Path $JournalFile -Destination $quarantinePath -Force -ErrorAction SilentlyContinue
+            [System.IO.File]::WriteAllText($quarantineMarker, "Unresolved quarantined journal at $quarantinePath at $([DateTime]::UtcNow.ToString('o'))")
             Write-Error "[FATAL] Pending mutation journal at $JournalFile is corrupted and could not be deserialized. Quarantined to $quarantinePath. Preserving evidence and failing closed."
             exit 1
         }
@@ -707,24 +761,47 @@ try {
         if ($null -eq $pendingJournal -or -not ($pendingJournal -is [hashtable])) {
             $quarantinePath = "$JournalFile.corrupt.$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssffffZ'))"
             Move-Item -Path $JournalFile -Destination $quarantinePath -Force -ErrorAction SilentlyContinue
+            [System.IO.File]::WriteAllText($quarantineMarker, "Unresolved quarantined journal at $quarantinePath at $([DateTime]::UtcNow.ToString('o'))")
             Write-Error "[FATAL] Pending mutation journal at $JournalFile does not contain valid hashtable structure. Quarantined to $quarantinePath. Failing closed."
             exit 1
         }
 
-        # Step 2: Validate Target Host & Project Guard
+        # Step 2: Validate SchemaVersion & MutationState Invariants
+        if ($pendingJournal.SchemaVersion -ne "1.0") {
+            Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal unsupported SchemaVersion '$($pendingJournal.SchemaVersion)' (expected '1.0'). Preserving journal at $JournalFile and failing closed."
+            exit 1
+        }
+
+        if ($pendingJournal.MutationState -ne "PendingRemotePut") {
+            Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal unsupported MutationState '$($pendingJournal.MutationState)' (expected 'PendingRemotePut'). Preserving journal at $JournalFile and failing closed."
+            exit 1
+        }
+
+        if ([string]::IsNullOrWhiteSpace($pendingJournal.Timestamp)) {
+            Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal missing required Timestamp. Preserving journal at $JournalFile and failing closed."
+            exit 1
+        }
+
+        # Step 3: Validate Target Host & Project Guard
         if ($pendingJournal.TargetProject -ne $ExpectedProject -or $pendingJournal.TargetHost -ne $ExpectedHostName) {
             Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal target project mismatch! Journal project: '$($pendingJournal.TargetProject)' (expected: '$ExpectedProject'), Host: '$($pendingJournal.TargetHost)' (expected: '$ExpectedHostName'). Preserving journal at $JournalFile and failing closed."
             exit 1
         }
 
-        # Step 3: Validate Role, Account UUID, and Email against approved synthetic accounts
+        # Step 4: Validate Role, Account UUID, Email, Company ID, and SecureString Password
         $pRole = $pendingJournal.PendingRole
         $pUserId = $pendingJournal.PendingUserId
         $pEmail = $pendingJournal.PendingEmail
+        $pCompanyId = $pendingJournal.PendingCompanyId
         $pPwd = $pendingJournal.PendingPassword
 
-        if (-not $pRole -or -not $pUserId -or -not $pEmail -or -not $pPwd) {
-            Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal missing required identity fields (Role: '$pRole', UserId: '$pUserId', Email: '$pEmail'). Preserving journal at $JournalFile and failing closed."
+        if (-not $pRole -or -not $pUserId -or -not $pEmail -or -not $pCompanyId -or -not $pPwd) {
+            Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal missing required identity fields (Role: '$pRole', UserId: '$pUserId', Email: '$pEmail', CompanyId: '$pCompanyId'). Preserving journal at $JournalFile and failing closed."
+            exit 1
+        }
+
+        if (-not ($pPwd -is [System.Security.SecureString])) {
+            Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal PendingPassword is not a valid SecureString. Preserving journal at $JournalFile and failing closed."
             exit 1
         }
 
@@ -734,7 +811,12 @@ try {
             exit 1
         }
 
-        # Step 4: Interrogate GoTrue with the pending password
+        if ($pCompanyId -ne $matchedAcct.CompanyId) {
+            Write-Error "[FATAL SECURITY VIOLATION] Pending mutation journal PendingCompanyId '$pCompanyId' does not match approved company ID '$($matchedAcct.CompanyId)' for $($matchedAcct.Email). Preserving journal at $JournalFile and failing closed."
+            exit 1
+        }
+
+        # Step 5: Interrogate GoTrue with the pending password
         Write-Host "  Verifying if interrupted mutation for $($matchedAcct.Email) ($pRole) succeeded remotely..." -ForegroundColor Cyan
         $verifyAuth = Test-GoTruePassword -Email $matchedAcct.Email -SecurePwd $pPwd -TargetUrl $TargetUrl -Headers $Headers -UserAgent $UserAgent
 
@@ -743,8 +825,17 @@ try {
             $Store[$pRole] = $pPwd
             # Commit to DPAPI store BEFORE deleting journal
             Save-DpapiStoreAtomic -Store $Store -DestinationPath $TargetCredFile
-            # ONLY delete journal after durable store commit has succeeded!
-            Remove-Item -Path $JournalFile -Force -ErrorAction SilentlyContinue
+            # Verified journal deletion: fail closed if deletion fails or file remains
+            try {
+                Remove-Item -Path $JournalFile -Force -ErrorAction Stop
+            } catch {
+                Write-Error "[FATAL] Failed to delete pending journal at $JournalFile after DPAPI store commit: $($_.Exception.Message). Preserving file and failing closed."
+                exit 1
+            }
+            if (Test-Path $JournalFile) {
+                Write-Error "[FATAL] Pending journal still exists at $JournalFile after deletion attempt. Failing closed."
+                exit 1
+            }
             Write-Host "  [JOURNAL RESOLVED] Successfully committed recovered credential to DPAPI and removed pending journal." -ForegroundColor Green
             return @{
                 Status = "Recovered"
@@ -753,14 +844,23 @@ try {
             }
         } elseif ($verifyAuth.Status -eq "InvalidCredentials") {
             # Definitive proof that the pending password was NOT applied to GoTrue
-            Write-Host "  [JOURNAL DISCARD] Interrupted mutation for $($matchedAcct.Email) did not take effect remotely (GoTrue definitively rejected pending password). Safely clearing pending journal." -ForegroundColor Yellow
-            Remove-Item -Path $JournalFile -Force -ErrorAction SilentlyContinue
+            Write-Host "  [JOURNAL DISCARD] Interrupted mutation for $($matchedAcct.Email) did not take effect remotely (GoTrue definitively rejected pending password with code $($verifyAuth.ErrorCode)). Safely clearing pending journal." -ForegroundColor Yellow
+            try {
+                Remove-Item -Path $JournalFile -Force -ErrorAction Stop
+            } catch {
+                Write-Error "[FATAL] Failed to delete pending journal at $JournalFile during discard: $($_.Exception.Message). Preserving file and failing closed."
+                exit 1
+            }
+            if (Test-Path $JournalFile) {
+                Write-Error "[FATAL] Pending journal still exists at $JournalFile after discard deletion attempt. Failing closed."
+                exit 1
+            }
             return @{
                 Status = "Discarded"
                 Role = $pRole
             }
         } else {
-            # Indeterminate status (timeout, 5xx, transport drop)
+            # Indeterminate status (timeout, 5xx, transport drop, non-credential 400, etc.)
             # DO NOT DELETE THE JOURNAL! Fail closed to preserve recovery evidence.
             Write-Error "[FATAL] Unable to determine if interrupted mutation for $($matchedAcct.Email) took effect remotely ($($verifyAuth.Error)). Preserving journal at $JournalFile for recovery. Failing closed."
             exit 1
@@ -788,7 +888,11 @@ try {
         if ($credStore.ContainsKey($acct.Role) -and ($null -ne $credStore[$acct.Role])) {
             Write-Host "  Checking existing DPAPI credentials for $($acct.Email)..." -ForegroundColor Cyan
             $preAuth = Test-GoTruePassword -Email $acct.Email -SecurePwd $credStore[$acct.Role] -TargetUrl $loginUrl -Headers $tokenHeaders -UserAgent $cliUserAgent
-            if ($preAuth.Status -eq "Success" -and $preAuth.User.id -eq $acct.Id) {
+            if ($preAuth.Status -eq "Success") {
+                if ($preAuth.User.id -ne $acct.Id) {
+                    Write-Error "[FATAL SECURITY VIOLATION] Existing DPAPI credential authenticated successfully as user '$($preAuth.User.id)', but expected synthetic account ID '$($acct.Id)' ($($acct.Email))! Identity mismatch detected. Failing closed."
+                    exit 1
+                }
                 Write-Host "  [IDEMPOTENT / VERIFIED] User $($acct.Email) ($($acct.Role)) already has verified credentials in DPAPI store and logs in successfully." -ForegroundColor Green
                 $authTokens[$acct.Role] = $preAuth.AccessToken
                 continue
@@ -801,6 +905,12 @@ try {
         # User requires rotation: generate new random 32-char password
         Write-Host "  Rotating password for $($acct.Email) ($($acct.Role))..." -ForegroundColor Cyan
         $newPwd = New-SecurePassword -Length 32
+
+        # Pre-mutation guard: Never overwrite an existing pending journal!
+        if (Test-Path $journalPath) {
+            Write-Error "[FATAL INTEGRITY VIOLATION] A pending mutation journal already exists at $journalPath. Refusing to overwrite journal for $($acct.Email). Failing closed."
+            exit 1
+        }
 
         # Step A: Record pending mutation journal BEFORE remote Admin PUT
         $journalEntry = @{
@@ -874,8 +984,17 @@ try {
         # Step E: Atomic commit to primary DPAPI store & remove pending journal
         $credStore[$acct.Role] = ConvertTo-SecureString $newPwd -AsPlainText -Force
         Save-DpapiStoreAtomic -Store $credStore -DestinationPath $credPath
-        # ONLY delete journal after durable store commit has succeeded!
-        Remove-Item -Path $journalPath -Force -ErrorAction SilentlyContinue
+        # Verified journal removal: fail closed if deletion fails or file remains
+        try {
+            Remove-Item -Path $journalPath -Force -ErrorAction Stop
+        } catch {
+            Write-Error "[FATAL] Failed to remove pending mutation journal at $journalPath after store commit: $($_.Exception.Message). Failing closed."
+            exit 1
+        }
+        if (Test-Path $journalPath) {
+            Write-Error "[FATAL] Pending mutation journal still exists at $journalPath after deletion attempt. Failing closed."
+            exit 1
+        }
         Write-Host "  [ROTATED, VERIFIED & COMMITTED] $($acct.Email) password rotated, authenticated via GoTrue, and committed to DPAPI store." -ForegroundColor Green
 
         $authTokens[$acct.Role] = $postAuth.AccessToken
