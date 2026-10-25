@@ -662,22 +662,35 @@ try {
                 } catch {}
             }
 
-            # Strict GoTrue Credential Rejection Classification:
-            # ONLY classify as definitive InvalidCredentials if HTTP 400 AND body explicitly contains recognized GoTrue credential rejection code/message
-            $isDefinitiveCredentialRejection = $false
-            $safeErrorCode = $null
-            if ($statusCode -eq 400 -and $null -ne $parsedJson) {
-                $errCode = if ($parsedJson.error_code) { [string]$parsedJson.error_code } else { "" }
-                $errDesc = if ($parsedJson.error_description) { [string]$parsedJson.error_description } else { "" }
-                $errMsg  = if ($parsedJson.msg) { [string]$parsedJson.msg } else { "" }
-                $err     = if ($parsedJson.error) { [string]$parsedJson.error } else { "" }
+            # Finite allowlist of documented, safe GoTrue error codes (https://supabase.com/docs/guides/auth/debugging/error-codes)
+            $knownSafeErrorCodes = @(
+                "invalid_credentials",
+                "invalid_grant",
+                "invalid_request",
+                "unsupported_grant_type",
+                "validation_failed",
+                "bad_json",
+                "bad_jwt",
+                "user_not_found",
+                "email_not_confirmed",
+                "over_request_rate_limit",
+                "over_email_send_rate_limit",
+                "rate_limit_exceeded",
+                "unexpected_failure"
+            )
 
-                if ($errCode -eq "invalid_credentials" -or
-                    $errDesc -match "Invalid login credentials" -or
-                    $errMsg -match "Invalid login credentials" -or
-                    ($err -eq "invalid_grant" -and ($errDesc -match "credential|password|login" -or $errMsg -match "credential|password|login"))) {
+            # Strict GoTrue Credential Rejection Classification:
+            # ONLY classify as definitive InvalidCredentials if HTTP 400 AND body explicitly contains documented GoTrue credential rejection code
+            $isDefinitiveCredentialRejection = $false
+            if ($statusCode -eq 400 -and $null -ne $parsedJson) {
+                $rawCode = if ($parsedJson.error_code) { [string]$parsedJson.error_code } else { "" }
+                $rawErr  = if ($parsedJson.error) { [string]$parsedJson.error } else { "" }
+                $rawDesc = if ($parsedJson.error_description) { [string]$parsedJson.error_description } else { "" }
+                $rawMsg  = if ($parsedJson.msg) { [string]$parsedJson.msg } else { "" }
+
+                if ($rawCode -eq "invalid_credentials" -or
+                    ($rawErr -eq "invalid_grant" -and ($rawDesc -match "Invalid login credentials" -or $rawMsg -match "Invalid login credentials"))) {
                     $isDefinitiveCredentialRejection = $true
-                    $safeErrorCode = if ($errCode) { $errCode } else { "invalid_credentials" }
                 }
             }
 
@@ -687,27 +700,35 @@ try {
                     AccessToken = $null
                     User = $null
                     StatusCode = 400
-                    ErrorCode = $safeErrorCode
-                    Error = "GoTrue definitively rejected credentials (Status: 400, Code: $safeErrorCode)"
+                    ErrorCode = "invalid_credentials"
+                    Error = "GoTrue definitively rejected credentials (Status: 400, Code: invalid_credentials)"
                 }
             }
 
             # All other outcomes are strictly INDETERMINATE (non-credential 400, 401, 422, 429, 5xx, timeouts, drops, unparseable bodies).
-            # Sanitized error message: ZERO raw body or secret leaking.
+            # Sanitized error message: Map server codes to allowlist; never echo arbitrary or secret-like provider text.
             $safeErrorClass = if ($null -eq $statusCode) { "TransportTimeout" } else { "HTTP_$statusCode" }
-            $reportedCode = if ($null -ne $parsedJson) {
+            $rawServerCode = if ($null -ne $parsedJson) {
                 if ($parsedJson.error_code) { [string]$parsedJson.error_code }
                 elseif ($parsedJson.error) { [string]$parsedJson.error }
-                else { $safeErrorClass }
-            } else { $safeErrorClass }
+                else { $null }
+            } else { $null }
+
+            $safeReportedCode = if ($null -ne $rawServerCode -and $knownSafeErrorCodes -contains $rawServerCode) {
+                $rawServerCode
+            } elseif ($null -ne $rawServerCode) {
+                "UNRECOGNIZED_PROVIDER_ERROR"
+            } else {
+                $safeErrorClass
+            }
 
             return @{
                 Status = "Indeterminate"
                 AccessToken = $null
                 User = $null
                 StatusCode = $statusCode
-                ErrorCode = $reportedCode
-                Error = "Indeterminate GoTrue response (Classification: $safeErrorClass, Code: $reportedCode). State preserved."
+                ErrorCode = $safeReportedCode
+                Error = "Indeterminate GoTrue response (Classification: $safeErrorClass, Code: $safeReportedCode). State preserved."
             }
         }
     }

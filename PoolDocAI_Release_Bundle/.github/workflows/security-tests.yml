@@ -88,6 +88,8 @@ jobs:
         run: node website/tests/staging-live-tenant-isolation.test.cjs
       - name: Test live tenant isolation harness fault injection and fail-closed gates
         run: node website/tests/staging-live-tenant-isolation-fault-injection.test.cjs
+      - name: Test TASK-009 Part-1 positive application-level tenant isolation
+        run: node website/tests/task009-part1-application-tenant-isolation.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
@@ -147,3 +149,5 @@ jobs:
 
       - name: Test live tenant isolation harness fault injection and fail-closed gates
         run: node website/tests/staging-live-tenant-isolation-fault-injection.test.cjs
+      - name: Test TASK-009 Part-1 positive application-level tenant isolation
+        run: node website/tests/task009-part1-application-tenant-isolation.test.cjs

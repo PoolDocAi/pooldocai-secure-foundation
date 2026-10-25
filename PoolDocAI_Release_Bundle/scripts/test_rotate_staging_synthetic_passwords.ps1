@@ -965,6 +965,16 @@ $mockHdr = @{ "apikey" = "anon_key" }
     Assert-Test "Zero sensitive body or secret leaking in Test-GoTruePassword Error property" $noLeak
 }
 
+# 8M. Untrusted / malicious provider error code is mapped to UNRECOGNIZED_PROVIDER_ERROR and never echoed
+& {
+    function Invoke-RestMethod {
+        throw [MockWebException]::new("Bad Request", 400, '{"error_code":"SECRET_TOKEN_ECHO_ATTACK_MALICIOUS_12345"}')
+    }
+    $r = Test-GoTruePassword -Email "test@pooldocai.test" -SecurePwd $secPwd -TargetUrl $mockUrl -Headers $mockHdr -UserAgent $cliUserAgent
+    $codeSanitized = ($r.ErrorCode -eq "UNRECOGNIZED_PROVIDER_ERROR") -and ($r.Error -notmatch "SECRET_TOKEN_ECHO_ATTACK")
+    Assert-Test "Malicious/unrecognized provider error code mapped to UNRECOGNIZED_PROVIDER_ERROR" $codeSanitized
+}
+
 # ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
