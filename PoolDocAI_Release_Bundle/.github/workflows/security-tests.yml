@@ -76,6 +76,8 @@ jobs:
         run: node website/tests/notifications-foundation.test.cjs
       - name: Test Diagnostic Benchmark 001 SuperFlo VST and EasyTouch RS-485
         run: node website/tests/diagnostic-benchmark-001.test.cjs
+      - name: Test Pentair SuperFlo VST E2E hybrid retrieval and multi-tenant isolation
+        run: node website/tests/handler-e2e-superflo-benchmark.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
