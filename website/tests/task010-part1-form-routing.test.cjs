@@ -330,3 +330,119 @@ test('TASK-010 Part-1: Honeypot (_gotcha) spam protection preservation', (t) => 
     );
   }
 });
+
+test('TASK-010 Part-1 UI Follow-up: In-Chat Non-Dispatch UI flow, clipboard copy action, and zero PII inputs', async (t) => {
+  for (const pageName of MARKETING_PAGES) {
+    const filePath = path.join(WEBSITE_DIR, pageName);
+    const html = fs.readFileSync(filePath, 'utf8');
+
+    // 1. Ensure copyPreJobSummaryToClipboard is defined in all pages
+    assert.ok(
+      html.includes('function copyPreJobSummaryToClipboard('),
+      `${pageName} must define copyPreJobSummaryToClipboard`
+    );
+
+    // 2. Ensure non-dispatch notice includes copy button and feedback container
+    assert.ok(
+      html.includes('copy-prejob-summary-btn'),
+      `${pageName} must contain copy-prejob-summary-btn in dispatch notice`
+    );
+    assert.ok(
+      html.includes('copy-summary-feedback'),
+      `${pageName} must contain copy-summary-feedback in dispatch notice`
+    );
+
+    // 3. Ensure NO PII input fields are rendered for service request
+    assert.ok(
+      !html.includes('name="sr_name"'),
+      `${pageName} must NOT contain name="sr_name" input`
+    );
+    assert.ok(
+      !html.includes('name="sr_phone"'),
+      `${pageName} must NOT contain name="sr_phone" input`
+    );
+    assert.ok(
+      !html.includes('name="sr_email"'),
+      `${pageName} must NOT contain name="sr_email" input`
+    );
+
+    // 4. Ensure no misleading 'licensed technician receives' language exists
+    assert.ok(
+      !html.toLowerCase().includes('licensed technician receives'),
+      `${pageName} must NOT contain misleading 'licensed technician receives' language`
+    );
+  }
+
+  // 5. Behavioral execution test for copyPreJobSummaryToClipboard
+  const indexHtml = fs.readFileSync(path.join(WEBSITE_DIR, 'index.html'), 'utf8');
+  const copyFnMatch = indexHtml.match(/function copyPreJobSummaryToClipboard\(btn\)[\s\S]*?^    \}/m);
+  assert.ok(copyFnMatch, 'Must find copyPreJobSummaryToClipboard in index.html');
+
+  let copiedText = '';
+  const feedbackEl = {
+    textContent: '',
+    classList: {
+      hidden: true,
+      remove: function (cls) { if (cls === 'hidden') this.hidden = false; },
+      add: function (cls) { if (cls === 'hidden') this.hidden = true; }
+    }
+  };
+
+  const mockContainer = {
+    querySelector: (sel) => {
+      if (sel === '.copy-summary-feedback') return feedbackEl;
+      return null;
+    }
+  };
+
+  const mockBtn = {
+    closest: (sel) => {
+      if (sel === '.in-chat-demo-dispatch-notice') return mockContainer;
+      return null;
+    }
+  };
+
+  const mockConversationHistory = [
+    {
+      type: 'step',
+      aiReply: 'First diagnostic step'
+    },
+    {
+      type: 'service_request_form',
+      aiReply: 'Pre-Job Summary:\n- Equipment: Pentair SuperFlo VST\n- Issue: Pump will not start'
+    }
+  ];
+
+  const sandbox = {
+    conversationHistory: mockConversationHistory,
+    document: {
+      getElementById: () => null
+    },
+    navigator: {
+      clipboard: {
+        writeText: async (text) => {
+          copiedText = text;
+          return Promise.resolve();
+        }
+      }
+    }
+  };
+
+  const script = new vm.Script(copyFnMatch[0]);
+  const context = vm.createContext(sandbox);
+  script.runInContext(context);
+
+  context.copyPreJobSummaryToClipboard(mockBtn);
+  // Allow async clipboard promise to resolve
+  await new Promise((r) => setTimeout(r, 10));
+
+  assert.ok(
+    copiedText.includes('Pre-Job Summary:\n- Equipment: Pentair SuperFlo VST'),
+    'copyPreJobSummaryToClipboard must copy the latest pre-job summary text'
+  );
+  assert.equal(feedbackEl.classList.hidden, false, 'Feedback element must be unhidden');
+  assert.ok(
+    feedbackEl.textContent.includes('copied to clipboard'),
+    'Feedback message must confirm clipboard copy'
+  );
+});

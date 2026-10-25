@@ -3279,7 +3279,7 @@
         type: 'service_request_form',
         choices: [],
         dispatchNote: {
-          customer: 'Awaiting Contact Info (Technician / Licensed Pro Handoff)',
+          customer: 'Pre-Job Summary (Non-Dispatch Public Demo)',
           equipment: equipLabel,
           issue: primaryIssue,
           stepsCompleted: `Escalated to Licensed Pro (${sessionContext.ruledOut.length} checks recorded)`,
@@ -4599,6 +4599,42 @@
 
     // In-chat service technician request submission guard:
     // Public demo mode does not dispatch technicians or transmit PII to external form providers.
+        function copyPreJobSummaryToClipboard(btn) {
+      const container = btn?.closest?.('.in-chat-demo-dispatch-notice');
+      const feedback = container?.querySelector?.('.copy-summary-feedback');
+      let textToCopy = '';
+      if (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
+        for (let i = conversationHistory.length - 1; i >= 0; i--) {
+          const turn = conversationHistory[i];
+          if (turn && turn.type === 'service_request_form' && turn.aiReply) {
+            textToCopy = turn.aiReply;
+            break;
+          }
+        }
+      }
+      if (!textToCopy) {
+        const bodyEl = document.getElementById('walkthroughBody');
+        textToCopy = bodyEl ? (bodyEl.innerText || bodyEl.textContent || '') : '';
+      }
+      if (!textToCopy) textToCopy = 'PoolDocAI Pre-Job Summary';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          if (feedback) {
+            feedback.textContent = '✓ Pre-Job Summary copied to clipboard! You can share this directly with your service professional.';
+            feedback.classList.remove('hidden');
+          }
+        }).catch(() => {
+          if (feedback) {
+            feedback.textContent = '✓ Pre-Job Summary ready to copy from the conversation above.';
+            feedback.classList.remove('hidden');
+          }
+        });
+      } else if (feedback) {
+        feedback.textContent = '✓ Pre-Job Summary ready to copy from the conversation above.';
+        feedback.classList.remove('hidden');
+      }
+    }
+
     async function submitInChatServiceRequest(formEl) {
       const errBox = formEl?.querySelector?.('.sr-form-error');
       const submitBtn = formEl?.querySelector?.('button[type="submit"]');
@@ -4673,7 +4709,7 @@
         } else if (isCaution && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="demoCautionCheckbox" type="checkbox" class="w-4 h-4 rounded accent-amber-400 cursor-pointer" /><span>I understand the caution and have reviewed the non-invasive check described above. I will skip it if I am unsure.</span></label><div class="flex flex-wrap items-center gap-2"><button id="demoCautionContinueBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Show Cautionary Guidance &rarr;</button><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-slate-800 text-sky-200 border border-slate-600 font-bold text-xs cursor-pointer">Skip this check / Show an alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Request Technician / Call Licensed Pro" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold text-xs cursor-pointer">Request Technician / Call Licensed Pro</button></div><div id="demoUnlockedCautionStep" class="hidden p-3 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200 whitespace-pre-line">${escapeHtml(step.unlockedStep || '')}</div></div>`;
         } else if (isServiceForm && isLatest) {
-          specialControlHtml = `<div class="in-chat-demo-dispatch-notice mt-3.5 p-4 rounded-2xl bg-slate-950 border border-sky-500/50 space-y-3"><div class="flex items-center gap-2"><span class="inline-flex items-center rounded-md bg-amber-500/20 text-amber-300 px-2 py-0.5 text-xs font-bold uppercase tracking-wider">Demo Preview — Non-Dispatch</span></div><div class="text-xs sm:text-sm font-bold text-white">📋 Pre-Job Summary Generated (Public Demo Mode)</div><p class="text-xs text-slate-300 leading-relaxed">Live technician dispatch and customer service-request submission are disabled in this public demonstration. In a production company deployment, customer pre-job summaries are transmitted securely to that company's private, tenant-isolated dispatch queue.</p><p class="text-xs text-slate-400 leading-relaxed">To test company-managed workflows or request early platform access, please join the official waitlist or apply for the Founders Program below.</p><div class="pt-1"><a href="#pilotInterestForm" class="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition cursor-pointer">Join Early Access Waitlist &darr;</a></div></div>`;
+          specialControlHtml = `<div class="in-chat-demo-dispatch-notice mt-3.5 p-4 rounded-2xl bg-slate-950 border border-sky-500/50 space-y-3"><div class="flex items-center gap-2"><span class="inline-flex items-center rounded-md bg-amber-500/20 text-amber-300 px-2 py-0.5 text-xs font-bold uppercase tracking-wider">Demo Preview — Non-Dispatch</span></div><div class="text-xs sm:text-sm font-bold text-white">📋 Pre-Job Summary Generated (Public Demo Mode)</div><p class="text-xs text-slate-300 leading-relaxed">Live technician dispatch and customer service-request submission are disabled in this public demonstration. In a production company deployment, customer pre-job summaries are transmitted securely to that company's private, tenant-isolated dispatch queue.</p><p class="text-xs text-slate-400 leading-relaxed">You can copy or share this pre-job summary directly with your local licensed service professional, or join the early-access waitlist below.</p><div class="pt-1 flex flex-wrap items-center gap-2"><button type="button" onclick="copyPreJobSummaryToClipboard(this)" class="copy-prejob-summary-btn inline-flex items-center justify-center px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs transition cursor-pointer">📋 Copy Pre-Job Summary to Clipboard</button><a href="#pilotInterestForm" class="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition cursor-pointer">Join Early Access Waitlist &darr;</a></div><div class="copy-summary-feedback hidden text-xs text-emerald-400 font-semibold" role="status"></div></div>`;
         }
         const homeownerHighRiskInstruction = currentSurfaceMode !== 'tech' && /(?:\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring)\b)/i.test(cautionRiskText);
         const dangerousChemicalMixInstruction = isDangerousChemicalMixInstruction(cautionRiskText);

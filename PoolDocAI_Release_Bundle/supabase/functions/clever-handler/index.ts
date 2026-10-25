@@ -282,15 +282,22 @@ type StructuredDiagnostic = {
   message?: string;
   step_title?: string;
   step_instructions?: string;
+  step?: string;
   safety_warning?: string;
   follow_up_question?: string;
   choices?: DiagnosticChoice[];
   model_suggestions?: string[];
   source_label?: string;
   source_id?: string;
+  sourceId?: string;
   source_title?: string;
+  sourceTitle?: string;
   page_number?: string | number;
+  page?: string | number;
+  pageNumber?: string | number;
   revision?: string;
+  source_revision?: string;
+  sourceRevision?: string;
   requires_technician?: boolean;
 };
 
@@ -3844,6 +3851,27 @@ MANDATORY DIAGNOSTIC ORDER:
   if (internalCitation.verified) {
     sourceMode = "manual";
     sourceKind = internalCitation.sourceKind;
+    if (internalCitation.matchedRow) {
+      const matched = internalCitation.matchedRow;
+      const verifiedItem: AnyRecord = {
+        title: textValue(matched.title ?? matched.name ?? matched.manual_title ?? matched.document_title, 200) || "Verified Manual Procedure",
+        canonicalTitle: textValue(matched.canonical_title ?? matched.canonicalTitle, 250) || undefined,
+        publicationNumber: textValue(matched.publication_number ?? matched.publicationNumber, 80) || undefined,
+        revision: textValue(structuredResponse?.revision ?? matched.revision, 40) || undefined,
+        brand: textValue(matched.brand ?? matched.manufacturer, 100) || undefined,
+        modelFamily: textValue(matched.model_family ?? matched.modelFamily, 100) || undefined,
+        category: textValue(matched.category ?? matched.type, 100) || undefined,
+        page: internalCitation.page ?? matched.page ?? matched.page_number ?? undefined,
+        pageStart: matched.page_start ?? matched.page_number ?? undefined,
+        pageEnd: matched.page_end ?? matched.page_number ?? undefined,
+        pageLabel: internalCitation.page ? `p. ${internalCitation.page}` : (matched.page_start || matched.page_end) ? (matched.page_start && matched.page_end && matched.page_start !== matched.page_end ? `pp. ${matched.page_start}–${matched.page_end}` : `p. ${matched.page_start || matched.page_end}`) : (matched.page_number ? `p. ${matched.page_number}` : undefined),
+        retrievalMethod: textValue(matched.retrieval_method, 20) || "verified_internal_citation",
+        fileName: textValue(matched.file_name ?? matched.filename ?? matched.source_file, 200) || undefined,
+        url: textValue(matched.source_url ?? matched.url ?? matched.manual_url, 1000) || undefined,
+        sha256: textValue(matched.content_sha256 ?? matched.sha256, 64) || undefined,
+      };
+      manualSources = [verifiedItem];
+    }
   }
   const initialAlgaePlanComplete = !isConfirmedAlgaeCase ||
     (generatedResponseType === "water_quality_plan" && hasCompleteAlgaeTreatmentPlan(aiReply));
@@ -3920,6 +3948,7 @@ MANDATORY DIAGNOSTIC ORDER:
           aiReply = forcedReply;
           generatedResponseType = forcedType;
           webSources = forcedSources;
+          manualSources = [];
           sourceMode = "web";
           responseChoices = (Array.isArray(forcedStructured.choices) ? forcedStructured.choices : []).map((choice) => ({
             label: textValue(choice?.label, 140),

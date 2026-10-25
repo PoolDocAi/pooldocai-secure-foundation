@@ -92,6 +92,8 @@ jobs:
         run: node website/tests/task009-part1-application-tenant-isolation.test.cjs
       - name: Test TASK-010 Part-1 form routing and privacy boundary
         run: node website/tests/task010-part1-form-routing.test.cjs
+      - name: Test TASK-011 Part-1 verified AI source contract and grounding
+        run: node website/tests/task011-part1-ai-source-contract.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
@@ -155,3 +157,5 @@ jobs:
         run: node website/tests/task009-part1-application-tenant-isolation.test.cjs
       - name: Test TASK-010 Part-1 form routing and privacy boundary
         run: node website/tests/task010-part1-form-routing.test.cjs
+      - name: Test TASK-011 Part-1 verified AI source contract and grounding
+        run: node website/tests/task011-part1-ai-source-contract.test.cjs
