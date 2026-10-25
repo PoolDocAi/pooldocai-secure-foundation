@@ -1311,24 +1311,39 @@ function verifyInternalCitation(
       return false;
     }
 
+    // Conjunction Check 2: Equipment make & model match
+    const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
+    const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
+    // Disallow display fallback string ("Company manual / SOP") from satisfying SOP exemption.
+    // Classify truly generic water-chemistry SOPs strictly from explicit, authoritative metadata category.
+    const explicitCategory = String(row.equipment_category || (row.category && row.category !== "Company manual / SOP" ? row.category : "")).toLowerCase().trim();
+    const isWaterQualitySOP = explicitCategory === "water chemistry" || explicitCategory === "water_chemistry" || explicitCategory === "water care" || explicitCategory === "water_care" || explicitCategory === "chemistry";
+    const isEquipmentManual = !!(row.publication_number || row.file_name || rowBrand || rowModel) && !isWaterQualitySOP;
+
+    if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
+    if (desiredModel && rowModel && rowModel !== desiredModel) return false;
+    if (desiredModel && !rowModel && !isWaterQualitySOP) return false;
+    if (desiredBrand && !rowBrand && !isWaterQualitySOP) return false;
+
     // Page number match where available (supports page_number, or range [page_start, page_end])
     if (row.page_number != null || row.page_start != null || row.page_end != null) {
-      if (citedPage == null || String(citedPage).trim() === "") {
-        return false;
-      }
-      const numCited = Number(String(citedPage).replace(/[^0-9.]/g, ""));
-      const numRow = row.page_number != null ? Number(String(row.page_number).replace(/[^0-9.]/g, "")) : NaN;
-      const numStart = row.page_start != null ? Number(String(row.page_start).replace(/[^0-9.]/g, "")) : numRow;
-      const numEnd = row.page_end != null ? Number(String(row.page_end).replace(/[^0-9.]/g, "")) : numRow;
-      if (Number.isFinite(numCited)) {
-        if (Number.isFinite(numStart) && Number.isFinite(numEnd)) {
-          if (numCited < numStart || numCited > numEnd) {
+      if (citedPage != null && String(citedPage).trim() !== "") {
+        const numCited = Number(String(citedPage).replace(/[^0-9.]/g, ""));
+        const numRow = row.page_number != null ? Number(String(row.page_number).replace(/[^0-9.]/g, "")) : NaN;
+        const numStart = row.page_start != null ? Number(String(row.page_start).replace(/[^0-9.]/g, "")) : numRow;
+        const numEnd = row.page_end != null ? Number(String(row.page_end).replace(/[^0-9.]/g, "")) : numRow;
+        if (Number.isFinite(numCited)) {
+          if (Number.isFinite(numStart) && Number.isFinite(numEnd)) {
+            if (numCited < numStart || numCited > numEnd) {
+              return false;
+            }
+          } else if (Number.isFinite(numRow) && numCited !== numRow) {
             return false;
           }
-        } else if (Number.isFinite(numRow) && numCited !== numRow) {
+        } else {
           return false;
         }
-      } else {
+      } else if (isEquipmentManual) {
         return false;
       }
     }
@@ -1337,22 +1352,14 @@ function verifyInternalCitation(
     const citedRevision = textValue(structured.revision ?? structured.source_revision ?? structured.sourceRevision, 40).trim().toLowerCase();
     const rowRevision = textValue(row.revision ?? row.manual_revision ?? row.document_revision, 40).trim().toLowerCase();
     if (rowRevision) {
-      if (!citedRevision || citedRevision !== rowRevision) {
+      if (citedRevision) {
+        if (citedRevision !== rowRevision) {
+          return false;
+        }
+      } else if (isEquipmentManual) {
         return false;
       }
     }
-
-    // Conjunction Check 2: Equipment make & model match
-    const rowBrand = normalizedEquipmentReference(row.brand ?? row.manufacturer ?? row.manufacturer_normalized);
-    const rowModel = normalizedEquipmentReference(row.model_family ?? row.model_normalized ?? row.model);
-    // Disallow display fallback string ("Company manual / SOP") from satisfying SOP exemption.
-    // Classify truly generic water-chemistry SOPs strictly from explicit, authoritative metadata category.
-    const explicitCategory = String(row.equipment_category || (row.category && row.category !== "Company manual / SOP" ? row.category : "")).toLowerCase().trim();
-    const isWaterQualitySOP = explicitCategory === "water chemistry" || explicitCategory === "water_chemistry" || explicitCategory === "water care" || explicitCategory === "water_care" || explicitCategory === "chemistry";
-    if (desiredBrand && rowBrand && rowBrand !== desiredBrand) return false;
-    if (desiredModel && rowModel && rowModel !== desiredModel) return false;
-    if (desiredModel && !rowModel && !isWaterQualitySOP) return false;
-    if (desiredBrand && !rowBrand && !isWaterQualitySOP) return false;
 
     // Conjunction Check 3: Procedure text present & symptom match
     const proc = getProcedureText(row).trim();
