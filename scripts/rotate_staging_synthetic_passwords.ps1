@@ -1,37 +1,54 @@
 # ============================================================================
-# POOLDOCAI TASK-008 PART-1C: ONE-TIME STAGING SYNTHETIC PASSWORD ROTATION & LIVE VERIFICATION
+# POOLDOCAI TASK-008 PART-1C: ONE-TIME STAGING SYNTHETIC PASSWORD ROTATION & LIVE TEST RUNNER
 # Target: Dedicated Supabase Staging Project rzkgmvyyeclrpomrlyft ONLY
-# Strictly Approved: Issue #15 Comment #6400745188 (Owner Authorization)
+# Strictly Authorized: GitHub Issue #15 Comment #6400745188
 #
 # Safety Boundaries:
 # - Aborts immediately if host is NOT rzkgmvyyeclrpomrlyft.supabase.co
 # - Aborts immediately if host contains owfeebydlyacssqpnmkq (production)
+# - Supports modern sb_secret_ admin keys (apikey header only, avoids Invalid JWT error)
+#   as well as legacy service_role JWT keys.
 # - Rotates passwords ONLY for the four pre-approved synthetic test accounts
-# - Never creates users, deletes users, or touches schemas
+# - Pre-mutation DPAPI persistence: saves encrypted passwords before first API call
+# - Explicit -DryRun parameter for safe preflight with ZERO mutations
+# - Never creates users, deletes users, or touches database schemas
 # - Accepts admin key via non-echoing prompt (Read-Host -AsSecureString)
 # - Never echoes, logs, or transmits key material
-# - Stores rotated passwords encrypted with Windows DPAPI outside the git repository
 # ============================================================================
 
 [CmdletBinding()]
 param(
-    [string]$StagingUrl = "https://rzkgmvyyeclrpomrlyft.supabase.co"
+    [string]$StagingUrl = "https://rzkgmvyyeclrpomrlyft.supabase.co",
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "============================================================================" -ForegroundColor Cyan
-Write-Host " POOLDOCAI: STAGING SYNTHETIC PASSWORD ROTATION & LIVE TEST RUNNER" -ForegroundColor Cyan
+Write-Host " POOLDOCAI: STAGING SYNTHETIC PASSWORD ROTATION & VERIFICATION UTILITY" -ForegroundColor Cyan
 Write-Host " Target: $StagingUrl" -ForegroundColor Cyan
+if ($DryRun) {
+    Write-Host " MODE: DRY RUN (PREFLIGHT ONLY - ZERO MUTATIONS)" -ForegroundColor Yellow
+} else {
+    Write-Host " MODE: LIVE ROTATION & TENANT-ISOLATION VERIFICATION" -ForegroundColor Magenta
+}
 Write-Host "============================================================================`n" -ForegroundColor Cyan
 
-# 1. Strict Target Host Guard
+# 1. Strict Target Host & Protocol Guard
 $expectedHost = "rzkgmvyyeclrpomrlyft.supabase.co"
 $prodRef = "owfeebydlyacssqpnmkq"
 
 $uri = [System.Uri]$StagingUrl
+if ($uri.Scheme -ne "https") {
+    Write-Error "[FATAL SECURITY VIOLATION] Target URL must use HTTPS protocol. Received: '$($uri.Scheme)'"
+    exit 1
+}
 if ($uri.Host.ToLower() -ne $expectedHost) {
-    Write-Error "[FATAL SECURITY VIOLATION] Target host '$($uri.Host)' does not match expected staging host '$expectedHost'. Aborting."
+    Write-Error "[FATAL SECURITY VIOLATION] Target host '$($uri.Host)' does not match expected staging host '$expectedHost'."
+    exit 1
+}
+if ($uri.Port -ne 443) {
+    Write-Error "[FATAL SECURITY VIOLATION] Target port must be 443. Received: '$($uri.Port)'"
     exit 1
 }
 if ($StagingUrl.ToLower().Contains($prodRef)) {
@@ -71,10 +88,10 @@ $approvedAccounts = @(
     }
 )
 
-# 3. Prompt for Staging Service-Role Admin Key (Non-echoing)
-Write-Host "Please enter the Supabase Staging Administrative Key (Service Role / Secret Key)." -ForegroundColor Yellow
+# 3. Prompt for Staging Administrative Key (Non-echoing)
+Write-Host "Please enter the Supabase Staging Administrative Key (service_role or sb_secret_ key)." -ForegroundColor Yellow
 Write-Host "Input is completely masked and will not be echoed, logged, or saved to disk." -ForegroundColor Yellow
-$secureAdminKey = Read-Host "Staging Service Role Key" -AsSecureString
+$secureAdminKey = Read-Host "Staging Administrative Key" -AsSecureString
 
 if ($null -eq $secureAdminKey -or $secureAdminKey.Length -eq 0) {
     Write-Error "No administrative key provided. Aborting."
@@ -98,10 +115,24 @@ if ($env:STAGING_SUPABASE_ANON_KEY) {
     [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAnon)
 }
 
-# Convert admin key to transient string
+# Convert admin key to transient string in memory
 $bstrAdmin = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureAdminKey)
 $adminKeyPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstrAdmin)
 [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstrAdmin)
+
+# Helper function to build Admin Headers supporting modern sb_secret_ and legacy JWT keys
+function Get-AdminHeaders([string]$adminKey) {
+    $headers = @{
+        "apikey" = $adminKey
+        "Accept" = "application/json"
+    }
+    # Supabase documentation: modern sb_secret_ keys are NOT JWTs and must go on apikey only.
+    # Legacy service_role JWT keys (starting with eyJ) require Authorization: Bearer.
+    if ($adminKey.StartsWith("eyJ")) {
+        $headers["Authorization"] = "Bearer $adminKey"
+    }
+    return $headers
+}
 
 # Helper function for generating CSPRNG passwords
 function New-SecurePassword {
@@ -118,18 +149,14 @@ function New-SecurePassword {
 }
 
 try {
-    # 5. Preflight Verification: Check all 4 accounts via Auth Admin API
+    # 5. Preflight Verification: Verify all 4 accounts via Auth Admin API & check memberships
     Write-Host "`n--- Step 1: Preflight Verification via Staging Auth Admin API ---" -ForegroundColor Cyan
-    $adminHeaders = @{
-        "apikey" = $adminKeyPlain
-        "Authorization" = "Bearer $adminKeyPlain"
-        "Accept" = "application/json"
-    }
+    $adminHeaders = Get-AdminHeaders -adminKey $adminKeyPlain
 
     foreach ($acct in $approvedAccounts) {
         $userUrl = "$StagingUrl/auth/v1/admin/users/$($acct.Id)"
         try {
-            $userRes = Invoke-RestMethod -Uri $userUrl -Method Get -Headers $adminHeaders
+            $userRes = Invoke-RestMethod -Uri $userUrl -Method Get -Headers $adminHeaders -MaximumRedirection 0
         } catch {
             Write-Error "[FATAL] Failed to fetch user $($acct.Email) via Auth Admin: $($_.Exception.Message)"
             exit 1
@@ -142,36 +169,61 @@ try {
 
         # Verify company membership
         $memberUrl = "$StagingUrl/rest/v1/company_members?user_id=eq.$($acct.Id)&select=id,company_id,role"
-        $memberRes = Invoke-RestMethod -Uri $memberUrl -Method Get -Headers $adminHeaders
+        $memberRes = Invoke-RestMethod -Uri $memberUrl -Method Get -Headers $adminHeaders -MaximumRedirection 0
         if ($memberRes.Count -eq 0 -or $memberRes[0].company_id -ne $acct.CompanyId) {
             Write-Error "[FATAL] Membership mismatch for user $($acct.Email)! Expected company $($acct.CompanyId)"
             exit 1
         }
 
-        Write-Host "  [PREFLIGHT PASS] $($acct.Email) ($($acct.Id)) confirmed in $($acct.CompanyName)" -ForegroundColor Green
+        Write-Host "  [PREFLIGHT PASS] $($acct.Email) ($($acct.Id)) verified in $($acct.CompanyName)" -ForegroundColor Green
     }
 
-    # 6. Generate 4 Independent Secure Passwords & Rotate
-    Write-Host "`n--- Step 2: Generating Secure Passwords & Rotating via Auth Admin ---" -ForegroundColor Cyan
+    if ($DryRun) {
+        Write-Host "`n============================================================================" -ForegroundColor Green
+        Write-Host " [DRY RUN COMPLETE]: All 4 synthetic accounts confirmed with correct UUIDs," -ForegroundColor Green
+        Write-Host " emails, and company memberships in project $expectedHost." -ForegroundColor Green
+        Write-Host " ZERO MUTATIONS PERFORMED. Ready for authorized rotation execution." -ForegroundColor Green
+        Write-Host "============================================================================`n" -ForegroundColor Green
+        return
+    }
+
+    # 6. Pre-mutation DPAPI Persistence: Generate passwords & save encrypted store BEFORE first update
+    Write-Host "`n--- Step 2: Pre-Mutation DPAPI Credential Persistence ---" -ForegroundColor Cyan
     $passwords = @{}
-    $secureStore = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
+    $credStore = [System.Collections.Generic.Dictionary[string, System.Security.SecureString]]::new()
 
     foreach ($acct in $approvedAccounts) {
-        $newPwd = New-SecurePassword -Length 32
-        $passwords[$acct.Role] = $newPwd
-        $secureStore[$acct.Role] = ConvertTo-SecureString $newPwd -AsPlainText -Force
+        $pwd = New-SecurePassword -Length 32
+        $passwords[$acct.Role] = $pwd
+        $credStore[$acct.Role] = ConvertTo-SecureString $pwd -AsPlainText -Force
+    }
 
+    $credPath = Join-Path $env:USERPROFILE ".pooldocai_staging_credentials.xml"
+    $credStore | Export-Clixml -Path $credPath
+    Write-Host "  [DPAPI PERSISTED] Pre-mutation encrypted credentials saved to: $credPath" -ForegroundColor Green
+
+    # 7. Perform One-by-One Rotation via Auth Admin & Immediate GoTrue Login Verification
+    Write-Host "`n--- Step 3: Rotating Passwords & Verifying Logins ---" -ForegroundColor Cyan
+    $authTokens = @{}
+
+    $tokenHeaders = @{
+        "apikey" = $anonKeyPlain
+        "Content-Type" = "application/json"
+        "Accept" = "application/json"
+    }
+    if ($anonKeyPlain.StartsWith("eyJ")) {
+        $tokenHeaders["Authorization"] = "Bearer $anonKeyPlain"
+    }
+
+    foreach ($acct in $approvedAccounts) {
+        $newPwd = $passwords[$acct.Role]
         $updateUrl = "$StagingUrl/auth/v1/admin/users/$($acct.Id)"
         $updateBody = @{ password = $newPwd } | ConvertTo-Json
-        $updateHeaders = @{
-            "apikey" = $adminKeyPlain
-            "Authorization" = "Bearer $adminKeyPlain"
-            "Content-Type" = "application/json"
-            "Accept" = "application/json"
-        }
+        $updateHeaders = Get-AdminHeaders -adminKey $adminKeyPlain
+        $updateHeaders["Content-Type"] = "application/json"
 
         try {
-            $updateRes = Invoke-RestMethod -Uri $updateUrl -Method Put -Headers $updateHeaders -Body $updateBody
+            $updateRes = Invoke-RestMethod -Uri $updateUrl -Method Put -Headers $updateHeaders -Body $updateBody -MaximumRedirection 0
         } catch {
             Write-Error "[FATAL] Failed to update password for $($acct.Email): $($_.Exception.Message)"
             exit 1
@@ -181,28 +233,17 @@ try {
             Write-Error "[FATAL] Unexpected response when updating $($acct.Email)"
             exit 1
         }
+        Write-Host "  [ROTATION SUCCESS] Rotated password for $($acct.Email)" -ForegroundColor Green
 
-        Write-Host "  [ROTATION SUCCESS] Rotated password for $($acct.Email) ($($acct.Id))" -ForegroundColor Green
-    }
-
-    # 7. Post-Rotation Verification: Perform Genuine GoTrue Password Sign-ins
-    Write-Host "`n--- Step 3: Verifying Authentic GoTrue Logins with Staging Publishable Key ---" -ForegroundColor Cyan
-    $authTokens = @{}
-    $tokenHeaders = @{
-        "apikey" = $anonKeyPlain
-        "Content-Type" = "application/json"
-        "Accept" = "application/json"
-    }
-
-    foreach ($acct in $approvedAccounts) {
+        # Immediate login verification with publishable key
         $loginUrl = "$StagingUrl/auth/v1/token?grant_type=password"
         $loginBody = @{
             email = $acct.Email
-            password = $passwords[$acct.Role]
+            password = $newPwd
         } | ConvertTo-Json
 
         try {
-            $loginRes = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $tokenHeaders -Body $loginBody
+            $loginRes = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $tokenHeaders -Body $loginBody -MaximumRedirection 0
         } catch {
             Write-Error "[FATAL] GoTrue login failed for $($acct.Email): $($_.Exception.Message)"
             exit 1
@@ -214,23 +255,27 @@ try {
         }
 
         $authTokens[$acct.Role] = $loginRes.access_token
-        Write-Host "  [LOGIN VERIFIED] Authentic GoTrue token received for $($acct.Email)" -ForegroundColor Green
+        Write-Host "  [LOGIN VERIFIED] Authentic GoTrue token verified for $($acct.Email)" -ForegroundColor Green
+
+        # Re-verify company membership unchanged post-rotation
+        $postMemberUrl = "$StagingUrl/rest/v1/company_members?user_id=eq.$($acct.Id)&select=id,company_id,role"
+        $postMemberRes = Invoke-RestMethod -Uri $postMemberUrl -Method Get -Headers (Get-AdminHeaders -adminKey $adminKeyPlain) -MaximumRedirection 0
+        if ($postMemberRes.Count -eq 0 -or $postMemberRes[0].company_id -ne $acct.CompanyId) {
+            Write-Error "[FATAL] Post-rotation membership altered for $($acct.Email)!"
+            exit 1
+        }
     }
 
-    # 8. Save Rotated Passwords Encrypted with Windows DPAPI Outside Git Repo
-    Write-Host "`n--- Step 4: Storing Credentials with Windows DPAPI (Outside Repo) ---" -ForegroundColor Cyan
-    $credPath = Join-Path $env:USERPROFILE ".pooldocai_staging_credentials.xml"
-    $secureStore | Export-Clixml -Path $credPath
-    Write-Host "  [DPAPI SAVED] Passwords encrypted and saved to: $credPath" -ForegroundColor Green
+    Write-Host "`nAll 4 synthetic user passwords rotated and verified successfully." -ForegroundColor Green
 
 } finally {
-    # 9. Clean Up Administrative Secrets from Memory Immediately
+    # 8. Clean Up Administrative Key from Memory Immediately
     $adminKeyPlain = $null
     $secureAdminKey = $null
     [System.GC]::Collect()
 }
 
-# 10. Execute Live Tenant-Isolation Test Suite with Verified Tokens
+# 9. Execute Live Tenant-Isolation Test Suite with Verified Tokens
 Write-Host "`n============================================================================" -ForegroundColor Cyan
 Write-Host " EXECUTING REAL STAGING TENANT-ISOLATION SUITE (29 ASSERTIONS)" -ForegroundColor Cyan
 Write-Host "============================================================================`n" -ForegroundColor Cyan
@@ -240,7 +285,6 @@ $env:STAGING_SUPABASE_ANON_KEY = $anonKeyPlain
 $env:STAGING_AUTH_TOKENS = ($authTokens | ConvertTo-Json -Compress)
 $env:REQUIRE_LIVE_STAGING = "1"
 
-# Run the test suite
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 try {
@@ -252,5 +296,6 @@ try {
         Write-Error "[TASK-008 PART-1C VERIFICATION]: Live staging tests failed with exit code $testExit"
     }
 } finally {
+    $env:STAGING_AUTH_TOKENS = $null
     Pop-Location
 }
