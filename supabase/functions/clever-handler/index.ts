@@ -1115,10 +1115,65 @@ function hasUngroundedChemicalDosing(instructionText: string, procText: string):
   return false;
 }
 
+const INVASIVE_ACTION_PATTERNS = [
+  {
+    type: "replacement",
+    regex: /\b(?:replace|replacing|replacement|swap|swapping|substitute|substituting)\s+(?:the\s+|a\s+|an\s+|new\s+|damaged\s+|defective\s+|failed\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
+    procKeywords: ["replace", "replacing", "replacement", "swap", "swapping", "substitute", "new"]
+  },
+  {
+    type: "removal",
+    regex: /\b(?:remove|removing|removal|uninstall|uninstalling|take off|pull|extract|extracting)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
+    procKeywords: ["remove", "removing", "removal", "uninstall", "take off", "pull", "extract"]
+  },
+  {
+    type: "rewiring",
+    regex: /\b(?:rewire|rewiring|splice|splicing|bypass|bypassing|jumper|jumpering)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
+    procKeywords: ["rewire", "rewiring", "splice", "splicing", "bypass", "bypassing", "jumper"]
+  },
+  {
+    type: "rebuild",
+    regex: /\b(?:rebuild|rebuilding|overhaul|overhauling|disassemble|disassembling|disassembly|tear down)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
+    procKeywords: ["rebuild", "rebuilding", "overhaul", "disassemble", "disassembly", "tear down"]
+  },
+  {
+    type: "opening_enclosure",
+    regex: /\b(?:open|opening|access|accessing)\s+(?:the\s+)?(?:drive\s+|motor\s+|electrical\s+)?(enclosure|panel|casing|housing|cabinet)/gi,
+    procKeywords: ["open", "opening", "access"]
+  }
+];
+
+function checkProhibitions(instructionText: string, procText: string): { prohibited: boolean; phrase?: string } {
+  const lowerInstruction = instructionText.toLowerCase();
+  const lowerProc = procText.toLowerCase();
+
+  const prohibitionMatches = lowerProc.matchAll(/\b(?:do not|don't|never|must not|should not)\s+([a-z\s]{3,40}?)(?=[.,;!?\n]|\b(?:without|unless|until|before)\b)/gi);
+  for (const match of prohibitionMatches) {
+    const prohibitedPhrase = match[1].trim();
+    const prohibitedTokens = extractDiagnosticTokens(prohibitedPhrase);
+    if (prohibitedTokens.length >= 2) {
+      const instructionHasAllTokens = prohibitedTokens.every(tok => tokenMatches(tok, lowerInstruction));
+      if (instructionHasAllTokens) {
+        const hasIsolating = /\b(?:isolat|disconnect|shut off|turn off|breaker off|power off)\b/i.test(lowerInstruction);
+        if (!hasIsolating) {
+          return { prohibited: true, phrase: prohibitedPhrase };
+        }
+      }
+    }
+  }
+  return { prohibited: false };
+}
+
 function hasSubstantiveProcedureEvidence(instructionText: string, procText: string): boolean {
   const lowerInstruction = String(instructionText ?? "").toLowerCase();
   const lowerProc = String(procText ?? "").toLowerCase();
   if (!lowerInstruction.trim() || !lowerProc.trim()) return false;
+
+  // 1. Explicit procedure prohibitions guard
+  const prohibitionCheck = checkProhibitions(lowerInstruction, lowerProc);
+  if (prohibitionCheck.prohibited) {
+    return false;
+  }
 
   const stepTokens = extractDiagnosticTokens(lowerInstruction);
   if (stepTokens.length === 0) return false;
@@ -1133,15 +1188,41 @@ function hasSubstantiveProcedureEvidence(instructionText: string, procText: stri
     return false;
   }
 
-  // Action & Component Corroboration:
-  // If an invasive or specific hardware repair action is prescribed, verify the component is in procText.
-  const invasiveMatch = lowerInstruction.match(/\b(?:replace|replacing|replacement|swap|swapping|rebuild|rebuilding|disassemble|disassembling|remove|removing|install|installing|rewire|rewiring)\s+(?:the\s+|a\s+|an\s+|new\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/i);
-  if (invasiveMatch) {
-    const rawTarget = invasiveMatch[1].trim();
-    const targetTokens = extractDiagnosticTokens(rawTarget);
-    if (targetTokens.length > 0) {
-      const targetMatches = targetTokens.some((tok) => tokenMatches(tok, lowerProc));
-      if (!targetMatches) {
+  // 3. Action + Object Imperative Corroboration:
+  // For any invasive action prescribed by the instruction, verify the procedure text explicitly
+  // substantiates that same action on that component (not merely mentioning the component in an inspection context).
+  for (const pattern of INVASIVE_ACTION_PATTERNS) {
+    const matches = Array.from(lowerInstruction.matchAll(pattern.regex));
+    for (const match of matches) {
+      const targetComponent = match[1].trim();
+      const targetTokens = extractDiagnosticTokens(targetComponent);
+      if (targetTokens.length === 0) continue;
+
+      // First: does the target component exist in the procedure?
+      const targetInProc = targetTokens.some((tok) => tokenMatches(tok, lowerProc));
+      if (!targetInProc) {
+        return false;
+      }
+
+      // Second: does the procedure corroborate the ACTION on that component?
+      const procSentences = lowerProc.split(/[.!?;:\n]+/);
+      let actionCorroboratedOnTarget = false;
+
+      for (const sentence of procSentences) {
+        const sentenceHasTarget = targetTokens.some((tok) => tokenMatches(tok, sentence));
+        if (sentenceHasTarget) {
+          const hasActionKeyword = pattern.procKeywords.some((kw) => tokenMatches(kw, sentence));
+          if (hasActionKeyword) {
+            const isNegatedInSentence = /\b(?:do not|don't|never|not)\s+(?:[a-z]+\s+){0,3}(?:replace|swap|remove|rewire|rebuild|open)/i.test(sentence);
+            if (!isNegatedInSentence) {
+              actionCorroboratedOnTarget = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!actionCorroboratedOnTarget) {
         return false;
       }
     }
@@ -1231,7 +1312,10 @@ function verifyInternalCitation(
     }
 
     // Page number match where available (supports page_number, or range [page_start, page_end])
-    if (citedPage != null && (row.page_number != null || row.page_start != null || row.page_end != null)) {
+    if (row.page_number != null || row.page_start != null || row.page_end != null) {
+      if (citedPage == null || String(citedPage).trim() === "") {
+        return false;
+      }
       const numCited = Number(String(citedPage).replace(/[^0-9.]/g, ""));
       const numRow = row.page_number != null ? Number(String(row.page_number).replace(/[^0-9.]/g, "")) : NaN;
       const numStart = row.page_start != null ? Number(String(row.page_start).replace(/[^0-9.]/g, "")) : numRow;
@@ -1244,14 +1328,18 @@ function verifyInternalCitation(
         } else if (Number.isFinite(numRow) && numCited !== numRow) {
           return false;
         }
+      } else {
+        return false;
       }
     }
 
     // Revision match where available
     const citedRevision = textValue(structured.revision ?? structured.source_revision ?? structured.sourceRevision, 40).trim().toLowerCase();
     const rowRevision = textValue(row.revision ?? row.manual_revision ?? row.document_revision, 40).trim().toLowerCase();
-    if (citedRevision && rowRevision && citedRevision !== rowRevision) {
-      return false;
+    if (rowRevision) {
+      if (!citedRevision || citedRevision !== rowRevision) {
+        return false;
+      }
     }
 
     // Conjunction Check 2: Equipment make & model match
@@ -1286,7 +1374,10 @@ function verifyInternalCitation(
       if (isAlgae && !hasCompleteAlgaeTreatmentPlan(instructionText)) {
         return false;
       }
-      return isRelevantWaterQualityProcedure(String(row.title ?? ""), proc);
+      if (!isRelevantWaterQualityProcedure(String(row.title ?? ""), proc)) {
+        return false;
+      }
+      return hasSubstantiveProcedureEvidence(instructionText, proc);
     }
 
     return hasSubstantiveProcedureEvidence(instructionText, proc);
@@ -2701,6 +2792,7 @@ Deno.serve(async (req: Request) => {
       // Do not equate an arbitrary browser boolean with adequate sharing permission.
       let contributorConsentValid = false;
       let authoritativeTermsVersion: string | null = null;
+      let authoritativeAcceptedAt: string | null = null;
       if (body.caseLearningOptIn === true && authenticatedCompanyId && authenticatedUserId) {
         const { data: legalRow, error: legalErr } = await supabase
           .from("pooldocai_legal_acceptances")
@@ -2714,6 +2806,7 @@ Deno.serve(async (req: Request) => {
         if (!legalErr && legalRow?.terms_version && String(legalRow.terms_version).startsWith("2026-10")) {
           contributorConsentValid = true;
           authoritativeTermsVersion = String(legalRow.terms_version);
+          authoritativeAcceptedAt = String(legalRow.accepted_at || new Date().toISOString());
         }
       }
 
@@ -2731,7 +2824,10 @@ Deno.serve(async (req: Request) => {
         symptom_redacted: caseIssue, resolution_summary_redacted: caseResolution || null,
         source_ids: [data.id], technician_verified: row.technician_verified, approved_for_learning: false,
         case_learning_opt_in: effectiveCaseOptIn,
-        learning_terms_version: authoritativeTermsVersion
+        learning_terms_version: authoritativeTermsVersion,
+        consent_origin: effectiveCaseOptIn ? "verified_server_terms_acceptance" : "denied_or_unconsented",
+        contributor_accepted_at: authoritativeAcceptedAt,
+        contributor_user_id: effectiveCaseOptIn ? authenticatedUserId : null
       }).select("id").single();
       let stepLinked = false;
       if (validatedRelatedCaseId) {

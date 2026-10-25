@@ -612,6 +612,134 @@ async function runTestSuite() {
     const jsonChem = await resChem.json();
     assert.equal(jsonChem.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Ungrounded chemical dosing on equipment chunk MUST trigger fallback search");
     console.log("PASS: Test 2B - Ungrounded chemical dosing absent from source rejected; fallback search triggered.");
+
+    console.log("\\n--- TEST 2C: P0 Review Defect - Unsupported Breaker Replacement ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // Prescribing breaker replacement against an inspection-only procedure
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Replace Main Circuit Breaker",
+        step_instructions: "Replace the breaker after checking supply voltage.",
+        safety_warning: "Ensure main power is disconnected.",
+        follow_up_question: "Did replacing the breaker restore power?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_a_1",
+        source_title: "Pentair SuperFlo VST Troubleshooting",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    // Fallback response
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback step.", choices: [] }),
+      steps: []
+    }));
+
+    const req2c = makeDiagReq({
+      sessionId: "session_task005_2c",
+      query: "Pentair SuperFlo VST pump won't start, keypad display is completely dark"
+    });
+
+    const res2c = await capturedHandler!(req2c);
+    const json2c = await res2c.json();
+    assert.equal(json2c.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Unsupported breaker replacement MUST be rejected by action+object check");
+    console.log("PASS: Test 2C - Unsupported breaker replacement on inspection procedure strictly rejected.");
+
+    console.log("\\n--- TEST 2D: Unauthorized Terminal Rewiring ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Rewire Supply Terminals",
+        step_instructions: "Rewire the L1 and L2 terminals after checking line voltage.",
+        safety_warning: "Turn off breaker.",
+        follow_up_question: "Are terminals rewired?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_a_1",
+        source_title: "Pentair SuperFlo VST Troubleshooting",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+    mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback step.", choices: [] }), steps: [] }));
+
+    const req2d = makeDiagReq({ sessionId: "session_task005_2d", query: "Pentair SuperFlo VST won't start" });
+    const res2d = await capturedHandler!(req2d);
+    const json2d = await res2d.json();
+    assert.equal(json2d.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Unauthorized terminal rewiring MUST be rejected");
+    console.log("PASS: Test 2D - Unauthorized terminal rewiring rejected.");
+
+    console.log("\\n--- TEST 2E: Prohibited Enclosure Opening ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Open Drive Enclosure",
+        step_instructions: "Open the drive enclosure to inspect circuit board connections.",
+        safety_warning: "Be careful.",
+        follow_up_question: "Is board visible?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_a_1",
+        source_title: "Pentair SuperFlo VST Troubleshooting",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+    mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback step.", choices: [] }), steps: [] }));
+
+    const req2e = makeDiagReq({ sessionId: "session_task005_2e", query: "Pentair SuperFlo VST won't start" });
+    const res2e = await capturedHandler!(req2e);
+    const json2e = await res2e.json();
+    assert.equal(json2e.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Prohibited drive enclosure opening MUST be rejected");
+    console.log("PASS: Test 2E - Prohibited drive enclosure opening strictly rejected.");
+
+    console.log("\\n--- TEST 2F: Positive Fixture - Genuinely Authorized Component Replacement ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Replace Drive Control Assembly",
+        step_instructions: "If 230V is confirmed at terminals but display remains dark, replace drive control assembly.",
+        safety_warning: "Isolate power at circuit breaker before opening enclosure.",
+        follow_up_question: "Did replacing drive control assembly restore keypad?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_a_1",
+        source_title: "Pentair SuperFlo VST Troubleshooting",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2f = makeDiagReq({ sessionId: "session_task005_2f", query: "Pentair SuperFlo VST won't start, keypad display is dark" });
+    const res2f = await capturedHandler!(req2f);
+    assert.equal(res2f.status, 200);
+    const json2f = await res2f.json();
+    assert.equal(json2f.knowledgeDiagnostics.sourceVerifiedAnswer, true, "Genuinely authorized component replacement MUST verify");
+    assert.equal(json2f.knowledgeDiagnostics.forcedWebSearchAttempted, false, "Genuinely authorized replacement MUST NOT trigger web fallback");
+    assert.equal(geminiCalls.length, 1, "Exactly one Gemini call should be made when citation is verified");
+    console.log("PASS: Test 2F - Genuinely authorized drive control assembly replacement verified without fallback search.");
   }
 
   // --------------------------------------------------------------------------
@@ -730,6 +858,62 @@ async function runTestSuite() {
     const jsonWrongRev = await resWrongRev.json();
     assert.equal(jsonWrongRev.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Wrong revision citation must fail verification");
     console.log("PASS: Test 3D - Wrong revision citation rejected.");
+
+    // 3E: Missing Page Number on Cataloged Paginated Chunk
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_instructions: "Inspect drive electronics and AC line voltage input to verify 230VAC power supply.",
+        choices: [], model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_a_1",
+        source_title: "Pentair SuperFlo VST Troubleshooting",
+        page_number: "", // Omitted page number on cataloged chunk!
+        revision: "Rev P",
+        requires_technician: false
+      })
+    }));
+    mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback", choices: [] }), steps: [] }));
+
+    const reqMissingPage = makeDiagReq({
+      sessionId: "session_task005_3e",
+      query: "Pentair SuperFlo VST won't start",
+      symptom: "Pump will not start, display is dead"
+    });
+    const resMissingPage = await capturedHandler!(reqMissingPage);
+    const jsonMissingPage = await resMissingPage.json();
+    assert.equal(jsonMissingPage.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Missing page citation on cataloged chunk must fail verification");
+    console.log("PASS: Test 3E - Missing page citation on cataloged chunk rejected.");
+
+    // 3F: Missing Revision on Cataloged Chunk
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_instructions: "Inspect drive electronics and AC line voltage input to verify 230VAC power supply.",
+        choices: [], model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_a_1",
+        source_title: "Pentair SuperFlo VST Troubleshooting",
+        page_number: 14,
+        revision: "", // Omitted revision on cataloged chunk!
+        requires_technician: false
+      })
+    }));
+    mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback", choices: [] }), steps: [] }));
+
+    const reqMissingRev = makeDiagReq({
+      sessionId: "session_task005_3f",
+      query: "Pentair SuperFlo VST won't start",
+      symptom: "Pump will not start, display is dead"
+    });
+    const resMissingRev = await capturedHandler!(reqMissingRev);
+    const jsonMissingRev = await resMissingRev.json();
+    assert.equal(jsonMissingRev.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Missing revision on cataloged chunk must fail verification");
+    console.log("PASS: Test 3F - Missing revision citation on cataloged chunk rejected.");
   }
 
   // --------------------------------------------------------------------------

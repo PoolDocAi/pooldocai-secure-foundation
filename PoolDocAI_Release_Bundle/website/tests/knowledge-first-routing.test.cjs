@@ -943,6 +943,7 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
       source_label: 'internal_manual',
       source_id: 'kb-pt-chunk-p5',
       page_number: 5,
+      revision: 'Rev P',
       step_instructions: 'Turn off the main breaker and replace the motor shaft seal and wet end o-ring.'
     },
     [manualChunkWithPages],
@@ -951,6 +952,96 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
     'Pump motor will not start, display is dead'
   );
   assert.equal(invasiveStepRun.verified, false, 'Invented replacement action absent from procedure must fail verification');
+
+  // 12g. TASK-005 Part-3R Defect: Replacing circuit breaker on inspection-only procedure
+  const breakerReplacementRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-p5',
+      page_number: 5,
+      revision: 'Rev P',
+      step_instructions: 'Replace the breaker after checking supply voltage.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(breakerReplacementRun.verified, false, 'Breaker replacement absent from procedure must fail verification');
+
+  // 12h. Unauthorized rewiring action rejection
+  const rewiringRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-p5',
+      page_number: 5,
+      revision: 'Rev P',
+      step_instructions: 'Rewire the L1 and L2 terminals after checking line voltage.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(rewiringRun.verified, false, 'Unauthorized terminal rewiring must fail verification');
+
+  // 12i. Authorized replacement corroboration (positive fixture)
+  const manualChunkWithReplacement = {
+    ...manualChunkWithPages,
+    id: 'kb-pt-chunk-rep',
+    procedure_text: 'Inspect drive electronics and AC line voltage input to verify 230VAC power supply. Check the main circuit breaker. If 230V is present but keypad does not illuminate, replace drive control assembly. '.repeat(2)
+  };
+  const authorizedReplacementRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-rep',
+      page_number: 5,
+      revision: 'Rev P',
+      step_instructions: 'If 230V is present but keypad does not illuminate, replace drive control assembly.'
+    },
+    [manualChunkWithReplacement],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(authorizedReplacementRun.verified, true, 'Authorized drive control assembly replacement must pass verification');
+
+  // 12j. Missing page number on cataloged chunk must fail
+  const missingPageRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-p5',
+      page_number: '',
+      revision: 'Rev P',
+      step_instructions: 'Inspect drive electronics and AC input voltage to verify 230VAC power supply.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(missingPageRun.verified, false, 'Missing page number on cataloged chunk must fail verification');
+
+  // 12k. Missing revision on cataloged chunk must fail
+  const missingRevRun = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-chunk-p5',
+      page_number: 5,
+      revision: '',
+      step_instructions: 'Inspect drive electronics and AC input voltage to verify 230VAC power supply.'
+    },
+    [manualChunkWithPages],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(missingRevRun.verified, false, 'Missing revision on cataloged chunk must fail verification');
 }
 
 // 13. Static wiring assertions on handler source
