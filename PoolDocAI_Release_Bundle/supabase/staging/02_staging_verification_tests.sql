@@ -26,15 +26,16 @@ BEGIN
   WHERE schemaname = 'public'
     AND tablename IN (
       'companies', 'company_members', 'service_requests', 'service_customers',
-      'company_manuals', 'platform_usage_events', 'grounding_cost_cache',
-      'company_notifications', 'user_notifications', 'notification_delivery_queue',
+      'company_manuals', 'company_manual_chunks', 'platform_usage_events',
+      'pooldocai_grounded_answer_cache', 'company_notifications',
+      'user_notifications', 'notification_delivery_queue',
       'user_notification_preferences', 'user_push_subscriptions'
     );
 
-  IF v_table_count < 12 THEN
-    RAISE EXCEPTION 'Missing core schema tables in staging: found %/12', v_table_count;
+  IF v_table_count < 13 THEN
+    RAISE EXCEPTION 'Missing core schema tables in staging: found %/13', v_table_count;
   END IF;
-  RAISE NOTICE 'PASS: All 12 core multi-tenant and notification tables verified.';
+  RAISE NOTICE 'PASS: All 13 core multi-tenant, manual chunk, and notification tables verified.';
 
   -- 2. Verify Row-Level Security (RLS) is ENABLED on ALL Public Tables
   SELECT count(*) INTO v_non_rls_count

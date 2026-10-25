@@ -47,7 +47,7 @@ Three SQL artifacts have been prepared in `supabase/staging/`:
 3. **`supabase/staging/02_staging_verification_tests.sql`**:
    - Automated post-migration verification script.
    - Asserts:
-     - All 12 core tables exist;
+     - All 13 core tables exist (including `company_manual_chunks` and `pooldocai_grounded_answer_cache`);
      - 100% of public tables have Row-Level Security (`relrowsecurity = true`);
      - Required security RPCs exist (`pooldocai_register_push_subscription`, `pooldocai_claim_push_delivery_batch`, `pooldocai_claim_email_delivery_batch`, `pooldocai_check_manual_duplicate`, `search_company_manual_chunks_hybrid`);
      - Strict bi-directional tenant isolation (AquaPure tech cannot view BlueWave service requests or push subscriptions).
