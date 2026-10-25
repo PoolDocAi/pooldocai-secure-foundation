@@ -31,8 +31,12 @@ jobs:
 
       - name: Validate document worker syntax
         run: node --check document-worker/src/server.js
+      - name: Validate email service syntax
+        run: node --check document-worker/src/email-service.js
       - name: Test worker SSRF and webhook boundaries
         run: node document-worker/tests/network-webhook-boundary.test.cjs
+      - name: Test email delivery worker lifecycle, lease fencing, and privacy minimization
+        run: node document-worker/tests/email-delivery-worker.test.cjs
 
       - name: Test conversational troubleshooting routing and script parsing
         run: node website/tests/troubleshooter-intent.test.cjs

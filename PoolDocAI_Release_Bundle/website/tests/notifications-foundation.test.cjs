@@ -7,6 +7,18 @@ const migration042 = fs.readFileSync(
   path.join(root, "supabase", "migrations", "20261024140000_company_notifications_foundation.sql"),
   "utf8"
 );
+const migration043 = fs.readFileSync(
+  path.join(root, "supabase", "migrations", "20261024150000_email_delivery_foundation.sql"),
+  "utf8"
+);
+const emailService = fs.readFileSync(
+  path.join(root, "document-worker", "src", "email-service.js"),
+  "utf8"
+);
+const workerServer = fs.readFileSync(
+  path.join(root, "document-worker", "src", "server.js"),
+  "utf8"
+);
 const handler = fs.readFileSync(
   path.join(root, "supabase", "functions", "clever-handler", "index.ts"),
   "utf8"
@@ -226,4 +238,39 @@ assert.ok(adminHtml.includes('id="notificationCompanyContext"'), "admin.html inc
   assert.strictEqual(markAllRead(null).error, "COMPANY_REQUIRED", "Mark all fails closed on missing company ID");
 }
 
-console.log("PASS: All TASK-007 Part-1 Company Notification Foundation tests passed successfully.");
+// 10. TASK-007 Part-2: Email Delivery Foundation, Lease Fencing & Privacy Protection
+{
+  // 10a. Migration 043 schema & index assertions
+  assert.match(migration043, /ALTER TABLE public\.notification_delivery_queue/i, "modifies notification_delivery_queue");
+  assert.match(migration043, /'pending',\s*'sending',\s*'retrying',\s*'delivered',\s*'failed',\s*'dead_letter',\s*'opted_out',\s*'deferred'/i, "supports 8 delivery status states");
+  assert.match(migration043, /ADD COLUMN IF NOT EXISTS lease_token text/i, "adds lease_token column");
+  assert.match(migration043, /ADD COLUMN IF NOT EXISTS leased_at timestamptz/i, "adds leased_at column");
+  assert.match(migration043, /ADD COLUMN IF NOT EXISTS provider_message_id text/i, "adds provider_message_id column");
+  assert.match(migration043, /ADD COLUMN IF NOT EXISTS idempotency_key text/i, "adds idempotency_key column");
+  assert.match(migration043, /CREATE INDEX IF NOT EXISTS notification_delivery_queue_email_pending_idx/i, "creates index for pending/retrying email queue");
+
+  // 10b. Migration 043 RPC assertions
+  assert.match(migration043, /FUNCTION public\.pooldocai_claim_email_delivery_batch/i, "defines atomic claim RPC");
+  assert.match(migration043, /FOR UPDATE OF q SKIP LOCKED/i, "uses FOR UPDATE SKIP LOCKED for atomic claim");
+  assert.match(migration043, /FUNCTION public\.pooldocai_finish_email_delivery/i, "defines atomic finish RPC");
+  assert.match(migration043, /lease_token = p_lease_token\s+AND delivery_status = 'sending'/i, "enforces strict lease fencing on finish");
+  assert.match(migration043, /REVOKE ALL ON FUNCTION public\.pooldocai_claim_email_delivery_batch.+FROM PUBLIC, anon, authenticated/i, "revokes direct client access to claim RPC");
+  assert.match(migration043, /REVOKE ALL ON FUNCTION public\.pooldocai_finish_email_delivery.+FROM PUBLIC, anon, authenticated/i, "revokes direct client access to finish RPC");
+
+  // 10c. Email service module assertions
+  assert.match(emailService, /export function buildNotificationEmail/i, "exports buildNotificationEmail");
+  assert.match(emailService, /export class ResendEmailAdapter/i, "exports ResendEmailAdapter");
+  assert.match(emailService, /export class MockEmailAdapter/i, "exports MockEmailAdapter");
+  assert.match(emailService, /export async function processEmailBatch/i, "exports processEmailBatch");
+
+  // 10d. Privacy minimization assertions
+  assert.match(emailService, /Strictly avoids leaking customer PII/i, "documents privacy minimization requirements");
+  assert.match(emailService, /\$\{appBaseUrl\}\/admin.+:\s*`\$\{appBaseUrl\}\/technician`/i, "routes admin role to admin portal and tech to technician portal");
+
+  // 10e. Worker server integration assertions
+  assert.match(workerServer, /import\s*\{\s*ResendEmailAdapter,\s*MockEmailAdapter,\s*processEmailBatch\s*\}\s*from '\.\/email-service\.js'/i, "imports email-service into worker server");
+  assert.match(workerServer, /req\.url === '\/email\/process'/i, "supports POST /email/process endpoint");
+  assert.match(workerServer, /pollEmailQueue/i, "implements periodic email queue polling");
+}
+
+console.log("PASS: All TASK-007 Part-1 & Part-2 Company Notification Foundation tests passed successfully.");

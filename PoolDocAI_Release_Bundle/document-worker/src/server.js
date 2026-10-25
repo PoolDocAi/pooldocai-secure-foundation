@@ -10,6 +10,7 @@ import WordExtractor from 'word-extractor';
 import * as cheerio from 'cheerio';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
+import { ResendEmailAdapter, MockEmailAdapter, processEmailBatch } from './email-service.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const MAX_BYTES = Math.min(Number(process.env.MAX_DOWNLOAD_BYTES || 25 * 1024 * 1024), 25 * 1024 * 1024);
@@ -22,6 +23,9 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.8-flash';
 const GEMINI_EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
 const EMBEDDING_DIMENSIONS = 768;
+const RESEND_KEY = process.env.RESEND_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM_ADDRESS || 'PoolDocAI <notifications@pooldocai.com>';
+const emailAdapter = RESEND_KEY ? new ResendEmailAdapter(RESEND_KEY, EMAIL_FROM) : new MockEmailAdapter();
 function utcMonthStartDate() { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
 if (!SUPABASE_URL || !SERVICE_KEY || !SECRET) throw new Error('Startup configuration error: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and DOC_WORKER_SECRET are required.');
 if (!/^https:\/\//i.test(SUPABASE_URL)) throw new Error('Startup configuration error: SUPABASE_URL must use HTTPS.');
@@ -639,7 +643,9 @@ const server = http.createServer(async (req,res) => {
       return json(res, 503, { ok: false, service: 'pooldocai-document-worker', database: 'unavailable', code: 'QUEUE_HEALTH_CHECK_FAILED' });
     }
   }
-  if (req.method !== 'POST' || req.url !== '/process') return json(res,404,{error:'Not found'});
+  if (req.method !== 'POST' || req.url !== '/process') {
+    if (!(req.method === 'POST' && req.url === '/email/process')) return json(res,404,{error:'Not found'});
+  }
   try {
     let body=''; for await (const part of req) { body += part; if (body.length > 100_000) throw new Error('Request too large.'); }
     if (REQUIRE_HMAC) {
@@ -651,6 +657,14 @@ const server = http.createServer(async (req,res) => {
       if (!timingSafeEqual(Buffer.from(signature.toLowerCase(),'hex'), Buffer.from(expected,'hex'))) return json(res,401,{error:'Unauthorized'});
     } else if (req.headers['x-pooldocai-worker-secret'] !== SECRET) return json(res,401,{error:'Unauthorized'});
     const payload = JSON.parse(body || '{}');
+    if (req.url === '/email/process') {
+      const result = await processEmailBatch(db, emailAdapter, {
+        workerId: payload.workerId || `render_worker_http_${process.pid}`,
+        batchSize: Number(payload.batchSize) || 10,
+        leaseSeconds: Number(payload.leaseSeconds) || 120
+      });
+      return json(res, 200, { ok: true, ...result });
+    }
     if (payload.action === 'create_webpage') return json(res,200,{ok:true,...await createWebManual(payload)});
     if (payload.action !== 'process_manual' || !payload.manualId) return json(res,400,{error:'action=process_manual and manualId are required.'});
     return json(res,200,{ok:true,...await processManual(String(payload.manualId))});
@@ -680,8 +694,26 @@ async function pollQueue() {
   } catch (err) { console.error('Document queue polling failed', String(err?.message || 'unknown').slice(0, 250)); }
   finally { workerBusy = false; }
 }
+let emailBusy = false;
+async function pollEmailQueue() {
+  if (emailBusy) return;
+  emailBusy = true;
+  try {
+    await processEmailBatch(db, emailAdapter, {
+      workerId: `render_worker_${process.pid}`,
+      batchSize: 10,
+      leaseSeconds: 120
+    });
+  } catch (err) {
+    console.error('Email delivery queue polling failed', String(err?.message || 'unknown').slice(0, 160));
+  } finally {
+    emailBusy = false;
+  }
+}
 setInterval(() => { void pollQueue(); }, 2500);
 void pollQueue();
 setInterval(() => { void pollWebhookQueue(); }, 5000);
 void pollWebhookQueue();
-server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable document and service-webhook queues enabled`));
+setInterval(() => { void pollEmailQueue(); }, 5000);
+void pollEmailQueue();
+server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable document, service-webhook, and email queues enabled`));

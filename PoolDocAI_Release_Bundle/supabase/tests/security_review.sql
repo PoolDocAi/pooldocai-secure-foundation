@@ -1347,3 +1347,306 @@ BEGIN
   DELETE FROM public.companies WHERE id IN (v_co_a, v_co_b);
   DELETE FROM auth.users WHERE id IN (v_user_a_admin, v_user_a_tech, v_user_a_susp, v_user_b_admin);
 END $$;
+
+-- 11. TEST TASK-007 PART-2: Email Delivery Outbox, Lease Fencing, and Retry Mechanics
+DO $$
+DECLARE
+  v_co_email uuid := gen_random_uuid();
+  v_co_inactive uuid := gen_random_uuid();
+  v_user_admin uuid := gen_random_uuid();
+  v_user_tech uuid := gen_random_uuid();
+  v_user_susp uuid := gen_random_uuid();
+  v_notif_id uuid;
+  v_notif_inactive uuid;
+  v_batch_cnt integer := 0;
+  v_claimed_q_id uuid;
+  v_claimed_idem text;
+  v_claimed_email text;
+  v_claimed_role text;
+  v_claimed_attempts integer;
+  v_queue_row record;
+  v_finish_ok boolean;
+  v_stale_claim_cnt integer := 0;
+BEGIN
+  -- 1. Security Privilege Boundary Checks
+  IF has_function_privilege('authenticated', 'public.pooldocai_claim_email_delivery_batch(text, integer, integer)', 'execute') THEN
+    RAISE EXCEPTION 'authenticated role illegally has execute privilege on pooldocai_claim_email_delivery_batch';
+  END IF;
+  IF has_function_privilege('anon', 'public.pooldocai_claim_email_delivery_batch(text, integer, integer)', 'execute') THEN
+    RAISE EXCEPTION 'anon role illegally has execute privilege on pooldocai_claim_email_delivery_batch';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.pooldocai_finish_email_delivery(uuid, text, boolean, text, text, boolean)', 'execute') THEN
+    RAISE EXCEPTION 'authenticated role illegally has execute privilege on pooldocai_finish_email_delivery';
+  END IF;
+  IF has_function_privilege('anon', 'public.pooldocai_finish_email_delivery(uuid, text, boolean, text, text, boolean)', 'execute') THEN
+    RAISE EXCEPTION 'anon role illegally has execute privilege on pooldocai_finish_email_delivery';
+  END IF;
+
+  -- 2. Setup Test Fixtures: Companies & Users
+  INSERT INTO auth.users (id, email, aud, role)
+  VALUES
+    (v_user_admin, 'ci-email-admin@example.com', 'authenticated', 'authenticated'),
+    (v_user_tech, 'ci-email-tech@example.com', 'authenticated', 'authenticated'),
+    (v_user_susp, 'ci-email-susp@example.com', 'authenticated', 'authenticated')
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.companies (id, name, industry_key, status, seat_limit)
+  VALUES
+    (v_co_email, 'PoolDocAI Email Delivery Active Co', 'pool', 'active', 5),
+    (v_co_inactive, 'PoolDocAI Email Inactive Co', 'pool', 'suspended', 5);
+
+  INSERT INTO public.company_members (company_id, user_id, role, status, display_name)
+  VALUES
+    (v_co_email, v_user_admin, 'company_admin', 'active', 'Email Admin'),
+    (v_co_email, v_user_tech, 'technician', 'active', 'Email Tech'),
+    (v_co_email, v_user_susp, 'technician', 'suspended', 'Suspended Member'),
+    (v_co_inactive, v_user_admin, 'company_admin', 'active', 'Inactive Co Admin');
+
+  -- 3. Publish Notification for Active Company targeting 'all'
+  v_notif_id := public.pooldocai_publish_company_notification(
+    p_company_id := v_co_email,
+    p_event_type := 'service_request_created',
+    p_title := 'New Service Request',
+    p_body := 'Customer requested pump troubleshooting',
+    p_data := '{"sr_id": "sr-email-1"}'::jsonb,
+    p_dedupe_key := 'email-batch-test-1',
+    p_target_role := 'all',
+    p_target_user_id := NULL
+  );
+
+  IF v_notif_id IS NULL THEN
+    RAISE EXCEPTION 'Failed to publish notification in email delivery test';
+  END IF;
+
+  -- Verify delivery queue has 'pending' email items for active members (admin & tech), NOT suspended member
+  SELECT count(*) INTO v_batch_cnt
+  FROM public.notification_delivery_queue
+  WHERE notification_id = v_notif_id AND channel = 'email' AND delivery_status = 'pending';
+
+  IF v_batch_cnt <> 2 THEN
+    RAISE EXCEPTION 'Expected 2 pending email queue items for active members, got %', v_batch_cnt;
+  END IF;
+
+  -- 4. Test Atomic Claiming (Worker 1) with Concurrency Fencing
+  -- Worker 1 claims batch of size 1
+  SELECT queue_id, idempotency_key, recipient_email, recipient_role, attempts
+  INTO v_claimed_q_id, v_claimed_idem, v_claimed_email, v_claimed_role, v_claimed_attempts
+  FROM public.pooldocai_claim_email_delivery_batch('worker_ci_1', 1, 120)
+  LIMIT 1;
+
+  IF v_claimed_q_id IS NULL THEN
+    RAISE EXCEPTION 'Worker 1 failed to claim email delivery batch item';
+  END IF;
+
+  IF v_claimed_attempts <> 1 THEN
+    RAISE EXCEPTION 'Expected first claim attempt to be 1, got %', v_claimed_attempts;
+  END IF;
+
+  IF v_claimed_idem NOT LIKE 'email-' || v_notif_id::text || '-%' THEN
+    RAISE EXCEPTION 'Unexpected idempotency key: %', v_claimed_idem;
+  END IF;
+
+  -- Verify claimed row is in 'sending' state with lease token
+  SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id;
+  IF v_queue_row.delivery_status <> 'sending' OR v_queue_row.lease_token <> 'worker_ci_1' OR v_queue_row.leased_at IS NULL THEN
+    RAISE EXCEPTION 'Queue row not properly marked sending with lease token: status=%, token=%', v_queue_row.delivery_status, v_queue_row.lease_token;
+  END IF;
+
+  -- 5. Test Concurrency & SKIP LOCKED
+  -- Worker 2 claims remaining batch of size 1 (should get the other recipient, not the row leased to worker_ci_1)
+  DECLARE
+    v_claimed_q_id_2 uuid;
+  BEGIN
+    SELECT queue_id INTO v_claimed_q_id_2
+    FROM public.pooldocai_claim_email_delivery_batch('worker_ci_2', 1, 120)
+    LIMIT 1;
+
+    IF v_claimed_q_id_2 IS NULL OR v_claimed_q_id_2 = v_claimed_q_id THEN
+      RAISE EXCEPTION 'Worker 2 did not claim distinct unleased item: got % (worker 1 had %)', v_claimed_q_id_2, v_claimed_q_id;
+    END IF;
+
+    -- Now all pending items are leased. Worker 3 should receive 0 rows
+    SELECT count(*) INTO v_batch_cnt FROM public.pooldocai_claim_email_delivery_batch('worker_ci_3', 10, 120);
+    IF v_batch_cnt <> 0 THEN
+      RAISE EXCEPTION 'Expected 0 available rows for Worker 3, got %', v_batch_cnt;
+    END IF;
+
+    -- 6. Test Delivery Finalization Success (Worker 1)
+    v_finish_ok := public.pooldocai_finish_email_delivery(
+      p_queue_id := v_claimed_q_id,
+      p_lease_token := 'worker_ci_1',
+      p_success := true,
+      p_provider_message_id := 'resend_msg_test_001',
+      p_error := NULL,
+      p_retryable := false
+    );
+
+    IF NOT v_finish_ok THEN
+      RAISE EXCEPTION 'Expected finish_email_delivery to return true for Worker 1';
+    END IF;
+
+    SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id;
+    IF v_queue_row.delivery_status <> 'delivered' OR v_queue_row.provider_message_id <> 'resend_msg_test_001' OR v_queue_row.lease_token IS NOT NULL THEN
+      RAISE EXCEPTION 'Delivered row state incorrect: status=%, provider_id=%, lease_token=%', v_queue_row.delivery_status, v_queue_row.provider_message_id, v_queue_row.lease_token;
+    END IF;
+
+    -- 7. Test Strict Lease Fencing (Stale / Duplicate Worker Finish)
+    -- Worker 1 attempts to re-finalize an already delivered item -> must return false
+    v_finish_ok := public.pooldocai_finish_email_delivery(
+      p_queue_id := v_claimed_q_id,
+      p_lease_token := 'worker_ci_1',
+      p_success := true,
+      p_provider_message_id := 'duplicate_send_attempt'
+    );
+    IF v_finish_ok THEN
+      RAISE EXCEPTION 'Stale worker re-finalization unexpectedly succeeded';
+    END IF;
+
+    -- Rogue worker with incorrect lease token -> must return false
+    v_finish_ok := public.pooldocai_finish_email_delivery(
+      p_queue_id := v_claimed_q_id_2,
+      p_lease_token := 'rogue_worker',
+      p_success := true
+    );
+    IF v_finish_ok THEN
+      RAISE EXCEPTION 'Worker with wrong lease token unexpectedly finalized item';
+    END IF;
+
+    -- 8. Test Lease Expiration and Stale Lease Reclamation
+    -- Simulate Worker 2 crashed and its lease timed out (leased 300 seconds ago)
+    UPDATE public.notification_delivery_queue
+    SET leased_at = now() - interval '300 seconds'
+    WHERE id = v_claimed_q_id_2;
+
+    -- Worker 4 claims batch with lease_seconds=60 -> should reclaim v_claimed_q_id_2
+    SELECT queue_id, attempts INTO v_claimed_q_id, v_claimed_attempts
+    FROM public.pooldocai_claim_email_delivery_batch('worker_ci_4', 1, 60)
+    WHERE queue_id = v_claimed_q_id_2;
+
+    IF v_claimed_q_id IS NULL THEN
+      RAISE EXCEPTION 'Worker 4 failed to reclaim expired lease item';
+    END IF;
+    IF v_claimed_attempts <> 2 THEN
+      RAISE EXCEPTION 'Expected reclaimed item attempt to increment to 2, got %', v_claimed_attempts;
+    END IF;
+
+    -- Stale Worker 2 now tries to finish after lease reclamation -> must return false (fenced out)
+    v_finish_ok := public.pooldocai_finish_email_delivery(
+      p_queue_id := v_claimed_q_id_2,
+      p_lease_token := 'worker_ci_2',
+      p_success := true
+    );
+    IF v_finish_ok THEN
+      RAISE EXCEPTION 'Expired Worker 2 successfully finalized after another worker reclaimed lease';
+    END IF;
+
+    -- 9. Test Retryable Failure with Exponential Backoff
+    v_finish_ok := public.pooldocai_finish_email_delivery(
+      p_queue_id := v_claimed_q_id_2,
+      p_lease_token := 'worker_ci_4',
+      p_success := false,
+      p_error := 'rate_limited: 429 Too Many Requests',
+      p_retryable := true
+    );
+
+    IF NOT v_finish_ok THEN
+      RAISE EXCEPTION 'Expected retryable finish to return true';
+    END IF;
+
+    SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id_2;
+    IF v_queue_row.delivery_status <> 'retrying' OR v_queue_row.next_attempt_at <= now() OR v_queue_row.last_error NOT LIKE 'rate_limited%' THEN
+      RAISE EXCEPTION 'Retry state incorrect: status=%, next_attempt_at=%, last_error=%', v_queue_row.delivery_status, v_queue_row.next_attempt_at, v_queue_row.last_error;
+    END IF;
+
+    -- 10. Test Dead-Letter Capping after 5 attempts
+    -- Set attempts to 4, next_attempt_at in the past
+    UPDATE public.notification_delivery_queue
+    SET attempts = 4, next_attempt_at = now() - interval '5 seconds'
+    WHERE id = v_claimed_q_id_2;
+
+    -- Worker 5 claims it (attempts becomes 5)
+    SELECT queue_id, attempts INTO v_claimed_q_id, v_claimed_attempts
+    FROM public.pooldocai_claim_email_delivery_batch('worker_ci_5', 1, 60)
+    WHERE queue_id = v_claimed_q_id_2;
+
+    IF v_claimed_attempts <> 5 THEN
+      RAISE EXCEPTION 'Expected 5th attempt on claim, got %', v_claimed_attempts;
+    END IF;
+
+    -- Worker 5 reports failure -> must transition to dead_letter even if retryable is true
+    v_finish_ok := public.pooldocai_finish_email_delivery(
+      p_queue_id := v_claimed_q_id_2,
+      p_lease_token := 'worker_ci_5',
+      p_success := false,
+      p_error := 'persistent_500_upstream',
+      p_retryable := true
+    );
+
+    SELECT * INTO v_queue_row FROM public.notification_delivery_queue WHERE id = v_claimed_q_id_2;
+    IF v_queue_row.delivery_status <> 'dead_letter' THEN
+      RAISE EXCEPTION 'Expected dead_letter status after 5 attempts, got %', v_queue_row.delivery_status;
+    END IF;
+
+    -- 11. Test Delivery-Time Opt-Out Suppression
+    -- Publish another notification targeting admin
+    v_notif_id := public.pooldocai_publish_company_notification(
+      p_company_id := v_co_email,
+      p_event_type := 'service_request_created',
+      p_title := 'Opt-Out Test',
+      p_body := 'Checking delivery-time preference check',
+      p_dedupe_key := 'email-optout-test-1',
+      p_target_role := 'admin'
+    );
+
+    -- Admin opts out of email
+    INSERT INTO public.user_notification_preferences (user_id, company_id, channel, enabled)
+    VALUES (v_user_admin, v_co_email, 'email', false)
+    ON CONFLICT (user_id, company_id, channel) DO UPDATE SET enabled = false;
+
+    -- Claim batch -> row should be automatically updated to opted_out by claim function and NOT returned
+    SELECT count(*) INTO v_batch_cnt
+    FROM public.pooldocai_claim_email_delivery_batch('worker_ci_opt', 10, 60)
+    WHERE notification_id = v_notif_id;
+
+    IF v_batch_cnt <> 0 THEN
+      RAISE EXCEPTION 'Opted-out recipient was illegally claimed for email delivery';
+    END IF;
+
+    SELECT delivery_status INTO v_queue_row.delivery_status
+    FROM public.notification_delivery_queue
+    WHERE notification_id = v_notif_id AND user_id = v_user_admin AND channel = 'email';
+
+    IF v_queue_row.delivery_status <> 'opted_out' THEN
+      RAISE EXCEPTION 'Expected queue row to transition to opted_out at claim time, got %', v_queue_row.delivery_status;
+    END IF;
+
+    -- 12. Test Inactive Company & Suspended Member Queue Suppression
+    -- Insert a queue item directly pointing to inactive company
+    INSERT INTO public.company_notifications (id, company_id, event_type, title, body, dedupe_key)
+    VALUES (gen_random_uuid(), v_co_inactive, 'test_event', 'Test', 'Body', 'dedupe-inactive-co')
+    RETURNING id INTO v_notif_inactive;
+
+    INSERT INTO public.notification_delivery_queue (notification_id, company_id, user_id, channel, delivery_status, next_attempt_at)
+    VALUES (v_notif_inactive, v_co_inactive, v_user_admin, 'email', 'pending', now());
+
+    -- Claim -> inactive company row should be marked failed with 'company_inactive_or_suspended'
+    PERFORM public.pooldocai_claim_email_delivery_batch('worker_ci_inactive', 10, 60);
+
+    SELECT delivery_status, last_error INTO v_queue_row.delivery_status, v_queue_row.last_error
+    FROM public.notification_delivery_queue
+    WHERE notification_id = v_notif_inactive AND company_id = v_co_inactive;
+
+    IF v_queue_row.delivery_status <> 'failed' OR v_queue_row.last_error <> 'company_inactive_or_suspended' THEN
+      RAISE EXCEPTION 'Expected inactive company queue item to fail with company_inactive_or_suspended, got status=%, error=%', v_queue_row.delivery_status, v_queue_row.last_error;
+    END IF;
+  END;
+
+  -- 13. Teardown Section 11 Test Fixtures
+  DELETE FROM public.notification_delivery_queue WHERE company_id IN (v_co_email, v_co_inactive);
+  DELETE FROM public.user_notifications WHERE company_id IN (v_co_email, v_co_inactive);
+  DELETE FROM public.company_notifications WHERE company_id IN (v_co_email, v_co_inactive);
+  DELETE FROM public.user_notification_preferences WHERE company_id IN (v_co_email, v_co_inactive);
+  DELETE FROM public.company_members WHERE company_id IN (v_co_email, v_co_inactive);
+  DELETE FROM public.companies WHERE id IN (v_co_email, v_co_inactive);
+  DELETE FROM auth.users WHERE id IN (v_user_admin, v_user_tech, v_user_susp);
+END $$;
