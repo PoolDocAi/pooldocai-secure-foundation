@@ -72,6 +72,11 @@ async function runStagingBundleTests() {
     assert.ok(fixturesContent.includes("staging_admin_bluewave@pooldocai.test"), "Must seed BlueWave admin user");
     assert.ok(fixturesContent.includes("staging_tech_bluewave@pooldocai.test"), "Must seed BlueWave tech user");
 
+    // Must normalize token columns to empty strings for GoTrue compatibility (prevent HTTP 500 scanner error)
+    assert.ok(fixturesContent.includes("email_change,"), "Must initialize email_change");
+    assert.ok(fixturesContent.includes("email_change_token_new,"), "Must initialize email_change_token_new");
+    assert.ok(fixturesContent.includes("recovery_token"), "Must initialize recovery_token");
+
     // Must sanitize push subscription endpoints
     assert.ok(fixturesContent.includes("https://push.staging.pooldocai.test"), "Push endpoints must use safe non-routable test domain");
     assert.ok(!fixturesContent.includes("https://fcm.googleapis.com"), "Push endpoints must NOT point to real FCM domain in synthetic fixtures");
@@ -203,6 +208,39 @@ async function runStagingBundleTests() {
     assert.ok(content04.includes("DELETE FROM public.technician_job_records"), "04 must delete technician_job_records fixtures");
 
     console.log("PASS: Synthetic diagnostic and job fixtures & teardown scripts verified.");
+  }
+
+  // 7. Validate 05_precheck_auth_users_repair.sql, 06_repair_auth_users_null_tokens.sql, and 07_postcheck_auth_users_repair.sql
+  {
+    console.log("Validating transactional Auth data repair scripts (05, 06 & 07)...");
+    const precheckPath = path.join(stagingDir, "05_precheck_auth_users_repair.sql");
+    const repairPath = path.join(stagingDir, "06_repair_auth_users_null_tokens.sql");
+    const postcheckPath = path.join(stagingDir, "07_postcheck_auth_users_repair.sql");
+
+    assert.ok(fs.existsSync(precheckPath), "05 precheck script must exist");
+    assert.ok(fs.existsSync(repairPath), "06 repair script must exist");
+    assert.ok(fs.existsSync(postcheckPath), "07 postcheck script must exist");
+
+    const precheckContent = fs.readFileSync(precheckPath, "utf8");
+    const repairContent = fs.readFileSync(repairPath, "utf8");
+    const postcheckContent = fs.readFileSync(postcheckPath, "utf8");
+
+    // Precheck: read-only
+    assert.ok(!repairPath.includes("UPDATE public.") && !precheckContent.includes("UPDATE auth.users"), "05 precheck must be strictly read-only");
+    assert.ok(precheckContent.includes("email_change IS NULL"), "05 must audit NULL email_change");
+
+    // Repair: bounded allowlist, transaction with rollback
+    assert.ok(repairContent.includes("COALESCE(email_change, '')"), "06 must coalesce email_change");
+    assert.ok(repairContent.includes("COALESCE(email_change_token_new, '')"), "06 must coalesce email_change_token_new");
+    assert.ok(repairContent.includes("COALESCE(recovery_token, '')"), "06 must coalesce recovery_token");
+    assert.ok(repairContent.includes("v_updated_rows <> 4"), "06 must abort and rollback if row count is not exactly 4");
+    assert.ok(repairContent.includes("id = ANY(v_target_ids)"), "06 must restrict updates strictly to target allowlist");
+
+    // Postcheck: read-only verification
+    assert.ok(!postcheckContent.includes("UPDATE auth.users"), "07 postcheck must be strictly read-only");
+    assert.ok(postcheckContent.includes("Zero synthetic users have NULL token columns"), "07 must assert zero NULLs");
+
+    console.log("PASS: Transactional Auth data repair scripts (05 precheck, 06 repair, 07 postcheck) verified.");
   }
 
   console.log("\n=== ALL STAGING BUNDLE & FIXTURE TESTS PASSED ===");

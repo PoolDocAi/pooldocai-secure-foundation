@@ -48,7 +48,10 @@ BEGIN
       updated_at,
       role,
       aud,
-      confirmation_token
+      confirmation_token,
+      email_change,
+      email_change_token_new,
+      recovery_token
     ) VALUES (
       (v_elem->>'id')::uuid,
       '00000000-0000-0000-0000-000000000000',
@@ -61,11 +64,18 @@ BEGIN
       now(),
       'authenticated',
       'authenticated',
+      '',
+      '',
+      '',
       ''
     ) ON CONFLICT (id) DO UPDATE SET
       email = EXCLUDED.email,
       encrypted_password = EXCLUDED.encrypted_password,
       raw_user_meta_data = EXCLUDED.raw_user_meta_data,
+      confirmation_token = COALESCE(auth.users.confirmation_token, ''),
+      email_change = COALESCE(auth.users.email_change, ''),
+      email_change_token_new = COALESCE(auth.users.email_change_token_new, ''),
+      recovery_token = COALESCE(auth.users.recovery_token, ''),
       updated_at = now();
 
     -- Insert into auth.identities for GoTrue password-auth lookup

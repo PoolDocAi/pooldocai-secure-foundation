@@ -158,6 +158,9 @@ function Write-SanitizedApiError {
                 }
             }
         } catch {}
+    } elseif ($ErrorRecord.Exception.Message -match '\((\d{3})\)\s*([^\.]*)') {
+        $statusCode = [int]$Matches[1]
+        $statusDesc = $Matches[2].Trim()
     }
 
     Write-Host "`n============================================================================" -ForegroundColor Red
@@ -180,6 +183,12 @@ function Write-SanitizedApiError {
         Write-Host "    under Supabase Dashboard -> Project Settings -> API (Secret key or service_role secret)." -ForegroundColor Yellow
         Write-Host "  - Verify the key has not been revoked or regenerated." -ForegroundColor Yellow
         Write-Host "  - Manual review required before further credential entry." -ForegroundColor Yellow
+    } elseif ($statusCode -eq 500) {
+        Write-Host "  - HTTP 500 Database error returned by GoTrue Auth service." -ForegroundColor Yellow
+        Write-Host "  - Root Cause: GoTrue parser failure on NULL token fields (email_change, recovery_token)" -ForegroundColor Yellow
+        Write-Host "    in directly-seeded synthetic auth.users records (documented Supabase GoTrue scan behavior)." -ForegroundColor Yellow
+        Write-Host "  - Resolution: Execute reviewed bounded data-repair script 06_repair_auth_users_null_tokens.sql" -ForegroundColor Yellow
+        Write-Host "    in staging SQL editor after explicit owner authorization." -ForegroundColor Yellow
     } else {
         Write-Host "  - Unexpected HTTP error: $statusCode. Inspect network connection or Supabase status." -ForegroundColor Yellow
     }

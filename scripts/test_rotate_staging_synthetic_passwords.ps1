@@ -218,6 +218,26 @@ Invoke-Expression $errFunctionBlock
     Assert-Test "Reports Admin Key Type ONLY" ($mockOutput -match "sb_secret_ \(modern secret key\)")
     Assert-Test "Reports User-Agent in preflight error output" ($mockOutput -match "PoolDocAI-Staging-Admin-CLI/1\.0")
     Assert-Test "Does NOT leak any token or key material in error output" ($mockOutput -notmatch "bearer" -and $mockOutput -notmatch "apikey:\s*\S+")
+
+    # Test HTTP 500 formatting
+    $mock500Output = & {
+        $fake500Ex = [System.InvalidOperationException]::new("The remote server returned an error: (500) Internal Server Error.")
+        $fake500Record = [System.Management.Automation.ErrorRecord]::new(
+            $fake500Ex,
+            "WebException",
+            [System.Management.Automation.ErrorCategory]::InvalidResult,
+            $null
+        )
+        Write-SanitizedApiError -Endpoint "/auth/v1/admin/users/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" `
+                               -ErrorRecord $fake500Record `
+                               -AdminKeyType "sb_secret_ (modern secret key)" `
+                               -UserAgent "PoolDocAI-Staging-Admin-CLI/1.0" `
+                               -TargetHost "rzkgmvyyeclrpomrlyft.supabase.co" `
+                               -ProjectRef "rzkgmvyyeclrpomrlyft"
+    } *>&1 | Out-String
+
+    Assert-Test "Reports 500 GoTrue Database Error diagnostic" ($mock500Output -match "HTTP 500 Database error returned by GoTrue")
+    Assert-Test "Identifies NULL token fields root cause" ($mock500Output -match "NULL token fields")
 }
 
 # ----------------------------------------------------------------------------
