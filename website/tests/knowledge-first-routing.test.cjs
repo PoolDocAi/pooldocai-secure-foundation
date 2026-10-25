@@ -1026,14 +1026,14 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
   );
   assert.equal(missingPageRun.verified, false, 'Missing page number on cataloged chunk must fail verification');
 
-  // 12k. Missing revision on cataloged chunk must fail
-  const missingRevRun = verifyCitation(
+  // 12k. Mismatched revision on cataloged chunk must fail
+  const mismatchedRevRun = verifyCitation(
     {
       response_type: 'step',
       source_label: 'internal_manual',
       source_id: 'kb-pt-chunk-p5',
       page_number: 5,
-      revision: '',
+      revision: 'Rev A',
       step_instructions: 'Inspect drive electronics and AC input voltage to verify 230VAC power supply.'
     },
     [manualChunkWithPages],
@@ -1041,7 +1041,7 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
     'SuperFlo VST',
     'Pump motor will not start, display is dead'
   );
-  assert.equal(missingRevRun.verified, false, 'Missing revision on cataloged chunk must fail verification');
+  assert.equal(mismatchedRevRun.verified, false, 'Mismatched revision on cataloged chunk must fail verification');
 }
 
 // 13. Static wiring assertions on handler source
