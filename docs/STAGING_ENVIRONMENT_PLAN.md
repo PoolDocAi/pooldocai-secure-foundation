@@ -60,10 +60,10 @@ To apply the schema migrations and synthetic fixtures to project `rzkgmvyyeclrpo
 
 ### Method A: Supabase Dashboard SQL Editor (Recommended)
 1. Open the [Supabase Staging Dashboard](https://supabase.com/dashboard/project/rzkgmvyyeclrpomrlyft/sql).
-2. Create a new query: copy and paste the contents of [`supabase/staging/00_apply_staging_migrations.sql`](file:///C:/Users/berso/Desktop/pooldocai-secure-foundation/supabase/staging/00_apply_staging_migrations.sql).
+2. Create a new query: copy and paste the contents of [`supabase/staging/00_apply_staging_migrations.sql`](../supabase/staging/00_apply_staging_migrations.sql).
 3. Click **Run**. Verify that all statements execute successfully.
-4. Create a second query: copy and paste [`supabase/staging/01_synthetic_staging_fixtures.sql`](file:///C:/Users/berso/Desktop/pooldocai-secure-foundation/supabase/staging/01_synthetic_staging_fixtures.sql). Click **Run**.
-5. Create a third query: copy and paste [`supabase/staging/02_staging_verification_tests.sql`](file:///C:/Users/berso/Desktop/pooldocai-secure-foundation/supabase/staging/02_staging_verification_tests.sql). Click **Run**.
+4. Create a second query: copy and paste [`supabase/staging/01_synthetic_staging_fixtures.sql`](../supabase/staging/01_synthetic_staging_fixtures.sql). Click **Run**.
+5. Create a third query: copy and paste [`supabase/staging/02_staging_verification_tests.sql`](../supabase/staging/02_staging_verification_tests.sql). Click **Run**.
    - Confirm output logs: `PASS: Bi-directional multi-tenant tenant isolation verified.` and `=== ALL STAGING CHECKS PASSED SUCCESSFULLY ===`.
 
 ### Method B: PostgreSQL Client via Connection Pooler
@@ -93,7 +93,7 @@ To link Vercel Preview deployments to staging without touching production:
    - `STAGING_SUPABASE_ANON_KEY`: `<staging_publishable_anon_key>` (retrieve from [Staging API Settings](https://supabase.com/dashboard/project/rzkgmvyyeclrpomrlyft/settings/api))
    - Ensure the **Production** environment checkbox is **UNCHECKED**.
 3. **Fail-Closed Protection**:
-   - [`scripts/generate-config.cjs`](file:///C:/Users/berso/Desktop/pooldocai-secure-foundation/scripts/generate-config.cjs) automatically verifies that `STAGING_SUPABASE_URL` does NOT contain `owfeebydlyacssqpnmkq`.
+   - [`scripts/generate-config.cjs`](../scripts/generate-config.cjs) automatically verifies that `STAGING_SUPABASE_URL` does NOT contain `owfeebydlyacssqpnmkq`.
    - If a preview build ever attempts to use production credentials, the build will immediately abort with:
      `[generate-config] FATAL SECURITY VIOLATION: Preview may not connect to production Supabase project owfeebydlyacssqpnmkq.`
 

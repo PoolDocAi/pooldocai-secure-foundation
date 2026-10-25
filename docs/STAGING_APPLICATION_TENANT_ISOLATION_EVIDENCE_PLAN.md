@@ -88,7 +88,7 @@ WHERE id IN ('11111111-4000-4111-8111-111111111111', '22222222-4000-4222-8222-22
 ## 5. Live Authentication & JWT Generation
 
 Live staging verification requires genuine Supabase Auth tokens:
-1. Four unique secure passwords generated and stored in a secure local encrypted file outside git (`$env:LOCALAPPDATA\PoolDocAI\staging_auth_vault.json`).
+1. Four unique secure passwords generated and stored in a secure local encrypted file outside git (`$env:USERPROFILE\.pooldocai_staging_credentials.xml`) protected by Windows DPAPI via [`scripts/rotate_staging_synthetic_passwords.ps1`](../scripts/rotate_staging_synthetic_passwords.ps1).
 2. Authentication executed via standard GoTrue API (`POST /auth/v1/token?grant_type=password`) with the staging anon key.
 3. Access tokens (`access_token`) extracted for each of the four synthetic users.
 4. Tokens verified to contain matching `sub` (user UUID) and `aud: "authenticated"`.
@@ -96,6 +96,9 @@ Live staging verification requires genuine Supabase Auth tokens:
 ---
 
 ## 6. Per-Tenant Control Checklist (Part-2 Execution Target)
+
+> [!NOTE]
+> `withdraw_case_learning_consent` is an authenticated **mutating consent revocation operation**, not a read or retrieval endpoint. For `diagnostic_cases`, direct table read is denied by design (`REVOKE ALL`); positive application controls exercise case creation (`save_technician_job`) and consent mutation (`withdraw_case_learning_consent`). A dedicated authenticated case read/retrieval endpoint does not currently exist.
 
 | Control ID | Target Table / Path | User Session | Action / Endpoint | Expected Live Response |
 | :--- | :--- | :--- | :--- | :--- |

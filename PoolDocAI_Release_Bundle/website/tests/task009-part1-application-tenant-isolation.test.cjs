@@ -1,10 +1,21 @@
 // ============================================================================
-// POOLDOCAI TASK-009 PART-1: APPLICATION-LEVEL TENANT ISOLATION TEST SUITE
-// Tests actual production handler and RLS application paths for:
-// - 4A: AquaPure (Company A) Diagnostic Cases (positive A/A, negative cross B/A, UUID guessing, schema deny)
-// - 4B: BlueWave (Company B) Diagnostic Cases (positive B/B, negative cross A/B, spoofing, schema deny)
-// - 4D: AquaPure (Company A) Technician Job Records (positive save/read A/A, cross B/A denial, spoof denial, permission gates)
-// - 4E: BlueWave (Company B) Technician Job Records (positive save/read B/B, cross A/B denial, spoof denial)
+// POOLDOCAI TASK-009 PART-1: EXTRACTED-HANDLER-BLOCK + MOCK AUTHORIZATION/RLS SIMULATION TEST SUITE
+//
+// EVIDENCE TIER & VERIFICATION SCOPE:
+// This suite extracts and executes actual production handler code blocks from
+// supabase/functions/clever-handler/index.ts using vm.Script.
+//
+// COVERAGE GAPS VS. LIVE PRODUCTION (Documented per Task-009 Review):
+// 1. Authentication / GoTrue JWT verification: The harness simulates supabase.auth.getUser()
+//    and token validation in-process. Cryptographic signature checks and GoTrue service
+//    tokens are not exercised in this unit suite.
+// 2. PostgreSQL RLS Policies: PostgREST RLS query filtering is simulated in-process
+//    based on documented policies. Real PostgreSQL SQL engine RLS policy execution is
+//    exercised in local CI SQL tests (security_review.sql / 02_staging_verification_tests.sql)
+//    and reserved for owner-authorized live staging execution (Part-2).
+// 3. HTTP Network Boundary: Simulated in-process; edge routing/CORS not exercised.
+// 4. Live Staging Controls: Controls 4A-APP, 4B-APP, 4D-APP, 4E-APP on project rzkgmvyyeclrpomrlyft
+//    remain strictly marked [LIVE NOT RUN] until authorized live staging execution.
 // ============================================================================
 
 const assert = require("node:assert/strict");
@@ -118,6 +129,14 @@ const REVOKED_TECH = {
   status: "revoked"
 };
 
+const EXPIRED_TECH = {
+  userId: "eeeeeeee-0000-4000-8000-eeeeeeeeeeee",
+  email: "staging_expired_aquapure@pooldocai.test",
+  companyId: TENANT_A.companyId,
+  role: "technician",
+  isExpired: true
+};
+
 function createMockHarness() {
   const store = {
     companies: new Map([
@@ -218,6 +237,7 @@ function createMockHarness() {
       auth: {
         getUser: async (token) => {
           if (!token || token === "anonymous") return { data: { user: null }, error: { message: "Invalid token" } };
+          if (callerContext?.user?.isExpired) return { data: { user: null }, error: { message: "Token expired" } };
           if (callerContext?.user) return { data: { user: callerContext.user }, error: null };
           return { data: { user: null }, error: { message: "User not found" } };
         }
@@ -366,6 +386,9 @@ function createMockHarness() {
       if (!userContext?.userId) {
         return { status: 401, error: "Authentication required", data: null };
       }
+      if (userContext?.isExpired) {
+        return { status: 401, error: "JWT expired", data: null };
+      }
 
       // Check RLS policies:
       // SELECT -> jobs_company_read (can_view_company_job_notes)
@@ -412,7 +435,7 @@ function createMockHarness() {
 
   // Edge Function runner simulating production clever-handler execution
   async function executeEdgeAction(actionName, body, callerUser = null) {
-    const callerContext = { user: callerUser ? { id: callerUser.userId, email: callerUser.email } : null };
+    const callerContext = { user: callerUser ? { id: callerUser.userId, email: callerUser.email, isExpired: Boolean(callerUser.isExpired) } : null };
     const supabase = createSupabaseClient(callerContext);
 
     // Initial auth & tenant resolution matching clever-handler lines 1659-1700
@@ -577,6 +600,17 @@ async function runApplicationTenantIsolationTests() {
 
     const ok = res.status === 401 && res.json.code === "AUTH_REQUIRED";
     record("4A-NEG-APP-ANON", "Anonymous caller attempts diagnostic case action -> 401 AUTH_REQUIRED (DENY)", ok, `Status ${res.status}`);
+  }
+
+  // 4A-NEG-APP-EXPIRED: Expired session token rejected on diagnostic case action -> 401 AUTH_REQUIRED
+  {
+    const res = await harness.executeEdgeAction("withdraw_case_learning_consent", {
+      authenticatedApp: true,
+      caseId: caseAId
+    }, EXPIRED_TECH);
+
+    const ok = res.status === 401 && res.json.code === "AUTH_REQUIRED";
+    record("4A-NEG-APP-EXPIRED", "Expired session token rejected on diagnostic case action -> 401 AUTH_REQUIRED (DENY)", ok, `Status ${res.status}`);
   }
 
   // 4A-SCHEMA: Direct PostgREST SELECT on diagnostic_cases -> 401/403 Deny-by-design
@@ -786,6 +820,25 @@ async function runApplicationTenantIsolationTests() {
     record("4D-NEG-ANON-SAVE", "Anonymous caller attempts job save -> 401 AUTH_REQUIRED (DENY)", ok, `Status ${res.status}`);
   }
 
+  // 4D-NEG-EXPIRED-TOKEN: Expired session token rejected on job save -> 401 AUTH_REQUIRED
+  {
+    const res = await harness.executeEdgeAction("save_technician_job", {
+      authenticatedApp: true,
+      complaint: "Expired token test",
+      outcome: "in_progress"
+    }, EXPIRED_TECH);
+
+    const ok = res.status === 401 && res.json.code === "AUTH_REQUIRED";
+    record("4D-NEG-EXPIRED-TOKEN", "Expired session token rejected on job save -> 401 AUTH_REQUIRED (DENY)", ok, `Status ${res.status}`);
+  }
+
+  // 4D-NEG-EXPIRED-READ: Expired session token rejected on PostgREST RLS query -> 401 JWT expired
+  {
+    const res = await harness.postgrestQuery(EXPIRED_TECH, "technician_job_records", { method: "GET" });
+    const ok = res.status === 401 && res.error === "JWT expired";
+    record("4D-NEG-EXPIRED-READ", "Expired session token rejected on PostgREST query -> 401 JWT expired (DENY)", ok, `Status ${res.status}`);
+  }
+
   // 4D-NEG-8: Direct browser INSERT to technician_job_records -> 403 Forbidden
   {
     const res = await harness.postgrestQuery(TENANT_A.tech, "technician_job_records", {
@@ -867,10 +920,11 @@ async function runApplicationTenantIsolationTests() {
   }
 
   // ==========================================================================
-  // AUDITABLE RESULTS SUMMARY TABLE
+  // AUDITABLE RESULTS SUMMARY TABLE (EXTRACTED-HANDLER-BLOCK + MOCK SIMULATION)
   // ==========================================================================
   console.log("\n============================================================================");
-  console.log(" AUDITABLE APPLICATION-LEVEL TENANT ISOLATION RESULTS TABLE");
+  console.log(" AUDITABLE EXTRACTED-HANDLER-BLOCK + MOCK AUTHORIZATION/RLS SIMULATION TABLE");
+  console.log(" NOTICE: Exercises extracted production code in mock harness (Local CI only)");
   console.log("============================================================================");
   console.log("| Control ID                 | Operation / Description                                | Status | Detail                         |");
   console.log("|:---------------------------|:-------------------------------------------------------|:-------|:-------------------------------|");
