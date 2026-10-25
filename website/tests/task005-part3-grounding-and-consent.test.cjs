@@ -86,6 +86,60 @@ const store = {
       category: "pump",
       symptom: "Pump will not start, display is dead",
       content_text: "Pentair SuperFlo VST Power and Drive Display Troubleshooting: If the pump drive display is completely dark and the motor will not run, inspect drive electronics and AC line voltage input to verify 230VAC power supply. Check the main circuit breaker. Ensure wiring connections to L1 and L2 terminals are tight. If 230V is present but keypad does not illuminate, replace drive control assembly. Do not open drive enclosure without isolating power at circuit breaker."
+    },
+    {
+      id: "chunk_pentair_cross_1",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Pump Start Electrical Diagnostics",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and inspect the breaker while checking supply voltage and recording electrical measurements and safe troubleshooting observations."
+    },
+    {
+      id: "chunk_pentair_cross_2",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Pump Start Mechanical Diagnostics",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Remove the capacitor and inspect the impeller while ensuring motor shaft does not rotate and observing safe procedures."
+    },
+    {
+      id: "chunk_pentair_cross_3",
+      manual_id: "man_pentair_a",
+      company_id: "comp_tenant_a",
+      title: "Pentair SuperFlo VST Pump Start Terminal Wiring",
+      page_number: 14,
+      page_start: 14,
+      page_end: 16,
+      revision: "Rev P",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Pentair",
+      model_family: "SuperFlo VST",
+      category: "pump",
+      symptom: "Pump will not start, display is dead",
+      content_text: "Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Rewire terminal A then inspect terminal B to ensure all wire strands are seated firmly under screw terminals."
     }
   ],
   diagnostic_cases: new Map(),
@@ -613,11 +667,11 @@ async function runTestSuite() {
     assert.equal(jsonChem.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Ungrounded chemical dosing on equipment chunk MUST trigger fallback search");
     console.log("PASS: Test 2B - Ungrounded chemical dosing absent from source rejected; fallback search triggered.");
 
-    console.log("\\n--- TEST 2C: P0 Review Defect - Unsupported Breaker Replacement ---");
+    console.log("\\n--- TEST 2C: P0 Review Defect - Cross-Object False Positive (Replace Fuse & Inspect Breaker) ---");
     geminiCalls.length = 0;
     mockGeminiResponses.length = 0;
 
-    // Prescribing breaker replacement against an inspection-only procedure
+    // 2C1: Model prescribes replacing the breaker against a chunk that only authorizes replacing the fuse!
     mockGeminiResponses.push(() => ({
       output_text: JSON.stringify({
         response_type: "step",
@@ -628,8 +682,8 @@ async function runTestSuite() {
         choices: [{ label: "Done", prompt: "Done" }],
         model_suggestions: [],
         source_label: "internal_manual",
-        source_id: "chunk_pentair_a_1",
-        source_title: "Pentair SuperFlo VST Troubleshooting",
+        source_id: "chunk_pentair_cross_1",
+        source_title: "Pentair SuperFlo VST Pump Start Electrical Diagnostics",
         page_number: 14,
         revision: "Rev P",
         requires_technician: true
@@ -642,32 +696,66 @@ async function runTestSuite() {
       steps: []
     }));
 
-    const req2c = makeDiagReq({
-      sessionId: "session_task005_2c",
+    const req2c1 = makeDiagReq({
+      sessionId: "session_task005_2c1",
       query: "Pentair SuperFlo VST pump won't start, keypad display is completely dark"
     });
 
-    const res2c = await capturedHandler!(req2c);
-    const json2c = await res2c.json();
-    assert.equal(json2c.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Unsupported breaker replacement MUST be rejected by action+object check");
-    console.log("PASS: Test 2C - Unsupported breaker replacement on inspection procedure strictly rejected.");
+    const res2c1 = await capturedHandler!(req2c1);
+    const json2c1 = await res2c1.json();
+    assert.equal(json2c1.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Unsupported breaker replacement MUST be rejected by clause-level target-verb binding");
+    console.log("PASS: Test 2C1 - 'Replace the breaker' strictly rejected against 'Replace fuse and inspect breaker'.");
 
-    console.log("\\n--- TEST 2D: Unauthorized Terminal Rewiring ---");
+    // 2C2: Model prescribes replacing the fuse against the same chunk (genuinely supported positive)
     geminiCalls.length = 0;
     mockGeminiResponses.length = 0;
 
     mockGeminiResponses.push(() => ({
       output_text: JSON.stringify({
         response_type: "step",
-        step_title: "Rewire Supply Terminals",
-        step_instructions: "Rewire the L1 and L2 terminals after checking line voltage.",
-        safety_warning: "Turn off breaker.",
-        follow_up_question: "Are terminals rewired?",
+        step_title: "Replace Blown Fuse",
+        step_instructions: "Replace the fuse after checking supply voltage.",
+        safety_warning: "Ensure main power is disconnected.",
+        follow_up_question: "Did replacing the fuse restore power?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_cross_1",
+        source_title: "Pentair SuperFlo VST Pump Start Electrical Diagnostics",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2c2 = makeDiagReq({
+      sessionId: "session_task005_2c2",
+      query: "Pentair SuperFlo VST pump won't start, keypad display is completely dark"
+    });
+
+    const res2c2 = await capturedHandler!(req2c2);
+    const json2c2 = await res2c2.json();
+    assert.equal(json2c2.sourceMode, "manual", "Genuinely authorized fuse replacement must verify sourceMode='manual'");
+    assert.equal(json2c2.knowledgeDiagnostics.forcedWebSearchAttempted, false, "Genuinely authorized fuse replacement must not trigger fallback");
+    console.log("PASS: Test 2C2 - 'Replace the fuse' verified as genuine positive against 'Replace fuse and inspect breaker'.");
+
+    console.log("\\n--- TEST 2D: Cross-Object False Positive (Remove Capacitor & Inspect Impeller) ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // 2D1: Model prescribes removing the impeller against a chunk that only authorizes removing the capacitor!
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Remove Impeller",
+        step_instructions: "Remove the impeller after inspecting capacitor.",
+        safety_warning: "Lock out power.",
+        follow_up_question: "Is impeller removed?",
         choices: [{ label: "Done", prompt: "Done" }],
         model_suggestions: [],
         source_label: "internal_manual",
-        source_id: "chunk_pentair_a_1",
-        source_title: "Pentair SuperFlo VST Troubleshooting",
+        source_id: "chunk_pentair_cross_2",
+        source_title: "Pentair SuperFlo VST Pump Start Mechanical Diagnostics",
         page_number: 14,
         revision: "Rev P",
         requires_technician: true
@@ -675,13 +763,101 @@ async function runTestSuite() {
     }));
     mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback step.", choices: [] }), steps: [] }));
 
-    const req2d = makeDiagReq({ sessionId: "session_task005_2d", query: "Pentair SuperFlo VST won't start" });
-    const res2d = await capturedHandler!(req2d);
-    const json2d = await res2d.json();
-    assert.equal(json2d.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Unauthorized terminal rewiring MUST be rejected");
-    console.log("PASS: Test 2D - Unauthorized terminal rewiring rejected.");
+    const req2d1 = makeDiagReq({ sessionId: "session_task005_2d1", query: "Pentair SuperFlo VST won't start" });
+    const res2d1 = await capturedHandler!(req2d1);
+    const json2d1 = await res2d1.json();
+    assert.equal(json2d1.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Unsupported impeller removal MUST be rejected by clause-level target-verb binding");
+    console.log("PASS: Test 2D1 - 'Remove the impeller' strictly rejected against 'Remove capacitor and inspect impeller'.");
 
-    console.log("\\n--- TEST 2E: Prohibited Enclosure Opening ---");
+    // 2D2: Model prescribes removing the capacitor against the same chunk (genuinely supported positive)
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Remove Capacitor",
+        step_instructions: "Remove the capacitor while ensuring motor shaft does not rotate.",
+        safety_warning: "Discharge capacitor safely.",
+        follow_up_question: "Is capacitor removed?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_cross_2",
+        source_title: "Pentair SuperFlo VST Pump Start Mechanical Diagnostics",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2d2 = makeDiagReq({ sessionId: "session_task005_2d2", query: "Pentair SuperFlo VST won't start" });
+    const res2d2 = await capturedHandler!(req2d2);
+    const json2d2 = await res2d2.json();
+    assert.equal(json2d2.sourceMode, "manual", "Genuinely authorized capacitor removal must verify sourceMode='manual'");
+    assert.equal(json2d2.knowledgeDiagnostics.forcedWebSearchAttempted, false, "Genuinely authorized capacitor removal must not trigger fallback");
+    console.log("PASS: Test 2D2 - 'Remove the capacitor' verified as genuine positive.");
+
+    console.log("\\n--- TEST 2E: Cross-Object False Positive (Rewire Terminal A & Inspect Terminal B) ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // 2E1: Model prescribes rewiring terminal B against a chunk that only authorizes rewiring terminal A!
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Rewire Terminal B",
+        step_instructions: "Rewire terminal B after inspecting terminal A.",
+        safety_warning: "Turn off breaker.",
+        follow_up_question: "Is terminal B rewired?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_cross_3",
+        source_title: "Pentair SuperFlo VST Pump Start Terminal Wiring",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+    mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback step.", choices: [] }), steps: [] }));
+
+    const req2e1 = makeDiagReq({ sessionId: "session_task005_2e1", query: "Pentair SuperFlo VST won't start" });
+    const res2e1 = await capturedHandler!(req2e1);
+    const json2e1 = await res2e1.json();
+    assert.equal(json2e1.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Unauthorized terminal B rewiring MUST be rejected by clause-level binding");
+    console.log("PASS: Test 2E1 - 'Rewire terminal B' strictly rejected against 'Rewire terminal A then inspect terminal B'.");
+
+    // 2E2: Model prescribes rewiring terminal A against the same chunk (genuinely supported positive)
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Rewire Terminal A",
+        step_instructions: "Rewire terminal A then inspect connections.",
+        safety_warning: "Turn off breaker.",
+        follow_up_question: "Is terminal A rewired?",
+        choices: [{ label: "Done", prompt: "Done" }],
+        model_suggestions: ["SuperFlo VST"],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_cross_3",
+        source_title: "Pentair SuperFlo VST Pump Start Terminal Wiring",
+        page_number: 14,
+        revision: "Rev P",
+        requires_technician: true
+      })
+    }));
+
+    const req2e2 = makeDiagReq({ sessionId: "session_task005_2e2", query: "Pentair SuperFlo VST won't start" });
+    const res2e2 = await capturedHandler!(req2e2);
+    const json2e2 = await res2e2.json();
+    assert.equal(json2e2.sourceMode, "manual", "Genuinely authorized terminal A rewiring must verify sourceMode='manual'");
+    assert.equal(json2e2.knowledgeDiagnostics.forcedWebSearchAttempted, false, "Genuinely authorized terminal A rewiring must not trigger fallback");
+    console.log("PASS: Test 2E2 - 'Rewire terminal A' verified as genuine positive.");
+
+    console.log("\\n--- TEST 2E3: Prohibited Enclosure Opening ---");
     geminiCalls.length = 0;
     mockGeminiResponses.length = 0;
 
@@ -704,11 +880,11 @@ async function runTestSuite() {
     }));
     mockGeminiResponses.push(() => ({ output_text: JSON.stringify({ response_type: "step", step_instructions: "Fallback step.", choices: [] }), steps: [] }));
 
-    const req2e = makeDiagReq({ sessionId: "session_task005_2e", query: "Pentair SuperFlo VST won't start" });
-    const res2e = await capturedHandler!(req2e);
-    const json2e = await res2e.json();
-    assert.equal(json2e.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Prohibited drive enclosure opening MUST be rejected");
-    console.log("PASS: Test 2E - Prohibited drive enclosure opening strictly rejected.");
+    const req2e3 = makeDiagReq({ sessionId: "session_task005_2e3", query: "Pentair SuperFlo VST won't start" });
+    const res2e3 = await capturedHandler!(req2e3);
+    const json2e3 = await res2e3.json();
+    assert.equal(json2e3.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Prohibited drive enclosure opening MUST be rejected");
+    console.log("PASS: Test 2E3 - Prohibited drive enclosure opening strictly rejected.");
 
     console.log("\\n--- TEST 2F: Positive Fixture - Genuinely Authorized Component Replacement ---");
     geminiCalls.length = 0;

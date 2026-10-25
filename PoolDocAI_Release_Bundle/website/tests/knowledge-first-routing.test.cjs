@@ -16,10 +16,10 @@ assert.ok(begin > 0 && end > begin, 'knowledge routing helpers must exist in the
 let helperSource = source.slice(begin, end);
 
 // Strip TS annotations for Node vm
-helperSource = helperSource.replace(/\):\s*(?:Array<[^>]+>|string\[\]|string|boolean|number|\{[^}]+\})\s*\{/g, ') {');
+helperSource = helperSource.replace(/\):\s*(?:Array<[^>]+>|\w+\[\]|\w+|\{[^}]+\})\s*\{/g, ') {');
 helperSource = helperSource.replace(/:\s*Array<[^>]+>/g, '');
 helperSource = helperSource.replace(/:\s*RegExpExecArray\s*\|\s*null/g, '');
-helperSource = helperSource.replace(/:\s*(?:AnyRecord\[\]|string\[\]|AnyRecord|string|boolean|number|unknown)(?:\s*\|\s*(?:null|undefined))*/g, '');
+helperSource = helperSource.replace(/:\s*(?:ActionTargetPair\[\]|ActionTargetPair|AnyRecord\[\]|string\[\]|AnyRecord|string|boolean|number|unknown)(?:\s*\|\s*(?:null|undefined))*/g, '');
 helperSource = helperSource.replace(/\bas\s+[^;,\n)]+/g, '');
 
 // Extract water quality helpers from earlier in the handler
@@ -1042,6 +1042,159 @@ assert.equal(unknownCompoundAddition.verified, false, 'Case V-3: Unknown compoun
     'Pump motor will not start, display is dead'
   );
   assert.equal(mismatchedRevRun.verified, false, 'Mismatched revision on cataloged chunk must fail verification');
+}
+
+// 12l. Clause-level target-verb binding (TASK-005 PART-3S)
+{
+  const crossChunk1 = {
+    id: 'kb-pt-cross-001',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Electrical Diagnostics',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Replace the fuse and inspect the breaker while checking supply voltage and recording electrical measurements and safe troubleshooting observations.'
+  };
+
+  const crossChunk2 = {
+    id: 'kb-pt-cross-002',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Mechanical Diagnostics',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Remove the capacitor and inspect the impeller while ensuring motor shaft does not rotate and observing safe procedures.'
+  };
+
+  const crossChunk3 = {
+    id: 'kb-pt-cross-003',
+    company_manual_source: true,
+    brand: 'Pentair',
+    model_family: 'SuperFlo VST',
+    category: 'pump',
+    title: 'Pentair SuperFlo VST Pump Start Terminal Wiring',
+    page_start: 14,
+    page_end: 16,
+    revision: 'Rev P',
+    active: true,
+    reference_enabled: true,
+    status: 'ready',
+    procedure_text: 'Pentair SuperFlo VST Pump Will Not Start Troubleshooting: Rewire terminal A then inspect terminal B to ensure all wire strands are seated firmly under screw terminals.'
+  };
+
+  // Replace breaker against "Replace fuse and inspect breaker" -> must FAIL
+  const failBreaker = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-cross-001',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Replace the breaker after checking supply voltage.'
+    },
+    [crossChunk1],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(failBreaker.verified, false, 'Replace breaker must fail when procedure only authorizes replacing fuse');
+
+  // Replace fuse against "Replace fuse and inspect breaker" -> must PASS
+  const passFuse = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-cross-001',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Replace the fuse after checking supply voltage.'
+    },
+    [crossChunk1],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(passFuse.verified, true, 'Replace fuse must verify when procedure authorizes replacing fuse');
+
+  // Remove impeller against "Remove capacitor and inspect impeller" -> must FAIL
+  const failImpeller = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-cross-002',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Remove the impeller after inspecting capacitor.'
+    },
+    [crossChunk2],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(failImpeller.verified, false, 'Remove impeller must fail when procedure only authorizes removing capacitor');
+
+  // Remove capacitor against "Remove capacitor and inspect impeller" -> must PASS
+  const passCapacitor = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-cross-002',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Remove the capacitor while ensuring motor shaft does not rotate.'
+    },
+    [crossChunk2],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(passCapacitor.verified, true, 'Remove capacitor must verify when procedure authorizes removing capacitor');
+
+  // Rewire terminal B against "Rewire terminal A then inspect terminal B" -> must FAIL
+  const failTerminalB = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-cross-003',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Rewire terminal B after inspecting terminal A.'
+    },
+    [crossChunk3],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(failTerminalB.verified, false, 'Rewire terminal B must fail when procedure only authorizes rewiring terminal A');
+
+  // Rewire terminal A against "Rewire terminal A then inspect terminal B" -> must PASS
+  const passTerminalA = verifyCitation(
+    {
+      response_type: 'step',
+      source_label: 'internal_manual',
+      source_id: 'kb-pt-cross-003',
+      page_number: 14,
+      revision: 'Rev P',
+      step_instructions: 'Rewire terminal A to ensure all wire strands are seated firmly.'
+    },
+    [crossChunk3],
+    'Pentair',
+    'SuperFlo VST',
+    'Pump motor will not start, display is dead'
+  );
+  assert.equal(passTerminalA.verified, true, 'Rewire terminal A must verify when procedure authorizes rewiring terminal A');
 }
 
 // 13. Static wiring assertions on handler source

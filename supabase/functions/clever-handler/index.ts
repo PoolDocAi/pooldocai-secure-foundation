@@ -3,6 +3,17 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 type AnyRecord = Record<string, unknown>;
 type GeminiContent = { role: "user" | "model"; parts: Array<{ text: string }> };
 
+interface ActionTargetPair {
+  type: string;
+  action: string;
+  target: string;
+  group: {
+    type: string;
+    verbs: string[];
+    nouns: string[];
+  };
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -1115,33 +1126,129 @@ function hasUngroundedChemicalDosing(instructionText: string, procText: string):
   return false;
 }
 
-const INVASIVE_ACTION_PATTERNS = [
+const OBJECT_BOUNDARY_REGEX = /\b(?:after|before|while|during|with|from|to|at|by|for|without|until|using|then|but|as|if|when|so|once|checking|inspecting|verifying|measuring|testing|recording|ensuring|confirming|proceeding|observing|disconnecting|shutting|isolating)\b|[.,;!?:\(\)\[\]"']|(?:\s+and\s+(?:inspect|check|verify|measure|test|record|ensure|confirm|replace|remove|rewire|open))/i;
+
+const INVASIVE_ACTIONS = [
   {
     type: "replacement",
-    regex: /\b(?:replace|replacing|replacement|swap|swapping|substitute|substituting)\s+(?:the\s+|a\s+|an\s+|new\s+|damaged\s+|defective\s+|failed\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
-    procKeywords: ["replace", "replacing", "replacement", "swap", "swapping", "substitute", "new"]
+    verbs: ["replace", "replacing", "swap", "swapping", "substitute", "substituting"],
+    nouns: ["replacement", "swap", "substitution"]
   },
   {
     type: "removal",
-    regex: /\b(?:remove|removing|removal|uninstall|uninstalling|take off|pull|extract|extracting)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
-    procKeywords: ["remove", "removing", "removal", "uninstall", "take off", "pull", "extract"]
+    verbs: ["remove", "removing", "uninstall", "uninstalling", "pull", "extract", "extracting", "take off"],
+    nouns: ["removal", "uninstall", "extraction"]
   },
   {
     type: "rewiring",
-    regex: /\b(?:rewire|rewiring|splice|splicing|bypass|bypassing|jumper|jumpering)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
-    procKeywords: ["rewire", "rewiring", "splice", "splicing", "bypass", "bypassing", "jumper"]
+    verbs: ["rewire", "rewiring", "splice", "splicing", "bypass", "bypassing", "jumper", "jumpering"],
+    nouns: ["rewiring", "splice", "bypass", "jumper"]
   },
   {
     type: "rebuild",
-    regex: /\b(?:rebuild|rebuilding|overhaul|overhauling|disassemble|disassembling|disassembly|tear down)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,3})/gi,
-    procKeywords: ["rebuild", "rebuilding", "overhaul", "disassemble", "disassembly", "tear down"]
+    verbs: ["rebuild", "rebuilding", "overhaul", "overhauling", "disassemble", "disassembling", "tear down"],
+    nouns: ["rebuild", "overhaul", "disassembly", "teardown"]
   },
   {
     type: "opening_enclosure",
-    regex: /\b(?:open|opening|access|accessing)\s+(?:the\s+)?(?:drive\s+|motor\s+|electrical\s+)?(enclosure|panel|casing|housing|cabinet)/gi,
-    procKeywords: ["open", "opening", "access"]
+    verbs: ["open", "opening", "access", "accessing"],
+    nouns: ["access", "opening"]
   }
 ];
+
+function extractActionTargetPairs(instructionText: string): ActionTargetPair[] {
+  const lower = String(instructionText || "").toLowerCase();
+  const pairs: ActionTargetPair[] = [];
+
+  for (const group of INVASIVE_ACTIONS) {
+    const allKeywords = [...group.verbs, ...group.nouns];
+    const kwRegex = new RegExp(`\\b(?:${allKeywords.join("|")})\\b`, "gi");
+    let match: RegExpExecArray | null;
+
+    while ((match = kwRegex.exec(lower)) !== null) {
+      const matchIndex = match.index;
+      const matchedWord = match[0];
+      const afterMatch = lower.slice(matchIndex + matchedWord.length);
+
+      // Check verb form: "replace [the/a/an/new/defective/main] <object>"
+      const leadingDetMatch = afterMatch.match(/^\s+(?:the\s+|a\s+|an\s+|new\s+|damaged\s+|defective\s+|failed\s+|all\s+|main\s+)?/i);
+      if (leadingDetMatch) {
+        const textAfterDet = afterMatch.slice(leadingDetMatch[0].length);
+        const boundaryMatch = textAfterDet.search(OBJECT_BOUNDARY_REGEX);
+        let rawTarget = (boundaryMatch !== -1 ? textAfterDet.slice(0, boundaryMatch) : textAfterDet.slice(0, 40)).trim();
+        rawTarget = rawTarget.replace(/\s+and$/i, "").trim();
+
+        if (rawTarget.length >= 2 && /^[a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,4}$/i.test(rawTarget)) {
+          pairs.push({
+            type: group.type,
+            action: matchedWord,
+            target: rawTarget,
+            group
+          });
+        }
+      }
+
+      // Check nominalized form: "<object> [is/are required] replacement"
+      const beforeMatch = lower.slice(Math.max(0, matchIndex - 40), matchIndex).trim();
+      const lastWordsMatch = beforeMatch.match(/([a-z0-9_-]+(?:\s+[a-z0-9_-]+){0,2})\s*$/i);
+      if (lastWordsMatch) {
+        const candidateNoun = lastWordsMatch[1].trim();
+        if (candidateNoun.length >= 2 && !/\b(?:for|the|a|an|of|to|in|on|with|without|and|or)\b$/i.test(candidateNoun)) {
+          pairs.push({
+            type: group.type,
+            action: matchedWord,
+            target: candidateNoun,
+            group
+          });
+        }
+      }
+    }
+  }
+
+  return pairs;
+}
+
+function escapeRegexForBinding(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isActionCorroboratedOnTarget(pair: ActionTargetPair, procText: string): boolean {
+  const lowerProc = procText.toLowerCase();
+  const target = pair.target.toLowerCase().trim();
+  const group = pair.group;
+  const escapedTarget = escapeRegexForBinding(target);
+
+  const actionTerms = [...group.verbs, ...group.nouns].map(escapeRegexForBinding).join("|");
+
+  // Pattern 1: Direct action verb governing target: "replace [the] breaker"
+  const directRegex = new RegExp(`\\b(?:${actionTerms})\\s+(?:the\\s+|a\\s+|an\\s+|new\\s+|damaged\\s+|defective\\s+|failed\\s+|all\\s+|main\\s+)?(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
+  if (directRegex.test(lowerProc)) {
+    const negationRegex = new RegExp(`\\b(?:do not|don't|never|must not|should not)\\s+(?:[a-z]+\\s+){0,2}(?:${actionTerms})\\s+(?:the\\s+|a\\s+|an\\s+)?(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
+    if (!negationRegex.test(lowerProc)) {
+      return true;
+    }
+  }
+
+  // Pattern 2: Conjoined objects governed by the action: "replace the fuse and breaker"
+  const conjoinedRegex = new RegExp(`\\b(?:${actionTerms})\\s+(?:the\\s+|a\\s+|an\\s+)?(?:[a-z0-9_-]+\\s+){1,3}(?:and|or)\\s+(?:the\\s+|a\\s+|an\\s+)?(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\b`, "i");
+  if (conjoinedRegex.test(lowerProc)) {
+    return true;
+  }
+
+  // Pattern 3: Nominalized phrase: "<target> replacement"
+  const nominalizedRegex = new RegExp(`\\b(?:[a-z0-9_-]+\\s+)?${escapedTarget}\\s+(?:${actionTerms})\\b`, "i");
+  if (nominalizedRegex.test(lowerProc)) {
+    return true;
+  }
+
+  // Pattern 4: Passive clause: "<target> must be replaced"
+  const passiveRegex = new RegExp(`\\b${escapedTarget}\\s+(?:must be|should be|is|are|to be)\\s+(?:${actionTerms})\\b`, "i");
+  if (passiveRegex.test(lowerProc)) {
+    return true;
+  }
+
+  return false;
+}
 
 function checkProhibitions(instructionText: string, procText: string): { prohibited: boolean; phrase?: string } {
   const lowerInstruction = instructionText.toLowerCase();
@@ -1188,43 +1295,18 @@ function hasSubstantiveProcedureEvidence(instructionText: string, procText: stri
     return false;
   }
 
-  // 3. Action + Object Imperative Corroboration:
-  // For any invasive action prescribed by the instruction, verify the procedure text explicitly
-  // substantiates that same action on that component (not merely mentioning the component in an inspection context).
-  for (const pattern of INVASIVE_ACTION_PATTERNS) {
-    const matches = Array.from(lowerInstruction.matchAll(pattern.regex));
-    for (const match of matches) {
-      const targetComponent = match[1].trim();
-      const targetTokens = extractDiagnosticTokens(targetComponent);
-      if (targetTokens.length === 0) continue;
+  // 3. Clause-Level Action + Target Component Corroboration:
+  // For every invasive action prescribed in the instruction, verify the authoritative procedure text
+  // explicitly corroborates that specific action directly on that target component.
+  const invasivePairs = extractActionTargetPairs(lowerInstruction);
+  const hasInvasiveKeyword = /\b(?:replace|replacing|replacement|swap|swapping|remove|removing|uninstall|pull|extract|rewire|rewiring|splice|bypass|jumper|rebuild|overhaul|disassemble)\b/i.test(lowerInstruction);
+  if (hasInvasiveKeyword && invasivePairs.length === 0) {
+    return false;
+  }
 
-      // First: does the target component exist in the procedure?
-      const targetInProc = targetTokens.some((tok) => tokenMatches(tok, lowerProc));
-      if (!targetInProc) {
-        return false;
-      }
-
-      // Second: does the procedure corroborate the ACTION on that component?
-      const procSentences = lowerProc.split(/[.!?;:\n]+/);
-      let actionCorroboratedOnTarget = false;
-
-      for (const sentence of procSentences) {
-        const sentenceHasTarget = targetTokens.some((tok) => tokenMatches(tok, sentence));
-        if (sentenceHasTarget) {
-          const hasActionKeyword = pattern.procKeywords.some((kw) => tokenMatches(kw, sentence));
-          if (hasActionKeyword) {
-            const isNegatedInSentence = /\b(?:do not|don't|never|not)\s+(?:[a-z]+\s+){0,3}(?:replace|swap|remove|rewire|rebuild|open)/i.test(sentence);
-            if (!isNegatedInSentence) {
-              actionCorroboratedOnTarget = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!actionCorroboratedOnTarget) {
-        return false;
-      }
+  for (const pair of invasivePairs) {
+    if (!isActionCorroboratedOnTarget(pair, lowerProc)) {
+      return false;
     }
   }
 
