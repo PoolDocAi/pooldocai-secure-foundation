@@ -80,6 +80,8 @@ jobs:
         run: node website/tests/handler-e2e-superflo-benchmark.test.cjs
       - name: Test manual pilot provenance contract, duplicate guard, and isolation gates
         run: node website/tests/manual-pilot-provenance-and-isolation.test.cjs
+      - name: Test staging migration bundle, synthetic fixtures, and verification suite
+        run: node website/tests/staging-bundle-and-fixtures.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
@@ -101,6 +103,15 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             --set ON_ERROR_STOP=1 \
             --file supabase/tests/security_review.sql
+
+      - name: Apply and verify staging synthetic fixtures and multi-tenant isolation in PostgreSQL
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            --set ON_ERROR_STOP=1 \
+            --file supabase/staging/01_synthetic_staging_fixtures.sql
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            --set ON_ERROR_STOP=1 \
+            --file supabase/staging/02_staging_verification_tests.sql
 
       - name: Run true two-connection PostgreSQL webhook concurrency and claim-fencing test
         run: node supabase/tests/stripe-concurrency.test.cjs

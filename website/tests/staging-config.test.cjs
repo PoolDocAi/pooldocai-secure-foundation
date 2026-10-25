@@ -7,6 +7,7 @@ const { execSync } = require("node:child_process");
 const root = path.resolve(__dirname, "../..");
 const configPath = path.join(root, "website", "js", "config.js");
 const generatorPath = path.join(root, "scripts", "generate-config.cjs");
+const robotsPath = path.join(root, "website", "robots.txt");
 
 // Verify files exist
 assert.ok(fs.existsSync(configPath), "website/js/config.js must exist");
@@ -17,6 +18,7 @@ async function runStagingConfigTests() {
 
   // Backup existing config.js
   const originalConfig = fs.readFileSync(configPath, "utf8");
+  const originalRobots = fs.readFileSync(robotsPath, "utf8");
 
   try {
     // -------------------------------------------------------------------------
@@ -189,6 +191,7 @@ async function runStagingConfigTests() {
   } finally {
     // Restore original config.js
     fs.writeFileSync(configPath, originalConfig, "utf8");
+    fs.writeFileSync(robotsPath, originalRobots, "utf8");
   }
 
   console.log("\nALL SAFE UI-ONLY PREVIEW & STAGING ISOLATION TESTS PASSED.");

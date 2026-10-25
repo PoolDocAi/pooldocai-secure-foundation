@@ -15,7 +15,7 @@ This specification reconciles the staging architecture with the actual codebase,
 
 | Component | Production Environment | Isolated Staging Equivalent | Code-Authoritative Configuration |
 | :--- | :--- | :--- | :--- |
-| **Database & Auth (Supabase)** | Project `owfeebydlyacssqpnmkq` (US East) | Dedicated staging project `PoolDocAI Staging` (`rzkgmvyyeclrpomrlyft`, US East 2, $0/mo) | Separate database cluster, distinct JWT secret, forward migrations 001–044, private bucket `company-manuals` |
+| **Database & Auth (Supabase)** | Project `owfeebydlyacssqpnmkq` (US East) | Dedicated staging project `PoolDocAI Staging` (`rzkgmvyyeclrpomrlyft`, US East 2, $0/mo) | Separate database cluster, distinct JWT secret, forward migrations 001–045, private bucket `company-manuals` |
 | **Frontend Surface (Vercel)** | `pooldocai.com`, `app.pooldocai.com` | `staging.pooldocai.com` or Vercel preview URLs (`*.vercel.app`) | Build-time `scripts/generate-config.cjs` + runtime fail-closed guard; `X-Robots-Tag: noindex, nofollow, noarchive` |
 | **Document Processing Worker** | Render Private Worker (Production) | Render Background Worker (`pooldocai-worker-staging`) | Docker container running `document-worker/Dockerfile`; uses `DOC_WORKER_SECRET`, `MAX_DOWNLOAD_BYTES`, `DOC_WORKER_REQUIRE_HMAC=true` |
 | **AI Inference (Google Gemini)** | Production Cloud Project (Tier 1 Quotas) | Dedicated Google AI Project (`pooldocai-ai-staging`) | Dedicated `GEMINI_API_KEY`; strict $50 monthly budget hard cap; isolated model rate cards |
@@ -103,7 +103,7 @@ STAGING_SUPABASE_ANON_KEY=sb_publishable_staging_anon_key_...
    ```bash
    supabase link --project-ref "rzkgmvyyeclrpomrlyft"
    ```
-3. Push forward migrations (001 through 044, or execute `supabase/staging/00_apply_staging_migrations.sql`):
+3. Push forward migrations (001 through 045, or execute `supabase/staging/00_apply_staging_migrations.sql`):
    ```bash
    supabase db push
    ```

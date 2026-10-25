@@ -2,10 +2,12 @@
 -- POOLDOCAI STAGING POST-MIGRATION VERIFICATION SUITE
 -- Target: Staging Project rzkgmvyyeclrpomrlyft ONLY
 -- Performs read-only schema checks, RLS enforcement verification,
--- and multi-tenant isolation tests against synthetic fixtures.
+-- security RPC validation, and multi-tenant isolation tests.
+--
+-- COMPATIBILITY NOTE:
+-- Contains standard PostgreSQL statements (no psql meta-commands).
+-- Safe for execution via Supabase Dashboard Web SQL Editor or psql client.
 -- ============================================================================
-
-\set ON_ERROR_STOP on
 
 DO $$
 DECLARE
@@ -57,7 +59,13 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'pooldocai_claim_email_delivery_batch') THEN
     RAISE EXCEPTION 'Missing RPC pooldocai_claim_email_delivery_batch';
   END IF;
-  RAISE NOTICE 'PASS: All required security RPCs verified.';
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'pooldocai_check_manual_duplicate') THEN
+    RAISE EXCEPTION 'Missing RPC pooldocai_check_manual_duplicate';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'search_company_manual_chunks_hybrid') THEN
+    RAISE EXCEPTION 'Missing RPC search_company_manual_chunks_hybrid';
+  END IF;
+  RAISE NOTICE 'PASS: All required security RPCs verified (push, email, duplicate guard, hybrid retrieval).';
 
   -- 4. Verify Multi-Tenant Isolation (AquaPure vs BlueWave)
   -- Impersonate AquaPure Technician

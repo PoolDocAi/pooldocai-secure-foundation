@@ -30,8 +30,8 @@ The owner has authorized the setup of a dedicated, completely isolated staging p
 Three SQL artifacts have been prepared in `supabase/staging/`:
 
 1. **`supabase/staging/00_apply_staging_migrations.sql`**:
-   - Contains all 44 migrations (001 through 044) consolidated in exact chronological order.
-   - Enforces transaction safety (`\set ON_ERROR_STOP on`).
+   - Contains all 45 migrations (001 through 045) consolidated in exact chronological order.
+   - Standard PostgreSQL syntax: zero psql meta-commands (`\set`), allowing direct execution in the Supabase Dashboard Web SQL Editor.
    - Idempotently creates schemas, tables, functions, triggers, and RLS policies.
 2. **`supabase/staging/01_synthetic_staging_fixtures.sql`**:
    - Seeds two independent synthetic organizations to verify multi-tenant isolation:
@@ -41,13 +41,15 @@ Three SQL artifacts have been prepared in `supabase/staging/`:
      - **Company B (Residential)**: `BlueWave Residential Pool Services` (`22222222-2222-4222-8222-222222222222`)
        - Admin: `staging_admin_bluewave@pooldocai.test`
        - Tech: `staging_tech_bluewave@pooldocai.test`
+   - Authentic GoTrue Password Authentication: Uses PostgreSQL `pgcrypto` `crypt('PoolDocStaging2026!', gen_salt('bf', 10))` and inserts corresponding records into `auth.identities` so synthetic users can authenticate via the standard Supabase UI and SDK.
+   - Sanitized Outbound Push Subscriptions: Uses RFC-reserved `.test` endpoints (`https://push.staging.pooldocai.test/...`) to prevent accidental outbound requests to external push gateways.
    - Zero real customer/business PII.
 3. **`supabase/staging/02_staging_verification_tests.sql`**:
    - Automated post-migration verification script.
    - Asserts:
      - All 12 core tables exist;
      - 100% of public tables have Row-Level Security (`relrowsecurity = true`);
-     - Required security RPCs exist;
+     - Required security RPCs exist (`pooldocai_register_push_subscription`, `pooldocai_claim_push_delivery_batch`, `pooldocai_claim_email_delivery_batch`, `pooldocai_check_manual_duplicate`, `search_company_manual_chunks_hybrid`);
      - Strict bi-directional tenant isolation (AquaPure tech cannot view BlueWave service requests or push subscriptions).
 
 ---
