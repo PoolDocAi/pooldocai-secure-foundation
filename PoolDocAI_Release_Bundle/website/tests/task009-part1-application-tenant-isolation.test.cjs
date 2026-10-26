@@ -247,6 +247,14 @@ function createMockHarness() {
           store.published_notifications.push(params);
           return { data: "notif-uuid-" + Date.now(), error: null };
         }
+        if (fn === "pooldocai_withdraw_case_learning_consent") {
+          const caseRecord = store.diagnostic_cases.get(params.p_case_id);
+          if (caseRecord) {
+            caseRecord.case_learning_opt_in = false;
+            caseRecord.approved_for_learning = false;
+          }
+          return { data: { ok: true, case_id: params.p_case_id, status: "consent_withdrawn" }, error: null };
+        }
         return { data: null, error: null };
       },
       from: (table) => {

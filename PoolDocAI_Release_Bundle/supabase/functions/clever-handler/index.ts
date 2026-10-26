@@ -1420,7 +1420,8 @@ function verifyInternalCitation(
       if (row.approved_for_learning === false || row.publication_status === "revoked") return false;
       // An unverified AI chatbot suggestion cannot be treated as a confirmed lesson or procedure
       if (row.source_kind === "authenticated_troubleshooter" && row.technician_verified !== true) return false;
-      if (row.knowledge_type === "unconfirmed_suggestion") return false;
+      // Actionable internal citations strictly require verified repair or manufacturer manual
+      if (row.knowledge_type !== "verified_repair" && row.knowledge_type !== "manufacturer_manual") return false;
     }
 
     // Title match if cited title is provided
@@ -2515,10 +2516,22 @@ Deno.serve(async (req: Request) => {
 
       if (rpcErr) {
         console.error("Atomic learning approval failed; publication blocked", { queueId, error: rpcErr.message });
-        if (rpcErr.message?.includes("Model-generated authenticated_troubleshooter suggestion without technician verification") || rpcErr.message?.includes("Only a resolved technician-verified case")) {
+        if (rpcErr.message?.includes("Model-generated authenticated_troubleshooter suggestion without technician verification") || rpcErr.message?.includes("Only a resolved")) {
           return jsonResponse({
             error: "Only a resolved technician case with a recorded outcome can become shared repair knowledge. Model-generated troubleshooter suggestions without independent technician verification cannot be published as verified shared repair knowledge.",
             code: "VERIFIED_REPAIR_REQUIRED"
+          }, 403);
+        }
+        if (rpcErr.message?.includes("does not match review queue tenant")) {
+          return jsonResponse({
+            error: "The diagnostic case tenant does not match the review queue tenant. Cross-tenant publication is prohibited.",
+            code: "CROSS_TENANT_CASE_DENIED"
+          }, 403);
+        }
+        if (rpcErr.message?.includes("Durable case-specific learning consent record is missing or withdrawn")) {
+          return jsonResponse({
+            error: "A valid, active case-specific learning consent record is required before publishing shared knowledge.",
+            code: "CASE_LEARNING_CONSENT_REQUIRED"
           }, 403);
         }
         if (rpcErr.message?.includes("Public demo visitor-reported answers cannot be published")) {
@@ -2850,13 +2863,14 @@ Deno.serve(async (req: Request) => {
     }
     const rawRelatedCaseId = textValue(body.relatedCaseId, 80);
     let validatedRelatedCaseId: string | null = null;
+    let relatedCaseWithdrawn = false;
     if (rawRelatedCaseId) {
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawRelatedCaseId)) {
         return jsonResponse({ error: "The related case ID must be a valid UUID.", code: "RELATED_CASE_ID_INVALID" }, 400);
       }
       const { data: existingCase, error: caseLookupError } = await supabase
         .from("diagnostic_cases")
-        .select("id, tenant_id")
+        .select("id, tenant_id, case_learning_opt_in")
         .eq("id", rawRelatedCaseId)
         .eq("tenant_id", authenticatedCompanyId)
         .maybeSingle();
@@ -2864,6 +2878,17 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ error: "The referenced diagnostic case belongs to a different company workspace or was not found.", code: "TENANT_MISMATCH" }, 403);
       }
       validatedRelatedCaseId = existingCase.id;
+
+      // Check durable case consent table: a withdrawn or revoked case cannot be silently re-enabled
+      const { data: existingConsent } = await supabase
+        .from("case_learning_consents")
+        .select("consent_status")
+        .eq("case_id", validatedRelatedCaseId)
+        .eq("purpose", "shared_diagnostic_learning")
+        .maybeSingle();
+      if (existingConsent && (existingConsent.consent_status === "withdrawn" || existingConsent.consent_status === "revoked")) {
+        relatedCaseWithdrawn = true;
+      }
     }
     const sessionRef = textValue(body.diagnosticSessionId || body.sessionId, 120);
     const jobRef = textValue(body.jobRef, 120) || (sessionRef ? (`session:${sessionRef}`.slice(0, 120)) : null);
@@ -2961,7 +2986,7 @@ Deno.serve(async (req: Request) => {
 
       // Authoritative seat permission: sharing requires valid editing seat or admin role
       const hasSharingPermission = authenticatedRole === "company_admin" || authenticatedPermissions?.canEditJobNotes === true;
-      const effectiveCaseOptIn = Boolean(body.caseLearningOptIn === true && contributorConsentValid && hasSharingPermission);
+      const effectiveCaseOptIn = Boolean(body.caseLearningOptIn === true && contributorConsentValid && hasSharingPermission && !relatedCaseWithdrawn);
 
       const { data: learningCase, error: learningCaseError } = await supabase.from("diagnostic_cases").insert({
         tenant_id: authenticatedCompanyId, case_status: row.case_status, equipment_category: row.equipment_category,
@@ -2974,6 +2999,23 @@ Deno.serve(async (req: Request) => {
         contributor_accepted_at: authoritativeAcceptedAt,
         contributor_user_id: effectiveCaseOptIn ? authenticatedUserId : null
       }).select("id").single();
+
+      if (effectiveCaseOptIn && learningCase?.id) {
+        try {
+          await supabase.from("case_learning_consents").insert({
+            case_id: learningCase.id,
+            company_id: authenticatedCompanyId,
+            actor_user_id: authenticatedUserId,
+            purpose: "shared_diagnostic_learning",
+            terms_version: authoritativeTermsVersion || "2026-10",
+            consent_status: "granted",
+            granted_at: authoritativeAcceptedAt || new Date().toISOString()
+          });
+        } catch (consentErr) {
+          console.error("Durable case consent insert failed", consentErr);
+        }
+      }
+
       let stepLinked = false;
       if (validatedRelatedCaseId) {
         await supabase
@@ -2982,13 +3024,31 @@ Deno.serve(async (req: Request) => {
             case_status: row.case_status,
             resolution_summary_redacted: caseResolution || null,
             technician_verified: row.technician_verified,
-            case_learning_opt_in: effectiveCaseOptIn,
-            learning_terms_version: authoritativeTermsVersion,
-            contributor_accepted_at: authoritativeAcceptedAt,
-            contributor_user_id: effectiveCaseOptIn ? authenticatedUserId : null
+            ...(relatedCaseWithdrawn ? { case_learning_opt_in: false } : (effectiveCaseOptIn ? {
+              case_learning_opt_in: true,
+              learning_terms_version: authoritativeTermsVersion,
+              contributor_accepted_at: authoritativeAcceptedAt,
+              contributor_user_id: authenticatedUserId
+            } : {}))
           })
           .eq("id", validatedRelatedCaseId)
           .eq("tenant_id", authenticatedCompanyId);
+
+        if (effectiveCaseOptIn && !relatedCaseWithdrawn) {
+          try {
+            await supabase.from("case_learning_consents").upsert({
+              case_id: validatedRelatedCaseId,
+              company_id: authenticatedCompanyId,
+              actor_user_id: authenticatedUserId,
+              purpose: "shared_diagnostic_learning",
+              terms_version: authoritativeTermsVersion || "2026-10",
+              consent_status: "granted",
+              granted_at: authoritativeAcceptedAt || new Date().toISOString()
+            }, { onConflict: "case_id,purpose" });
+          } catch (consentErr) {
+            console.error("Durable related case consent upsert failed", consentErr);
+          }
+        }
 
         const { data: existingStep } = await supabase
           .from("diagnostic_case_steps")
@@ -3273,24 +3333,20 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: "You cannot modify another company's case.", code: "TENANT_MISMATCH" }, 403);
     }
 
-    const { error: withdrawErr } = await supabase.from("diagnostic_cases").update({
-      case_learning_opt_in: false,
-      approved_for_learning: false,
-      privacy_reviewed_at: null
-    }).eq("id", targetCaseId);
+    const targetCompanyId = caseRecord.tenant_id;
+    const withdrawReason = textValue(body.reason, 300) || "Case-level shared-learning consent withdrawn by company";
 
-    if (withdrawErr) return jsonResponse({ error: "Could not withdraw case learning consent.", code: "CONSENT_WITHDRAWAL_FAILED" }, 500);
+    const { data: rpcResult, error: withdrawErr } = await supabase.rpc("pooldocai_withdraw_case_learning_consent", {
+      p_case_id: targetCaseId,
+      p_company_id: targetCompanyId,
+      p_actor_user_id: authenticatedUserId,
+      p_reason: withdrawReason
+    });
 
-    await supabase.from("shared_learning_knowledge").delete().eq("source_case_id", targetCaseId);
-    await supabase.from("learning_review_queue").update({ status: "rejected" }).eq("case_id", targetCaseId);
-    try {
-      await supabase.from("learning_review_audit").insert({
-        case_id: targetCaseId,
-        actor_user_id: authenticatedUserId,
-        action: "rejected",
-        note_redacted: "Case-level shared-learning consent withdrawn by company"
-      });
-    } catch {}
+    if (withdrawErr) {
+      console.error("Atomic consent withdrawal failed", { code: withdrawErr.code, message: withdrawErr.message });
+      return jsonResponse({ error: "Could not withdraw case learning consent.", code: "CONSENT_WITHDRAWAL_FAILED" }, 500);
+    }
 
     return jsonResponse({
       ok: true,
@@ -3483,6 +3539,7 @@ Deno.serve(async (req: Request) => {
         const title = k === "technician_job"
           ? "PoolDocAI confirmed technician repair"
           : (k === "company_manual" ? "PoolDocAI reviewed company manual / SOP" : "PoolDocAI reviewed shared lesson");
+        const isActionable = knowledgeType === "verified_repair" || knowledgeType === "manufacturer_manual";
         return {
           id: r.id,
           title,
@@ -3491,7 +3548,7 @@ Deno.serve(async (req: Request) => {
           brand: r.manufacturer_normalized,
           model_family: r.model_normalized,
           content_text: r.lesson_redacted,
-          procedure_text: r.lesson_redacted,
+          procedure_text: isActionable ? r.lesson_redacted : null,
           shared_learning_source: true,
           technician_verified: techVerified,
           knowledge_type: knowledgeType,
@@ -3500,6 +3557,7 @@ Deno.serve(async (req: Request) => {
       }).filter((r: AnyRecord) => {
         if (r.publication_status === "revoked") return false;
         if (r.knowledge_type === "unconfirmed_suggestion") return false;
+        if (r.knowledge_type === "observed_diagnosis") return false;
         if (r.source_kind === "authenticated_troubleshooter" && r.technician_verified !== true) return false;
         return true;
       });

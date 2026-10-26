@@ -177,6 +177,19 @@ function createHarness() {
       if (funcName === "pooldocai_publish_company_notification") {
         return { data: "mock-notif-uuid", error: null };
       }
+      if (funcName === "pooldocai_withdraw_case_learning_consent") {
+        const caseRow = store.diagnostic_cases.get(params.p_case_id);
+        if (caseRow) {
+          caseRow.case_learning_opt_in = false;
+          caseRow.approved_for_learning = false;
+        }
+        for (const item of store.shared_learning_knowledge.values()) {
+          if (item.source_case_id === params.p_case_id) {
+            item.publication_status = "revoked";
+          }
+        }
+        return { data: { ok: true, case_id: params.p_case_id, status: "consent_withdrawn" }, error: null };
+      }
       throw new Error(`Unexpected RPC: ${funcName}`);
     },
 

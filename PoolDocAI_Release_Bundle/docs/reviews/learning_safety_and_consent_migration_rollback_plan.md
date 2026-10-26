@@ -78,10 +78,21 @@ END IF;
 
 ### 3.3 Read-Side Retrieval Eligibility Gate (`search_shared_learning`)
 ```sql
-SELECT ...
+SELECT
+  k.id,
+  k.equipment_category,
+  k.manufacturer_normalized,
+  k.model_normalized,
+  k.lesson_redacted,
+  k.source_kind,
+  COALESCE(k.knowledge_type, CASE WHEN k.source_kind = 'company_manual' THEN 'manufacturer_manual' WHEN k.source_kind = 'technician_job' THEN 'verified_repair' ELSE 'observed_diagnosis' END) AS knowledge_type,
+  COALESCE(k.technician_verified, false) AS technician_verified,
+  COALESCE(k.publication_status, 'active') AS publication_status,
+  ts_rank(...) AS rank
 FROM public.shared_learning_knowledge k
 LEFT JOIN public.companies c ON c.id = k.source_company_id
 LEFT JOIN public.diagnostic_cases dc ON dc.id = k.source_case_id
+LEFT JOIN public.company_manuals cm ON cm.id = k.source_manual_id
 WHERE
   -- Active publication status only (revoked/quarantined excluded)
   COALESCE(k.publication_status, 'active') = 'active'
@@ -127,7 +138,13 @@ If Migration 047 ever needs to be rolled back during a maintenance window, execu
 ```sql
 BEGIN;
 
--- 1. Restore previous search_shared_learning RPC signature
+-- 1. Safety Invariant: Purge revoked or unconfirmed lessons before rolling back schema columns,
+-- guaranteeing that rollback NEVER silently republishes previously revoked entries.
+DELETE FROM public.shared_learning_knowledge
+WHERE publication_status = 'revoked'
+   OR knowledge_type = 'unconfirmed_suggestion';
+
+-- 2. Restore previous search_shared_learning RPC signature
 DROP FUNCTION IF EXISTS public.search_shared_learning(text, integer);
 
 CREATE OR REPLACE FUNCTION public.search_shared_learning(
@@ -164,7 +181,7 @@ $$;
 REVOKE ALL ON FUNCTION public.search_shared_learning(text, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.search_shared_learning(text, integer) TO service_role;
 
--- 2. Restore previous pooldocai_approve_learning_case RPC (Migration 039 version)
+-- 3. Restore previous pooldocai_approve_learning_case RPC (Migration 044 version)
 CREATE OR REPLACE FUNCTION public.pooldocai_approve_learning_case(
   p_queue_id uuid,
   p_lesson text,
@@ -172,12 +189,183 @@ CREATE OR REPLACE FUNCTION public.pooldocai_approve_learning_case(
   p_review_note text DEFAULT NULL
 )
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
--- (Reverts to Migration 039 implementation)
-...
+DECLARE
+  v_queue public.learning_review_queue%ROWTYPE;
+  v_case public.diagnostic_cases%ROWTYPE;
+  v_manual public.company_manuals%ROWTYPE;
+  v_company_opted_in boolean := false;
+  v_manual_id uuid;
+  v_has_case_consent boolean := false;
+  v_equipment_category text;
+  v_manufacturer_normalized text;
+  v_model_normalized text;
+BEGIN
+  -- Lock review queue row
+  SELECT * INTO v_queue
+  FROM public.learning_review_queue
+  WHERE id = p_queue_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Review queue item % not found', p_queue_id;
+  END IF;
+
+  IF v_queue.status <> 'pending' THEN
+    RAISE EXCEPTION 'Review item % is not pending (status: %)', p_queue_id, v_queue.status;
+  END IF;
+
+  -- Public demo visitor-reported answers cannot be published
+  IF v_queue.source_kind = 'public_demo' THEN
+    RAISE EXCEPTION 'Public demo visitor-reported answers cannot be published as verified shared repair knowledge';
+  END IF;
+
+  -- Verify document consent, provenance, and load metadata if manual
+  IF v_queue.source_kind = 'company_manual' THEN
+    SELECT (array_agg(elem))[1]::uuid INTO v_manual_id
+    FROM unnest(v_queue.supporting_source_ids) AS elem
+    WHERE elem NOT LIKE '%#chunk-%';
+
+    IF v_manual_id IS NOT NULL THEN
+      SELECT * INTO v_manual
+      FROM public.company_manuals
+      WHERE id = v_manual_id AND company_id = v_queue.tenant_id
+      FOR UPDATE;
+    END IF;
+
+    IF v_manual.id IS NULL THEN
+      RAISE EXCEPTION 'Source company manual % not found or does not belong to tenant %', v_manual_id, v_queue.tenant_id;
+    END IF;
+
+    IF NOT COALESCE(v_manual.shared_learning_opt_in, false) THEN
+      RAISE EXCEPTION 'Source company manual opt-in consent is missing or revoked';
+    END IF;
+
+    SELECT diagnostic_learning_opt_in INTO v_company_opted_in
+    FROM public.companies
+    WHERE id = v_queue.tenant_id;
+
+    IF NOT COALESCE(v_company_opted_in, false) THEN
+      RAISE EXCEPTION 'Governing company diagnostic learning opt-in is required';
+    END IF;
+
+    v_equipment_category := COALESCE(v_manual.equipment_category, 'manual');
+    v_manufacturer_normalized := v_manual.manufacturer_normalized;
+    v_model_normalized := v_manual.model_normalized;
+
+  ELSIF v_queue.case_id IS NOT NULL THEN
+    SELECT * INTO v_case
+    FROM public.diagnostic_cases
+    WHERE id = v_queue.case_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Diagnostic case % not found', v_queue.case_id;
+    END IF;
+
+    IF v_case.tenant_id IS NOT NULL THEN
+      IF NOT COALESCE(v_case.case_learning_opt_in, false) THEN
+        RAISE EXCEPTION 'Case-level learning consent was not granted or was withdrawn';
+      END IF;
+
+      IF v_case.learning_terms_version IS NULL AND v_case.legal_terms_version IS NULL THEN
+        RAISE EXCEPTION 'Verified contributor terms acceptance is required for case learning approval';
+      END IF;
+
+      SELECT diagnostic_learning_opt_in INTO v_company_opted_in
+      FROM public.companies
+      WHERE id = v_case.tenant_id;
+
+      IF NOT COALESCE(v_company_opted_in, false) THEN
+        RAISE EXCEPTION 'Governing company diagnostic learning opt-in is required';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'Public demo visitor-reported answers cannot be published as verified shared repair knowledge';
+    END IF;
+
+    IF v_queue.source_kind IN ('technician_job', 'authenticated_troubleshooter') THEN
+      IF NOT COALESCE(v_case.technician_verified, false) OR COALESCE(trim(v_case.resolution_summary_redacted), '') = '' THEN
+        RAISE EXCEPTION 'Only a resolved technician-verified case with a recorded outcome can become shared repair knowledge';
+      END IF;
+    END IF;
+
+    v_equipment_category := v_case.equipment_category;
+    v_manufacturer_normalized := v_case.manufacturer_normalized;
+    v_model_normalized := v_case.model_normalized;
+  END IF;
+
+  INSERT INTO public.shared_learning_knowledge (
+    source_case_id,
+    source_queue_id,
+    source_company_id,
+    source_kind,
+    equipment_category,
+    manufacturer_normalized,
+    model_normalized,
+    lesson_redacted,
+    approved_by,
+    consent_snapshot,
+    review_history
+  ) VALUES (
+    v_queue.case_id,
+    v_queue.id,
+    v_queue.tenant_id,
+    v_queue.source_kind,
+    v_equipment_category,
+    v_manufacturer_normalized,
+    v_model_normalized,
+    p_lesson,
+    p_reviewed_by,
+    true,
+    jsonb_build_array(jsonb_build_object(
+      'action', 'approved',
+      'actor', p_reviewed_by,
+      'at', now(),
+      'note', p_review_note
+    ))
+  )
+  ON CONFLICT (source_queue_id) DO UPDATE SET
+    lesson_redacted = EXCLUDED.lesson_redacted,
+    equipment_category = EXCLUDED.equipment_category,
+    manufacturer_normalized = EXCLUDED.manufacturer_normalized,
+    model_normalized = EXCLUDED.model_normalized,
+    approved_by = EXCLUDED.approved_by,
+    consent_snapshot = true,
+    review_history = public.shared_learning_knowledge.review_history || EXCLUDED.review_history;
+
+  IF v_queue.case_id IS NOT NULL THEN
+    UPDATE public.diagnostic_cases
+    SET approved_for_learning = true, privacy_reviewed_at = now()
+    WHERE id = v_queue.case_id;
+  END IF;
+
+  UPDATE public.learning_review_queue
+  SET status = 'approved', reviewed_by = p_reviewed_by, reviewed_at = now()
+  WHERE id = p_queue_id;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'queue_id', p_queue_id,
+    'case_id', v_queue.case_id,
+    'source_kind', v_queue.source_kind,
+    'equipment_category', v_equipment_category,
+    'manufacturer_normalized', v_manufacturer_normalized,
+    'model_normalized', v_model_normalized,
+    'status', 'approved'
+  );
+END;
 $$;
 
--- 3. Drop added columns and index
+REVOKE ALL ON FUNCTION public.pooldocai_approve_learning_case(uuid, text, uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pooldocai_approve_learning_case(uuid, text, uuid, text) TO service_role;
+
+-- 4. Drop atomic withdrawal function and durable case consent table
+DROP FUNCTION IF EXISTS public.pooldocai_withdraw_case_learning_consent(uuid, uuid, uuid, text);
+DROP TABLE IF EXISTS public.case_learning_consents CASCADE;
+
+-- 5. Drop added columns and indexes
 DROP INDEX IF EXISTS public.shared_learning_status_idx;
+DROP INDEX IF EXISTS public.shared_learning_manual_idx;
+ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS source_manual_id;
 ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS knowledge_type;
 ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS technician_verified;
 ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS publication_status;

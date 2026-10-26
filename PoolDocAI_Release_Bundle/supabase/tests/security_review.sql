@@ -1868,12 +1868,23 @@ DO $$
 DECLARE
   v_co_active uuid := gen_random_uuid();
   v_co_opted_out uuid := gen_random_uuid();
+  v_co_other uuid := gen_random_uuid();
   v_admin_id uuid := gen_random_uuid();
+  v_tech_user_id uuid := gen_random_uuid();
   v_case_ai_unverified uuid := gen_random_uuid();
   v_queue_ai_unverified uuid := gen_random_uuid();
   v_case_tech_verified uuid := gen_random_uuid();
   v_queue_tech_verified uuid := gen_random_uuid();
+  v_case_unresolved uuid := gen_random_uuid();
+  v_queue_unresolved uuid := gen_random_uuid();
+  v_case_cross_tenant uuid := gen_random_uuid();
+  v_queue_cross_tenant uuid := gen_random_uuid();
+  v_case_no_consent uuid := gen_random_uuid();
+  v_queue_no_consent uuid := gen_random_uuid();
+  v_manual_id uuid := gen_random_uuid();
+  v_queue_manual uuid := gen_random_uuid();
   v_shared_pub_id uuid;
+  v_shared_manual_pub_id uuid;
   v_err_msg text;
   v_res_count integer;
   v_res_rec record;
@@ -1882,18 +1893,24 @@ BEGIN
   INSERT INTO public.companies (id, name, status, diagnostic_learning_opt_in)
   VALUES
     (v_co_active, 'Active Opted-In Pools', 'active', true),
-    (v_co_opted_out, 'Opted-Out Pools', 'active', false);
+    (v_co_opted_out, 'Opted-Out Pools', 'active', false),
+    (v_co_other, 'Foreign Workspace Pools', 'active', true);
 
-  -- Setup admin user
+  -- Setup users
   INSERT INTO auth.users (id, email)
-  VALUES (v_admin_id, 'security_reviewer_task012@pooldocai.test');
+  VALUES
+    (v_admin_id, 'security_reviewer_task012@pooldocai.test'),
+    (v_tech_user_id, 'technician_task012@pooldocai.test');
 
-  -- 1. Evidence Gate: Model-generated authenticated_troubleshooter suggestion with technician_verified=false MUST be rejected
+  -- 1. Negative Control: Model-generated authenticated_troubleshooter suggestion with technician_verified=false MUST be rejected
   INSERT INTO public.diagnostic_cases (
-    id, tenant_id, technician_verified, case_learning_opt_in, learning_terms_version, equipment_category, resolution_summary_redacted
+    id, tenant_id, case_status, technician_verified, case_learning_opt_in, learning_terms_version, contributor_user_id, contributor_accepted_at, equipment_category, resolution_summary_redacted
   ) VALUES (
-    v_case_ai_unverified, v_co_active, false, true, '2026-10-v1', 'pump', 'Chatbot suggested replacing mechanical shaft seal'
+    v_case_ai_unverified, v_co_active, 'open', false, true, '2026-10-v1', v_tech_user_id, now(), 'pump', 'Chatbot suggested replacing mechanical shaft seal'
   );
+
+  INSERT INTO public.case_learning_consents (case_id, company_id, actor_user_id, purpose, terms_version, consent_status)
+  VALUES (v_case_ai_unverified, v_co_active, v_tech_user_id, 'shared_diagnostic_learning', '2026-10-v1', 'granted');
 
   INSERT INTO public.learning_review_queue (
     id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
@@ -1914,19 +1931,120 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     v_err_msg := SQLERRM;
     IF v_err_msg NOT LIKE '%Model-generated authenticated_troubleshooter suggestion without technician verification%'
-       AND v_err_msg NOT LIKE '%Only a resolved technician-verified case%' THEN
+       AND v_err_msg NOT LIKE '%Only a resolved%' THEN
       RAISE EXCEPTION 'Unexpected error on unverified troubleshooter approval: %', v_err_msg;
     END IF;
   END;
 
-  -- 2. Verified Technician Case Approval: With technician_verified=true and recorded outcome, approval succeeds
+  -- 2. Negative Control: Cross-tenant queue-case mismatch MUST be rejected
   INSERT INTO public.diagnostic_cases (
-    id, tenant_id, technician_verified, case_learning_opt_in, learning_terms_version, equipment_category,
+    id, tenant_id, case_status, technician_verified, case_learning_opt_in, learning_terms_version, contributor_user_id, contributor_accepted_at, equipment_category, resolution_summary_redacted
+  ) VALUES (
+    v_case_cross_tenant, v_co_other, 'resolved', true, true, '2026-10-v1', v_tech_user_id, now(), 'Heater', 'Replaced thermal regulator.'
+  );
+
+  INSERT INTO public.case_learning_consents (case_id, company_id, actor_user_id, purpose, terms_version, consent_status)
+  VALUES (v_case_cross_tenant, v_co_other, v_tech_user_id, 'shared_diagnostic_learning', '2026-10-v1', 'granted');
+
+  INSERT INTO public.learning_review_queue (
+    id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
+  ) VALUES (
+    v_queue_cross_tenant, v_case_cross_tenant, v_co_active, 'technician_job',
+    'Cross-tenant queue submission attempting to claim foreign case.',
+    ARRAY['cross-tenant-1'], 'pending'
+  );
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(
+      v_queue_cross_tenant,
+      'Cross-tenant queue submission attempting to claim foreign case.',
+      v_admin_id,
+      'Attempted cross-tenant queue approval'
+    );
+    RAISE EXCEPTION 'Cross-tenant approval unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%does not match review queue tenant%' THEN
+      RAISE EXCEPTION 'Unexpected error on cross-tenant mismatch: %', v_err_msg;
+    END IF;
+  END;
+
+  -- 3. Negative Control: Unresolved case (case_status <> resolved) cannot be approved as verified repair
+  INSERT INTO public.diagnostic_cases (
+    id, tenant_id, case_status, technician_verified, case_learning_opt_in, learning_terms_version, contributor_user_id, contributor_accepted_at, equipment_category, resolution_summary_redacted
+  ) VALUES (
+    v_case_unresolved, v_co_active, 'open', true, true, '2026-10-v1', v_tech_user_id, now(), 'Filter', 'Cleaned grids but pressure still 35 psi.'
+  );
+
+  INSERT INTO public.case_learning_consents (case_id, company_id, actor_user_id, purpose, terms_version, consent_status)
+  VALUES (v_case_unresolved, v_co_active, v_tech_user_id, 'shared_diagnostic_learning', '2026-10-v1', 'granted');
+
+  INSERT INTO public.learning_review_queue (
+    id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
+  ) VALUES (
+    v_queue_unresolved, v_case_unresolved, v_co_active, 'technician_job',
+    'Unresolved filter repair attempt.',
+    ARRAY['unresolved-1'], 'pending'
+  );
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(
+      v_queue_unresolved,
+      'Unresolved filter repair attempt.',
+      v_admin_id,
+      'Attempted approval of unresolved case'
+    );
+    RAISE EXCEPTION 'Unresolved case approval unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%Only a resolved case with status resolved%' THEN
+      RAISE EXCEPTION 'Unexpected error on unresolved case approval: %', v_err_msg;
+    END IF;
+  END;
+
+  -- 4. Negative Control: Missing durable case consent record MUST fail approval
+  INSERT INTO public.diagnostic_cases (
+    id, tenant_id, case_status, technician_verified, case_learning_opt_in, learning_terms_version, contributor_user_id, contributor_accepted_at, equipment_category, resolution_summary_redacted
+  ) VALUES (
+    v_case_no_consent, v_co_active, 'resolved', true, true, '2026-10-v1', v_tech_user_id, now(), 'Salt System', 'Replaced flow switch.'
+  );
+
+  INSERT INTO public.learning_review_queue (
+    id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
+  ) VALUES (
+    v_queue_no_consent, v_case_no_consent, v_co_active, 'technician_job',
+    'Salt system repair with missing case consent row.',
+    ARRAY['no-consent-1'], 'pending'
+  );
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(
+      v_queue_no_consent,
+      'Salt system repair with missing case consent row.',
+      v_admin_id,
+      'Attempted approval without durable case consent'
+    );
+    RAISE EXCEPTION 'Approval without durable case consent unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%Durable case-specific learning consent record is missing or withdrawn%' THEN
+      RAISE EXCEPTION 'Unexpected error on missing case consent: %', v_err_msg;
+    END IF;
+  END;
+
+  -- 5. Positive Control: Verified Technician Case Approval (Same Tenant, Resolved Status, Provenance & Consent)
+  INSERT INTO public.diagnostic_cases (
+    id, tenant_id, case_status, technician_verified, case_learning_opt_in, learning_terms_version,
+    contributor_user_id, contributor_accepted_at, equipment_category,
     manufacturer_normalized, model_normalized, resolution_summary_redacted
   ) VALUES (
-    v_case_tech_verified, v_co_active, true, true, '2026-10-v1', 'Pump',
+    v_case_tech_verified, v_co_active, 'resolved', true, true, '2026-10-v1',
+    v_tech_user_id, now(), 'Pump',
     'Pentair', 'IntelliFlo VSF', 'Replaced shaft seal and lubricated diffuser O-ring. Primed immediately.'
   );
+
+  INSERT INTO public.case_learning_consents (case_id, company_id, actor_user_id, purpose, terms_version, consent_status)
+  VALUES (v_case_tech_verified, v_co_active, v_tech_user_id, 'shared_diagnostic_learning', '2026-10-v1', 'granted');
 
   INSERT INTO public.learning_review_queue (
     id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
@@ -1962,7 +2080,7 @@ BEGIN
       v_res_rec.knowledge_type, v_res_rec.technician_verified, v_res_rec.publication_status;
   END IF;
 
-  -- 3. Search Retrieval Predicate Check: Active verified repair must be retrievable
+  -- 6. Search Retrieval Predicate Check: Active verified repair must be retrievable
   SELECT count(*) INTO v_res_count
   FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
 
@@ -1970,56 +2088,95 @@ BEGIN
     RAISE EXCEPTION 'Active verified repair must be retrievable via search_shared_learning';
   END IF;
 
-  -- 4. Search Exclusion: Revoking publication immediately removes from retrieval
-  UPDATE public.shared_learning_knowledge
-  SET publication_status = 'revoked'
+  -- 7. Company Manual Consent Control: Revoked manual with active company
+  INSERT INTO public.company_manuals (
+    id, company_id, file_name, file_size_bytes, mime_type, storage_path, equipment_category, manufacturer_normalized, model_normalized, status, shared_learning_opt_in, reference_enabled
+  ) VALUES (
+    v_manual_id, v_co_active, 'hayward_superpump_sop.pdf', 10240, 'application/pdf', 'manuals/hayward.pdf', 'Pump', 'Hayward', 'Super Pump', 'ready', true, true
+  );
+
+  INSERT INTO public.learning_review_queue (
+    id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
+  ) VALUES (
+    v_queue_manual, v_co_active, 'company_manual',
+    'Hayward Super Pump seal installation guide and impeller torque specifications.',
+    ARRAY[v_manual_id::text], 'pending'
+  );
+
+  PERFORM public.pooldocai_approve_learning_case(
+    v_queue_manual,
+    'Hayward Super Pump seal installation guide and impeller torque specifications.',
+    v_admin_id,
+    'Platform reviewer signoff on company manual SOP'
+  );
+
+  SELECT id INTO v_shared_manual_pub_id
+  FROM public.shared_learning_knowledge
+  WHERE source_queue_id = v_queue_manual;
+
+  IF v_shared_manual_pub_id IS NULL THEN
+    RAISE EXCEPTION 'Expected shared_learning_knowledge row for approved company manual was not created';
+  END IF;
+
+  -- Verify manual is retrievable while opted in
+  SELECT count(*) INTO v_res_count
+  FROM public.search_shared_learning('Hayward Super Pump impeller torque', 4);
+
+  IF v_res_count = 0 THEN
+    RAISE EXCEPTION 'Active company manual must be retrievable via search_shared_learning';
+  END IF;
+
+  -- Now revoke ONLY the manual consent, keeping the company active and opted in
+  UPDATE public.company_manuals
+  SET shared_learning_opt_in = false
+  WHERE id = v_manual_id;
+
+  SELECT count(*) INTO v_res_count
+  FROM public.search_shared_learning('Hayward Super Pump impeller torque', 4);
+
+  IF v_res_count <> 0 THEN
+    RAISE EXCEPTION 'Revoked company manual must be IMMEDIATELY excluded from search_shared_learning (got % rows)', v_res_count;
+  END IF;
+
+  -- 8. Atomic Consent Withdrawal RPC Check
+  PERFORM public.pooldocai_withdraw_case_learning_consent(
+    v_case_tech_verified,
+    v_co_active,
+    v_admin_id,
+    'Company withdrew learning consent via atomic RPC'
+  );
+
+  -- Assert soft-revocation, audit trail, and search exclusion
+  SELECT publication_status INTO v_err_msg
+  FROM public.shared_learning_knowledge
   WHERE id = v_shared_pub_id;
 
-  SELECT count(*) INTO v_res_count
-  FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
-
-  IF v_res_count <> 0 THEN
-    RAISE EXCEPTION 'Revoked publication must NOT be returned by search_shared_learning (got % rows)', v_res_count;
+  IF v_err_msg <> 'revoked' THEN
+    RAISE EXCEPTION 'shared_learning_knowledge publication_status must be soft-revoked (got: %)', v_err_msg;
   END IF;
 
-  -- Restore active status for subsequent negative checks
-  UPDATE public.shared_learning_knowledge
-  SET publication_status = 'active'
-  WHERE id = v_shared_pub_id;
+  SELECT consent_status INTO v_err_msg
+  FROM public.case_learning_consents
+  WHERE case_id = v_case_tech_verified AND purpose = 'shared_diagnostic_learning';
 
-  -- 5. Search Exclusion: Withdrawing case-level consent immediately excludes from retrieval
-  UPDATE public.diagnostic_cases
-  SET case_learning_opt_in = false
-  WHERE id = v_case_tech_verified;
+  IF v_err_msg <> 'withdrawn' THEN
+    RAISE EXCEPTION 'case_learning_consents consent_status must be withdrawn (got: %)', v_err_msg;
+  END IF;
 
   SELECT count(*) INTO v_res_count
   FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
 
   IF v_res_count <> 0 THEN
-    RAISE EXCEPTION 'Withdrawn case consent must exclude entry from search_shared_learning (got % rows)', v_res_count;
+    RAISE EXCEPTION 'Atomic-withdrawn case must be excluded from search_shared_learning (got % rows)', v_res_count;
   END IF;
 
-  -- Restore case consent
-  UPDATE public.diagnostic_cases
-  SET case_learning_opt_in = true
-  WHERE id = v_case_tech_verified;
-
-  -- 6. Search Exclusion: Company opt-out immediately excludes from retrieval
-  UPDATE public.companies
-  SET diagnostic_learning_opt_in = false
-  WHERE id = v_co_active;
-
-  SELECT count(*) INTO v_res_count
-  FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
-
-  IF v_res_count <> 0 THEN
-    RAISE EXCEPTION 'Company opt-out must exclude entry from search_shared_learning (got % rows)', v_res_count;
-  END IF;
-
-  -- 7. Teardown Section 13 Test Fixtures
-  DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_ai_unverified, v_queue_tech_verified);
-  DELETE FROM public.learning_review_queue WHERE id IN (v_queue_ai_unverified, v_queue_tech_verified);
-  DELETE FROM public.diagnostic_cases WHERE id IN (v_case_ai_unverified, v_case_tech_verified);
-  DELETE FROM public.companies WHERE id IN (v_co_active, v_co_opted_out);
-  DELETE FROM auth.users WHERE id = v_admin_id;
+  -- 9. Teardown Section 13 Test Fixtures
+  DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_ai_unverified, v_queue_tech_verified, v_queue_unresolved, v_queue_cross_tenant, v_queue_no_consent, v_queue_manual);
+  DELETE FROM public.learning_review_audit WHERE case_id IN (v_case_ai_unverified, v_case_tech_verified, v_case_unresolved, v_case_cross_tenant, v_case_no_consent);
+  DELETE FROM public.learning_review_queue WHERE id IN (v_queue_ai_unverified, v_queue_tech_verified, v_queue_unresolved, v_queue_cross_tenant, v_queue_no_consent, v_queue_manual);
+  DELETE FROM public.case_learning_consents WHERE case_id IN (v_case_ai_unverified, v_case_tech_verified, v_case_unresolved, v_case_cross_tenant, v_case_no_consent);
+  DELETE FROM public.company_manuals WHERE id = v_manual_id;
+  DELETE FROM public.diagnostic_cases WHERE id IN (v_case_ai_unverified, v_case_tech_verified, v_case_unresolved, v_case_cross_tenant, v_case_no_consent);
+  DELETE FROM public.companies WHERE id IN (v_co_active, v_co_opted_out, v_co_other);
+  DELETE FROM auth.users WHERE id IN (v_admin_id, v_tech_user_id);
 END $$;
