@@ -145,6 +145,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
         source_id: "chunk_superflo_hp_p12",
         source_title: "Pentair SuperFlo High Performance Pump Installation and User's Guide",
         page_number: 12,
+        revision: "P",
         step_instructions: "Check that the pump strainer pot is completely filled with water and the lid O-ring is clean, lubricated, and seated in the groove. Hand-tighten clamp securely.",
         safety_warning: "Do not operate pump without water in the strainer pot."
       })
@@ -343,6 +344,7 @@ async function runManualPilotVerification() {
         source_id: "chunk_superflo_hp_p12",
         source_title: "Pentair SuperFlo High Performance Pump Installation and User's Guide",
         page_number: 12,
+        revision: "P",
         step_instructions: "Check that the pump strainer pot is completely filled with water and the lid O-ring is clean, lubricated, and seated in the groove. Hand-tighten clamp securely.",
         safety_warning: "Do not operate pump without water in the strainer pot."
       })
