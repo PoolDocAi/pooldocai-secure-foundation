@@ -1420,8 +1420,9 @@ function verifyInternalCitation(
       if (row.approved_for_learning === false || row.publication_status === "revoked") return false;
       // An unverified AI chatbot suggestion cannot be treated as a confirmed lesson or procedure
       if (row.source_kind === "authenticated_troubleshooter" && row.technician_verified !== true) return false;
-      // Actionable internal citations strictly require verified repair or manufacturer manual
-      if (row.knowledge_type !== "verified_repair" && row.knowledge_type !== "manufacturer_manual") return false;
+      if (row.knowledge_type === "unconfirmed_suggestion") return false;
+      // Actionable internal citations strictly reject unconfirmed or observation-only material
+      if (row.knowledge_type === "observed_diagnosis") return false;
     }
 
     // Title match if cited title is provided
