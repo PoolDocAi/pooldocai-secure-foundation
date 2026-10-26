@@ -464,7 +464,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
     -- Company-backed knowledge strictly requires that the source company remains active and opted in
     AND (k.source_company_id IS NULL OR (c.status IN ('active', 'pilot') AND COALESCE(c.diagnostic_learning_opt_in, false) = true))
     -- Per-document company manual consent check: if manual consent is revoked or manual is disabled, exclude immediately
-    AND (k.source_kind <> 'company_manual' OR (cm.id IS NOT NULL AND COALESCE(cm.shared_learning_opt_in, false) = true AND COALESCE(cm.reference_enabled, true) = true AND cm.status IN ('ready', 'active')))
+    AND (k.source_kind <> 'company_manual' OR (cm.id IS NOT NULL AND COALESCE(cm.shared_learning_opt_in, false) = true AND COALESCE(cm.reference_enabled, true) = true AND cm.extraction_status = 'ready'))
     -- Case-backed knowledge strictly requires active case-level learning consent and active durable consent record
     AND (k.source_case_id IS NULL OR (
       COALESCE(dc.case_learning_opt_in, false) = true

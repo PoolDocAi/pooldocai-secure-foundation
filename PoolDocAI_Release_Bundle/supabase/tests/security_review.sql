@@ -2090,9 +2090,13 @@ BEGIN
 
   -- 7. Company Manual Consent Control: Revoked manual with active company
   INSERT INTO public.company_manuals (
-    id, company_id, file_name, file_size_bytes, mime_type, storage_path, equipment_category, manufacturer_normalized, model_normalized, status, shared_learning_opt_in, reference_enabled
+    id, company_id, title, storage_path, document_type, reference_enabled, extraction_status,
+    manufacturer_normalized, model_normalized, equipment_category,
+    rights_attested_at, rights_attested_by, knowledge_scope, general_learning_rights_attested, shared_learning_opt_in
   ) VALUES (
-    v_manual_id, v_co_active, 'hayward_superpump_sop.pdf', 10240, 'application/pdf', 'manuals/hayward.pdf', 'Pump', 'Hayward', 'Super Pump', 'ready', true, true
+    v_manual_id, v_co_active, 'Hayward Super Pump Manual', 'manuals/hayward.pdf', 'manual', true, 'ready',
+    'hayward', 'super_pump', 'pump',
+    now(), v_admin_id, 'general_candidate', true, true
   );
 
   INSERT INTO public.learning_review_queue (
