@@ -676,8 +676,22 @@ BEGIN
   END;
 
   -- 7. TEST P0: Unverified technician case MUST be rejected
-  INSERT INTO public.diagnostic_cases (id, tenant_id, technician_verified, case_learning_opt_in, learning_terms_version, equipment_category, resolution_summary_redacted)
-  VALUES (v_case_unverified, v_co_a, false, true, '2026-10-v1', 'pump', '');
+  INSERT INTO public.diagnostic_cases (
+    id, tenant_id, case_status, technician_verified, case_learning_opt_in,
+    learning_terms_version, equipment_category, resolution_summary_redacted,
+    contributor_user_id, contributor_accepted_at
+  )
+  VALUES (
+    v_case_unverified, v_co_a, 'resolved', false, true,
+    '2026-10-v1', 'pump', '',
+    v_admin_id, now()
+  );
+
+  INSERT INTO public.case_learning_consents (
+    case_id, company_id, actor_user_id, purpose, terms_version, consent_status
+  ) VALUES (
+    v_case_unverified, v_co_a, v_admin_id, 'case_learning_sharing', '2026-10-v1', 'granted'
+  );
 
   INSERT INTO public.learning_review_queue (id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status)
   VALUES (v_queue_unverified, v_case_unverified, v_co_a, 'technician_job', 'Unverified technician note.', '{}', 'pending');
@@ -693,6 +707,7 @@ BEGIN
   END;
 
   -- Cleanup test rows
+  DELETE FROM public.case_learning_consents WHERE case_id IN (v_case_test, v_case_unverified);
   DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
   DELETE FROM public.learning_review_queue WHERE id IN (v_queue_public, v_queue_manual_a, v_queue_cross, v_queue_revoked, v_queue_unverified);
   DELETE FROM public.diagnostic_cases WHERE id IN (v_case_test, v_case_unverified);
