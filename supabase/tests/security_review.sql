@@ -1917,6 +1917,10 @@ BEGIN
     (v_admin_id, 'security_reviewer_task012@pooldocai.test'),
     (v_tech_user_id, 'technician_task012@pooldocai.test');
 
+  -- Setup company membership for admin operations
+  INSERT INTO public.company_members (company_id, user_id, role, status)
+  VALUES (v_co_active, v_admin_id, 'company_admin', 'active');
+
   -- 1. Negative Control: Model-generated authenticated_troubleshooter suggestion with technician_verified=false MUST be rejected
   INSERT INTO public.diagnostic_cases (
     id, tenant_id, case_status, technician_verified, case_learning_opt_in, learning_terms_version, contributor_user_id, contributor_accepted_at, equipment_category, resolution_summary_redacted
@@ -2146,9 +2150,15 @@ BEGIN
   END IF;
 
   -- Now revoke ONLY the manual consent, keeping the company active and opted in
+  PERFORM set_config('request.jwt.claim.sub', v_admin_id::text, true);
+  PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+
   UPDATE public.company_manuals
   SET shared_learning_opt_in = false
   WHERE id = v_manual_id;
+
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claim.role', '', true);
 
   SELECT count(*) INTO v_res_count
   FROM public.search_shared_learning('Hayward Super Pump impeller torque', 4);
@@ -2196,6 +2206,7 @@ BEGIN
   DELETE FROM public.case_learning_consents WHERE case_id IN (v_case_ai_unverified, v_case_tech_verified, v_case_unresolved, v_case_cross_tenant, v_case_no_consent);
   DELETE FROM public.company_manuals WHERE id = v_manual_id;
   DELETE FROM public.diagnostic_cases WHERE id IN (v_case_ai_unverified, v_case_tech_verified, v_case_unresolved, v_case_cross_tenant, v_case_no_consent);
+  DELETE FROM public.company_members WHERE company_id IN (v_co_active, v_co_opted_out, v_co_other);
   DELETE FROM public.companies WHERE id IN (v_co_active, v_co_opted_out, v_co_other);
   DELETE FROM auth.users WHERE id IN (v_admin_id, v_tech_user_id);
 END $$;
