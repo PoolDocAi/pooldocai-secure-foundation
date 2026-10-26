@@ -56,6 +56,16 @@ CREATE INDEX IF NOT EXISTS shared_learning_manual_idx
   ON public.shared_learning_knowledge (source_manual_id)
   WHERE source_manual_id IS NOT NULL;
 
+-- 1b. Extend diagnostic_cases schema with authenticated contributor provenance and consent origin
+ALTER TABLE public.diagnostic_cases
+  ADD COLUMN IF NOT EXISTS contributor_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS contributor_accepted_at timestamptz,
+  ADD COLUMN IF NOT EXISTS consent_origin text;
+
+CREATE INDEX IF NOT EXISTS diagnostic_cases_contributor_idx
+  ON public.diagnostic_cases (contributor_user_id, contributor_accepted_at)
+  WHERE contributor_user_id IS NOT NULL;
+
 -- 2. Durable Case-Specific Learning Consent Table
 CREATE TABLE IF NOT EXISTS public.case_learning_consents (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -365,10 +365,14 @@ DROP TABLE IF EXISTS public.case_learning_consents CASCADE;
 -- 5. Drop added columns and indexes
 DROP INDEX IF EXISTS public.shared_learning_status_idx;
 DROP INDEX IF EXISTS public.shared_learning_manual_idx;
+DROP INDEX IF EXISTS public.diagnostic_cases_contributor_idx;
 ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS source_manual_id;
 ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS knowledge_type;
 ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS technician_verified;
 ALTER TABLE public.shared_learning_knowledge DROP COLUMN IF EXISTS publication_status;
+ALTER TABLE public.diagnostic_cases DROP COLUMN IF EXISTS contributor_user_id;
+ALTER TABLE public.diagnostic_cases DROP COLUMN IF EXISTS contributor_accepted_at;
+ALTER TABLE public.diagnostic_cases DROP COLUMN IF EXISTS consent_origin;
 
 COMMIT;
 ```
