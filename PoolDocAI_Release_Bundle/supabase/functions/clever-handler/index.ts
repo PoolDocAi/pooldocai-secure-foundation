@@ -2870,7 +2870,7 @@ Deno.serve(async (req: Request) => {
       }
       const { data: existingCase, error: caseLookupError } = await supabase
         .from("diagnostic_cases")
-        .select("id, tenant_id, case_learning_opt_in")
+        .select("id, tenant_id")
         .eq("id", rawRelatedCaseId)
         .eq("tenant_id", authenticatedCompanyId)
         .maybeSingle();
