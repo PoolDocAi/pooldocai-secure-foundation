@@ -460,7 +460,7 @@ const DIAGNOSTIC_RESPONSE_FORMAT = {
       revision: { type: "string", description: "Revision code of the manual when citing internal_manual; empty string otherwise." },
       requires_technician: { type: "boolean" }
     },
-    required: ["response_type", "message", "step_title", "step_instructions", "safety_warning", "follow_up_question", "choices", "model_suggestions", "source_label", "source_id", "source_title", "page_number", "requires_technician"]
+    required: ["response_type", "message", "step_title", "step_instructions", "safety_warning", "follow_up_question", "choices", "model_suggestions", "source_label", "source_id", "source_title", "page_number", "revision", "requires_technician"]
   }
 };
 
@@ -1441,34 +1441,52 @@ function verifyInternalCitation(
     if (desiredModel && !rowModel && !isWaterQualitySOP) return false;
     if (desiredBrand && !rowBrand && !isWaterQualitySOP) return false;
 
-    // Page number match where available (supports page_number, or range [page_start, page_end])
-    if (row.page_number != null || row.page_start != null || row.page_end != null) {
+    // Page number match & provenance check (supports exact page_number, or range [page_start, page_end])
+    const hasRowPage = row.page_number != null || row.page_start != null || row.page_end != null;
+    if (hasRowPage) {
       if (citedPage != null && String(citedPage).trim() !== "") {
-        const numCited = Number(String(citedPage).replace(/[^0-9.]/g, ""));
-        const numRow = row.page_number != null ? Number(String(row.page_number).replace(/[^0-9.]/g, "")) : NaN;
-        const numStart = row.page_start != null ? Number(String(row.page_start).replace(/[^0-9.]/g, "")) : numRow;
-        const numEnd = row.page_end != null ? Number(String(row.page_end).replace(/[^0-9.]/g, "")) : numRow;
-        if (Number.isFinite(numCited)) {
-          if (Number.isFinite(numStart) && Number.isFinite(numEnd)) {
-            if (numCited < numStart || numCited > numEnd) {
-              return false;
-            }
-          } else if (Number.isFinite(numRow) && numCited !== numRow) {
-            return false;
-          }
-        } else {
+        const rawCitedPageStr = String(citedPage).trim();
+        const cleanCitedDigits = rawCitedPageStr.replace(/[^0-9.]/g, "").trim();
+        if (!cleanCitedDigits) {
+          return false; // Non-numeric cited page (e.g. "N/A", "page", "none") fails closed
+        }
+        const numCited = Number(cleanCitedDigits);
+        if (!Number.isFinite(numCited)) {
           return false;
         }
-      } else if (isEquipmentManual) {
+
+        const cleanRow = row.page_number != null ? String(row.page_number).replace(/[^0-9.]/g, "").trim() : "";
+        const numRow = cleanRow ? Number(cleanRow) : NaN;
+        const cleanStart = row.page_start != null ? String(row.page_start).replace(/[^0-9.]/g, "").trim() : "";
+        const numStart = cleanStart ? Number(cleanStart) : numRow;
+        const cleanEnd = row.page_end != null ? String(row.page_end).replace(/[^0-9.]/g, "").trim() : "";
+        const numEnd = cleanEnd ? Number(cleanEnd) : numRow;
+
+        if (Number.isFinite(numStart) && Number.isFinite(numEnd)) {
+          if (numCited < numStart || numCited > numEnd) {
+            return false;
+          }
+        } else if (Number.isFinite(numRow) && numCited !== numRow) {
+          return false;
+        } else if (!Number.isFinite(numStart) && !Number.isFinite(numEnd) && !Number.isFinite(numRow)) {
+          return false;
+        }
+      } else {
+        // Authoritative row specifies page provenance; missing cited page fails closed
         return false;
       }
     }
 
-    // Revision match where available
+    // Revision match & provenance check:
+    // Fail closed if the authoritative record carries a revision (e.g. revision-sensitive equipment manual)
+    // but the model omitted cited revision or cited a mismatch.
+    // Preserve genuinely revisionless approved company SOPs/lessons (!rowRevision) without revision metadata.
     const citedRevision = textValue(structured.revision ?? structured.source_revision ?? structured.sourceRevision, 40).trim().toLowerCase();
     const rowRevision = textValue(row.revision ?? row.manual_revision ?? row.document_revision, 40).trim().toLowerCase();
-    if (citedRevision && rowRevision && citedRevision !== rowRevision) {
-      return false;
+    if (rowRevision) {
+      if (!citedRevision || citedRevision !== rowRevision) {
+        return false;
+      }
     }
 
     // Conjunction Check 3: Procedure text present & symptom match

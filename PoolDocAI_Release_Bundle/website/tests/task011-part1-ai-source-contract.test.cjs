@@ -29,7 +29,11 @@
  * 11. In-Chat Non-Dispatch UI Flow & Zero PII Inputs (TASK-010 P1 Follow-up):
  *     - Pre-job summary renders copy-to-clipboard button and waitlist CTA with 0 PII inputs.
  *
- * All execution in this suite is OFFLINE / SYNTHETIC. Mock vs live boundaries are explicitly labeled.
+ * EVIDENCE CLARIFICATION:
+ * All tests in this suite execute the true production Edge handler in a SYNTHETIC LOCAL ENVIRONMENT
+ * using mocked Gemini API, Supabase RPC/REST, and auth credentials. These results confirm handler
+ * algorithmic compliance and grounding invariants, NOT live manufacturer-manual or live staging verification.
+ * Live staging gates (TASK-009 4A/4B/4D/4E-APP) remain strictly NOT RUN.
  */
 
 const assert = require("node:assert/strict");
@@ -104,6 +108,23 @@ const store = {
       symptom: "Pump will not start, display is dead",
       content_text: "Pentair SuperFlo VST Power and Drive Display Troubleshooting: If the pump drive display is completely dark and the motor will not run, inspect drive electronics and AC line voltage input to verify 230VAC power supply. Check the main circuit breaker. Ensure wiring connections to L1 and L2 terminals are tight. If 230V is present but keypad does not illuminate, replace drive control assembly. Do not open drive enclosure without isolating power at circuit breaker.",
       procedure_text: "Inspect drive electronics and AC line voltage input to verify 230VAC power supply. Check the main circuit breaker. Ensure wiring connections to L1 and L2 terminals are tight. If 230V is present but keypad does not illuminate, replace drive control assembly."
+    },
+    {
+      id: "chunk_water_sop_algae",
+      manual_id: "man_water_sop",
+      company_id: "comp_tenant_a",
+      title: "Algae Remediation & SLAM Method SOP",
+      equipment_category: "water chemistry",
+      category: "water chemistry",
+      active: true,
+      reference_enabled: true,
+      status: "ready",
+      brand: "Generic",
+      model_family: "Water Care",
+      symptom: "Pool water is green with heavy algae bloom",
+      content_text: "Algae remediation plan: 1. Maintain free chlorine shock level relative to CYA stabilizer. 2. Thoroughly brush all pool surfaces and walls twice daily. 3. Run continuous filtration and circulation, backwashing when filter pressure rises. 4. Retest free chlorine daily and redose as needed. 5. Finish criteria: clear water with zero visible algae and overnight chlorine loss under 1 ppm.",
+      procedure_text: "Algae remediation plan: 1. Maintain free chlorine shock level relative to CYA stabilizer. 2. Thoroughly brush all pool surfaces and walls twice daily. 3. Run continuous filtration and circulation, backwashing when filter pressure rises. 4. Retest free chlorine daily and redose as needed. 5. Finish criteria: clear water with zero visible algae and overnight chlorine loss under 1 ppm."
+      // Genuinely revisionless and page-less approved company SOP
     }
   ],
   diagnostic_cases: new Map(),
@@ -195,9 +216,9 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
               id: c.id,
               manual_id: c.manual_id,
               title: c.title,
-              document_title: "Pentair SuperFlo VST Installation & User's Guide",
-              canonical_title: "Pentair SuperFlo VST Manual",
-              publication_number: "P/N 356025",
+              document_title: c.document_title || c.title,
+              canonical_title: c.canonical_title || c.title,
+              publication_number: c.publication_number || "",
               page_number: c.page_number,
               page_start: c.page_start,
               page_end: c.page_end,
@@ -333,12 +354,18 @@ async function runTestSuite() {
     mode?: string;
     action?: string;
     authenticated?: boolean;
+    initialTriageComplete?: boolean;
+    operatingStateConfirmed?: boolean;
+    waterQualityConfirmedAlgae?: boolean;
+    waterQualityIntent?: boolean;
   }) {
     const isAuth = opts.authenticated !== false;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (isAuth) {
       headers["Authorization"] = "Bearer " + (opts.token || "tech_token_a");
     }
+    const cat = opts.category || "pump";
+    const isWater = /water quality|algae|water chemistry/i.test(cat) || opts.waterQualityIntent === true;
     return new Request("https://localhost/functions/v1/clever-handler", {
       method: "POST",
       headers,
@@ -346,18 +373,20 @@ async function runTestSuite() {
         authenticatedApp: isAuth,
         diagnosticSessionId: opts.sessionId || ("session_" + Math.random().toString(36).slice(2, 10)),
         action: opts.action || "diagnostic_query",
-        category: opts.category || "pump",
-        brand: opts.brand || "Pentair",
-        model: opts.model || "SuperFlo VST",
+        category: cat,
+        brand: opts.brand || (isWater ? "Generic" : "Pentair"),
+        model: opts.model || (isWater ? "Water Care" : "SuperFlo VST"),
         query: opts.query,
         sessionContext: {
-          brand: opts.brand || "Pentair",
-          model: opts.model || "SuperFlo VST",
-          category: opts.category || "pump",
-          symptom: opts.symptom || "Pump will not start, display is dead",
+          brand: opts.brand || (isWater ? "Generic" : "Pentair"),
+          model: opts.model || (isWater ? "Water Care" : "SuperFlo VST"),
+          category: cat,
+          symptom: opts.symptom || (isWater ? "Pool water is green with heavy algae bloom" : "Pump will not start, display is dead"),
           mode: opts.mode || (isAuth ? "tech" : "homeowner"),
           initialTriageComplete: opts.initialTriageComplete !== false,
-          operatingStateConfirmed: opts.operatingStateConfirmed !== false
+          operatingStateConfirmed: opts.operatingStateConfirmed !== false,
+          waterQualityIntent: isWater,
+          waterQualityConfirmedAlgae: opts.waterQualityConfirmedAlgae !== false && isWater
         }
       })
     });
@@ -370,6 +399,21 @@ async function runTestSuite() {
     console.log("\\n--- TEST 1: Verified Source-Supported Step Without Forced Fallback ---");
     geminiCalls.length = 0;
     mockGeminiResponses.length = 0;
+
+    // Validate declared Gemini Schema in handler source includes revision in required properties
+    assert.ok(
+      DIAGNOSTIC_RESPONSE_FORMAT.schema.required.includes("revision"),
+      "DIAGNOSTIC_RESPONSE_FORMAT.schema.required must include 'revision'"
+    );
+    assert.ok(
+      DIAGNOSTIC_RESPONSE_FORMAT.schema.required.includes("page_number"),
+      "DIAGNOSTIC_RESPONSE_FORMAT.schema.required must include 'page_number'"
+    );
+    assert.equal(
+      DIAGNOSTIC_RESPONSE_FORMAT.schema.properties.revision.type,
+      "string",
+      "revision property must be type string"
+    );
 
     // Conforming Gemini structured response citing real internal chunk
     mockGeminiResponses.push((reqBody) => {
@@ -545,10 +589,107 @@ async function runTestSuite() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 4: Wrong Model, Wrong Page Range, and Wrong Revision
+  // TEST 4: Revision and Page Provenance Edge Cases & Revisionless SOP Exception
   // --------------------------------------------------------------------------
+  // 4A: Missing revision citation on revision-sensitive equipment chunk (Fail-Closed)
   {
-    console.log("\\n--- TEST 4: Wrong Page Citation Rejection ---");
+    console.log("\\n--- TEST 4A: Missing Revision Citation on Revision-Sensitive Equipment Chunk (Fail-Closed) ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // Model provides valid source_id and page 14, but empty/missing revision on chunk with revision 'Rev P'
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Inspect Voltage",
+        step_instructions: "Inspect drive electronics and AC line voltage input to verify 230VAC power supply.",
+        safety_warning: "Isolate power.",
+        follow_up_question: "Is voltage present?",
+        choices: [],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_superflo_p14",
+        source_title: "Pentair SuperFlo VST Power and Drive Display Troubleshooting",
+        page_number: 14,
+        revision: "", // MISSING REVISION on chunk with Rev P!
+        requires_technician: false
+      })
+    }));
+
+    // Fallback search response
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_instructions: "Fallback step after missing revision rejection.",
+        choices: []
+      }),
+      steps: []
+    }));
+
+    const req = makeDiagReq({
+      sessionId: "session_task011_test4a",
+      query: "pentair superflo vst pump won't start"
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Missing revision on revision-bearing manual chunk must fail closed and trigger fallback");
+    console.log("PASS: Test 4A - Missing revision on revision-bearing equipment manual rejected (fail-closed).");
+  }
+
+  // 4B: Mismatched revision citation (Fail-Closed)
+  {
+    console.log("\\n--- TEST 4B: Mismatched Revision Citation Rejection ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // Model provides valid source_id and page 14, but wrong revision 'Rev A' instead of 'Rev P'
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Inspect Voltage",
+        step_instructions: "Inspect drive electronics and AC line voltage input to verify 230VAC power supply.",
+        safety_warning: "Isolate power.",
+        follow_up_question: "Is voltage present?",
+        choices: [],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_superflo_p14",
+        source_title: "Pentair SuperFlo VST Power and Drive Display Troubleshooting",
+        page_number: 14,
+        revision: "Rev A", // MISMATCHED REVISION
+        requires_technician: false
+      })
+    }));
+
+    // Fallback search response
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_instructions: "Fallback step.",
+        choices: []
+      }),
+      steps: []
+    }));
+
+    const req = makeDiagReq({
+      sessionId: "session_task011_test4b",
+      query: "pentair superflo vst pump won't start"
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Mismatched revision must fail verification and trigger fallback");
+    console.log("PASS: Test 4B - Mismatched revision citation on cataloged chunk rejected.");
+  }
+
+  // 4C: Out-of-range page number citation (Fail-Closed)
+  {
+    console.log("\\n--- TEST 4C: Out-of-Range Page Number Rejection ---");
     geminiCalls.length = 0;
     mockGeminiResponses.length = 0;
 
@@ -582,7 +723,7 @@ async function runTestSuite() {
     }));
 
     const req = makeDiagReq({
-      sessionId: "session_task011_test4",
+      sessionId: "session_task011_test4c",
       query: "pentair superflo vst pump won't start"
     });
 
@@ -590,8 +731,153 @@ async function runTestSuite() {
     assert.equal(res.status, 200);
     const json = await res.json();
 
-    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Wrong page citation must trigger fallback search");
-    console.log("PASS: Test 4 - Wrong page citation on cataloged chunk rejected.");
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Out-of-range page citation must trigger fallback search");
+    console.log("PASS: Test 4C - Out-of-range page citation on cataloged chunk rejected.");
+  }
+
+  // 4D: Missing page number on paged row (Fail-Closed)
+  {
+    console.log("\\n--- TEST 4D: Missing Page Number Citation on Paged Row (Fail-Closed) ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // Emits empty page string on chunk with page 14
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Check Line Voltage",
+        step_instructions: "Inspect drive electronics and AC line voltage input to verify 230VAC power supply. Check the main circuit breaker.",
+        safety_warning: "Turn off breaker.",
+        follow_up_question: "Is 230V present?",
+        choices: [],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_superflo_p14",
+        source_title: "Pentair SuperFlo VST Power and Drive Display Troubleshooting",
+        page_number: "", // MISSING PAGE NUMBER
+        revision: "Rev P",
+        requires_technician: false
+      })
+    }));
+
+    // Fallback search response
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_instructions: "Fallback step.",
+        choices: []
+      }),
+      steps: []
+    }));
+
+    const req = makeDiagReq({
+      sessionId: "session_task011_test4d",
+      query: "pentair superflo vst pump won't start"
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Missing page number on paged chunk must trigger fallback search");
+    console.log("PASS: Test 4D - Missing page number on paged chunk rejected (fail-closed).");
+  }
+
+  // 4E: Non-numeric page number string (e.g. 'N/A', 'page') (Fail-Closed, no Number('') === 0 bypass)
+  {
+    console.log("\\n--- TEST 4E: Non-Numeric Page Number String Rejection ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // Emits purely non-numeric page string
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_title: "Check Line Voltage",
+        step_instructions: "Inspect drive electronics and AC line voltage input to verify 230VAC power supply. Check the main circuit breaker.",
+        safety_warning: "Turn off breaker.",
+        follow_up_question: "Is 230V present?",
+        choices: [],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_pentair_superflo_p14",
+        source_title: "Pentair SuperFlo VST Power and Drive Display Troubleshooting",
+        page_number: "N/A", // NON-NUMERIC STRING
+        revision: "Rev P",
+        requires_technician: false
+      })
+    }));
+
+    // Fallback search response
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "step",
+        step_instructions: "Fallback step.",
+        choices: []
+      }),
+      steps: []
+    }));
+
+    const req = makeDiagReq({
+      sessionId: "session_task011_test4e",
+      query: "pentair superflo vst pump won't start"
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, true, "Non-numeric page string must trigger fallback search (no Number('') === 0 bypass)");
+    console.log("PASS: Test 4E - Non-numeric page string rejected without 0-bypass.");
+  }
+
+  // 4F: Genuinely revisionless approved company SOP exception (ACCEPTED)
+  {
+    console.log("\\n--- TEST 4F: Genuinely Revisionless Approved Company SOP Exception (ACCEPTED) ---");
+    geminiCalls.length = 0;
+    mockGeminiResponses.length = 0;
+
+    // Model cites approved water chemistry SOP which carries NO revision metadata in DB
+    mockGeminiResponses.push(() => ({
+      output_text: JSON.stringify({
+        response_type: "water_quality_plan",
+        message: "Algae remediation plan: 1. Maintain free chlorine shock level relative to CYA stabilizer. 2. Thoroughly brush all pool surfaces and walls twice daily. 3. Run continuous filtration and circulation, backwashing when filter pressure rises. 4. Retest free chlorine daily and redose as needed. 5. Finish criteria: clear water with zero visible algae and overnight chlorine loss under 1 ppm.",
+        step_title: "Algae Remediation Plan",
+        step_instructions: "",
+        safety_warning: "Do not allow swimming during active chlorine shock.",
+        follow_up_question: "What is the measured free chlorine level after 4 hours?",
+        choices: [],
+        model_suggestions: [],
+        source_label: "internal_manual",
+        source_id: "chunk_water_sop_algae",
+        source_title: "Algae Remediation & SLAM Method SOP",
+        page_number: "",
+        revision: "", // REVISIONLESS EXCEPTION PRESERVED
+        requires_technician: false
+      })
+    }));
+
+    const req = makeDiagReq({
+      sessionId: "session_task011_test4f",
+      category: "water quality",
+      brand: "Generic",
+      model: "Water Care",
+      symptom: "Pool water is green with heavy algae bloom",
+      query: "pool water turned green with heavy algae bloom",
+      waterQualityIntent: true,
+      waterQualityConfirmedAlgae: true
+    });
+
+    const res = await capturedHandler!(req);
+    assert.equal(res.status, 200);
+    const json = await res.json();
+
+    assert.equal(json.sourceMode, "manual", "Revisionless approved SOP must establish sourceMode='manual'");
+    assert.equal(json.knowledgeDiagnostics.sourceVerifiedAnswer, true, "sourceVerifiedAnswer must be true for revisionless SOP");
+    assert.equal(json.knowledgeDiagnostics.forcedWebSearchAttempted, false, "Must NOT attempt web search fallback for valid revisionless SOP");
+    assert.equal(json.manualSources.length, 1, "manualSources must contain the revisionless SOP");
+    assert.equal(json.manualSources[0].title, "Algae Remediation & SLAM Method SOP");
+    console.log("PASS: Test 4F - Genuinely revisionless approved SOP passed verification without forced fallback.");
   }
 
   // --------------------------------------------------------------------------
