@@ -1,7 +1,7 @@
 -- ============================================================================
 -- POOLDOCAI ISOLATED STAGING ENVIRONMENT MIGRATION BUNDLE
 -- Target: Project rzkgmvyyeclrpomrlyft (PoolDocAI Staging)
--- Total Migrations: 46 (001 through 046)
+-- Total Migrations: 47 (001 through 047)
 -- Generated: 2026-10-26
 -- STRICT NOTICE: STAGING USE ONLY. DO NOT EXECUTE ON PRODUCTION owfeebydlyacssqpnmkq
 --
@@ -13,7 +13,7 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- Migration 1/46: 202610210001_learning_loop_privacy.sql
+-- Migration 1/47: 202610210001_learning_loop_privacy.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI privacy-minimized learning-loop schema.
@@ -126,7 +126,7 @@ revoke all on function public.pooldocai_consume_session_budget(text,text,integer
 grant execute on function public.pooldocai_consume_session_budget(text,text,integer,integer) to service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 2/46: 202610210002_technician_job_records.sql
+-- Migration 2/47: 202610210002_technician_job_records.sql
 -- ----------------------------------------------------------------------------
 
 -- Technician-entered job records. Identity/contact fields are intentionally absent.
@@ -164,7 +164,7 @@ grant all on public.technician_job_records to service_role;
 comment on table public.technician_job_records is 'PII-minimized technician-entered job notes, including jobs that did not use AI troubleshooting. Human review required before approved_for_learning is enabled.';
 
 -- ----------------------------------------------------------------------------
--- Migration 3/46: 202610210003_company_admin_portal.sql
+-- Migration 3/47: 202610210003_company_admin_portal.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI multi-tenant company portal and platform-owner dashboard.
@@ -395,7 +395,7 @@ comment on table public.service_customers is 'Customer PII is visible only to au
 comment on table public.technician_invitation_requests is 'Queue only. Actual Auth invitations must be sent through a trusted server using the Supabase service-role key; never expose that key in the dashboard.';
 
 -- ----------------------------------------------------------------------------
--- Migration 4/46: 202610210004_company_manual_learning_consent.sql
+-- Migration 4/47: 202610210004_company_manual_learning_consent.sql
 -- ----------------------------------------------------------------------------
 
 -- Separate company reference use from optional shared-learning consent.
@@ -426,7 +426,7 @@ create index if not exists learning_review_queue_tenant_created_idx
   on public.learning_review_queue(tenant_id, created_at desc);
 
 -- ----------------------------------------------------------------------------
--- Migration 5/46: 202610210005_document_extraction_retrieval.sql
+-- Migration 5/47: 202610210005_document_extraction_retrieval.sql
 -- ----------------------------------------------------------------------------
 
 -- Company-private document extraction/indexing. Shared learning consent is separate from
@@ -501,7 +501,7 @@ comment on table public.company_manual_chunks is 'Private extracted document chu
 comment on column public.company_manuals.shared_learning_opt_in is 'Explicit consent for extracted content to enter pending shared-learning review. Does not control private company-reference use.';
 
 -- ----------------------------------------------------------------------------
--- Migration 6/46: 202610210006_security_document_jobs_learning_approval.sql
+-- Migration 6/47: 202610210006_security_document_jobs_learning_approval.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI security hardening, durable document jobs, consent audit, and human-approved shared knowledge.
@@ -710,7 +710,7 @@ using (public.is_platform_admin() or public.is_company_admin(company_id) or (ass
 with check (public.is_platform_admin() or public.is_company_admin(company_id) or (assigned_technician=auth.uid() and public.is_company_operator(company_id)));
 
 -- ----------------------------------------------------------------------------
--- Migration 7/46: 202610210007_reliability_review_safety.sql
+-- Migration 7/47: 202610210007_reliability_review_safety.sql
 -- ----------------------------------------------------------------------------
 
 -- Reliability, queue performance, and safety metadata. Safe additive migration.
@@ -749,7 +749,7 @@ alter table public.company_manuals add column if not exists equipment_category t
 create index if not exists company_manuals_company_manufacturer_idx on public.company_manuals(company_id,manufacturer_normalized,equipment_category);
 
 -- ----------------------------------------------------------------------------
--- Migration 8/46: 202610210008_public_demo_eight_turns.sql
+-- Migration 8/47: 202610210008_public_demo_eight_turns.sql
 -- ----------------------------------------------------------------------------
 
 -- Increase the server-enforced public demo allowance to eight turns per opaque session.
@@ -840,7 +840,7 @@ comment on function public.pooldocai_consume_public_demo_turn(text, text, intege
 is 'Atomically consumes a unique public demo turn; maximum eight turns per mode-specific session per window.';
 
 -- ----------------------------------------------------------------------------
--- Migration 9/46: 202610210009_company_member_permissions_management.sql
+-- Migration 9/47: 202610210009_company_member_permissions_management.sql
 -- ----------------------------------------------------------------------------
 
 -- Company-level seat management, delegated permissions, and platform visibility.
@@ -1166,7 +1166,7 @@ comment on column public.company_members.can_review_documents is 'Member-specifi
 comment on table public.company_member_access_audit is 'Audit trail for seat assignments, membership state, roles, and company member permission changes; retained even if a membership row is deleted.';
 
 -- ----------------------------------------------------------------------------
--- Migration 10/46: 202610210010_company_admin_safety_fixups.sql
+-- Migration 10/47: 202610210010_company_admin_safety_fixups.sql
 -- ----------------------------------------------------------------------------
 
 -- Follow-up guards for seat permission triggers, subscription controls, and audit sequence access.
@@ -1206,7 +1206,7 @@ comment on function public.pooldocai_default_member_permissions()
 is 'Applies role-aware default permissions and guarantees company_admin seats retain full company permissions.';
 
 -- ----------------------------------------------------------------------------
--- Migration 11/46: 202610210011_demo_quota_and_company_creation_fix.sql
+-- Migration 11/47: 202610210011_demo_quota_and_company_creation_fix.sql
 -- ----------------------------------------------------------------------------
 
 -- Forward repair for the public demo SQL ambiguity exposed by the eight-turn regression test.
@@ -1310,7 +1310,7 @@ comment on policy companies_insert_platform_owner on public.companies
 is 'Only a registered PoolDocAI platform owner may create a company through the authenticated portal.';
 
 -- ----------------------------------------------------------------------------
--- Migration 12/46: 202610210012_invites_billing_usage_vector_industry.sql
+-- Migration 12/47: 202610210012_invites_billing_usage_vector_industry.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI feature expansion: invitation lifecycle, Stripe preparation, usage metering,
@@ -1537,7 +1537,7 @@ comment on table public.pooldocai_stripe_webhook_events is 'Idempotency/audit le
 comment on column public.company_manual_chunks.page_number is 'PDF page number when extracted with page-preserving parsing; NULL when the source does not provide a reliable page number.';
 
 -- ----------------------------------------------------------------------------
--- Migration 13/46: 202610210013_offline_sync_invitation_hardening.sql
+-- Migration 13/47: 202610210013_offline_sync_invitation_hardening.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI feature hardening (migration 013).
@@ -1603,7 +1603,7 @@ comment on column public.technician_job_records.client_job_id is 'Client-generat
 comment on column public.technician_job_records.sync_version is 'Monotonic version incremented by the database when an existing job record is updated.';
 
 -- ----------------------------------------------------------------------------
--- Migration 14/46: 202610210014_industry_activation_guard.sql
+-- Migration 14/47: 202610210014_industry_activation_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI migration 014: prevent unreviewed industries from using a different module's rules.
@@ -1636,7 +1636,7 @@ comment on function public.pooldocai_validate_company_industry_active()
 is 'Blocks company assignment to planned/disabled industry modules until module safety and diagnostic content are reviewed and explicitly activated.';
 
 -- ----------------------------------------------------------------------------
--- Migration 15/46: 202610210015_temporary_platform_trial_credentials.sql
+-- Migration 15/47: 202610210015_temporary_platform_trial_credentials.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 015: platform-owner-issued temporary full-experience credentials.
@@ -1677,7 +1677,7 @@ end $$;
 comment on table public.temporary_access_grants is 'Platform-owner-created full-experience trial credentials with a hard expiry between 30 minutes and 24 hours. No model training or shared-learning privilege is granted.';
 
 -- ----------------------------------------------------------------------------
--- Migration 16/46: 20261021001630_diagnostic_learning_sessions_consent_workflow_feedback.sql
+-- Migration 16/47: 20261021001630_diagnostic_learning_sessions_consent_workflow_feedback.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 016: durable diagnostic learning sessions, explicit company consent, and workflow-evaluation outcomes.
@@ -1784,7 +1784,7 @@ comment on column public.companies.diagnostic_learning_opt_in is 'Explicit compa
 comment on table public.diagnostic_workflow_feedback is 'Evaluation signals for improving diagnostic workflows. Never automatically published as knowledge or used for fine-tuning.';
 
 -- ----------------------------------------------------------------------------
--- Migration 17/46: 202610210016_restrict_trigger_function_execution.sql
+-- Migration 17/47: 202610210016_restrict_trigger_function_execution.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 016: prevent direct API invocation of trigger-only SECURITY DEFINER functions.
@@ -1809,7 +1809,7 @@ COMMENT ON FUNCTION public.pooldocai_audit_initial_document_consent() IS
   'Trigger-only function. Direct API execution is intentionally revoked.';
 
 -- ----------------------------------------------------------------------------
--- Migration 18/46: 202610210017_legal_document_rights_and_private_sop_guard.sql
+-- Migration 18/47: 202610210017_legal_document_rights_and_private_sop_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 017: document upload rights attestation and private-only company SOP/policy guard.
@@ -1945,7 +1945,7 @@ for each row execute function public.pooldocai_enforce_manual_rights_scope();
 comment on function public.pooldocai_enforce_manual_rights_scope() is 'Database-level guard for uploader rights attestation and private-only company documents.';
 
 -- ----------------------------------------------------------------------------
--- Migration 19/46: 202610210018_public_demo_learning_consent_capture.sql
+-- Migration 19/47: 202610210018_public_demo_learning_consent_capture.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 018: explicit public-demo/widget learning notice and privacy-minimized case capture.
@@ -2000,7 +2000,7 @@ create unique index if not exists diagnostic_cases_public_session_uidx
   where tenant_id is null and client_session_id is not null;
 
 -- ----------------------------------------------------------------------------
--- Migration 20/46: 202610220001_tenant_widget_service_routing.sql
+-- Migration 20/47: 202610220001_tenant_widget_service_routing.sql
 -- ----------------------------------------------------------------------------
 
 -- PoolDocAI reviewed migration 019. Policy hardening applied during preflight review:
@@ -2179,7 +2179,7 @@ grant execute on function public.pooldocai_consume_widget_service_request(text,i
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 21/46: 202610220002_authenticated_service_handoff_source.sql
+-- Migration 21/47: 202610220002_authenticated_service_handoff_source.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 020: allow authenticated troubleshooter escalations to be recorded in the tenant service queue.
@@ -2191,7 +2191,7 @@ ALTER TABLE public.service_requests ADD CONSTRAINT service_requests_source_type_
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 22/46: 202610220003_plan_entitlements_pooled_sessions_branding.sql
+-- Migration 22/47: 202610220003_plan_entitlements_pooled_sessions_branding.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 021: canonical three-plan entitlement model, pooled monthly troubleshooting sessions, and onboarding brand data.
@@ -2377,7 +2377,7 @@ COMMENT ON TABLE public.pooldocai_company_monthly_sessions IS 'Privacy-preservin
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 23/46: 202610220004_three_size_tiers_founders_pricing.sql
+-- Migration 23/47: 202610220004_three_size_tiers_founders_pricing.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 022: three company-size tiers, Tech-Only/Complete access modes,
@@ -2538,7 +2538,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_reserve_founders_checkout(uuid,timest
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 24/46: 202610220005_model_rate_card_effective_dates.sql
+-- Migration 24/47: 202610220005_model_rate_card_effective_dates.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 023: effective-dated model rates for the models currently used by PoolDocAI.
@@ -2628,7 +2628,7 @@ COMMENT ON TABLE public.pooldocai_model_rate_cards IS
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 25/46: 202610220006_secure_service_request_webhooks.sql
+-- Migration 25/47: 202610220006_secure_service_request_webhooks.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 024: tenant-scoped, plan-gated outbound service-request webhooks.
@@ -2755,7 +2755,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_finish_service_request_webhook(uuid,b
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 26/46: 202610220007_grounding_cost_cache_security_review.sql
+-- Migration 26/47: 202610220007_grounding_cost_cache_security_review.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 025: Google Search grounding metering, public fault-code source cache, and review attestations.
@@ -2878,7 +2878,7 @@ COMMENT ON FUNCTION public.pooldocai_reserve_grounding_budget(uuid,text,integer,
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 27/46: 20261023030000_temporary_access_validity_rpc_scope.sql
+-- Migration 27/47: 20261023030000_temporary_access_validity_rpc_scope.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 026: keep the temporary-trial validity RPC bound to the caller's own identity.
@@ -2910,7 +2910,7 @@ COMMENT ON FUNCTION public.temporary_access_is_valid(uuid) IS
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 28/46: 20261023040000_finish_grounding_budget_reservation.sql
+-- Migration 28/47: 20261023040000_finish_grounding_budget_reservation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 027: explicitly release short-lived grounding budget reservations after provider completion.
@@ -2946,7 +2946,7 @@ COMMENT ON FUNCTION public.pooldocai_finish_grounding_budget(uuid) IS
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 29/46: 20261023050000_restore_company_diagnostic_learning_consent_trigger.sql
+-- Migration 29/47: 20261023050000_restore_company_diagnostic_learning_consent_trigger.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 028: restore the company diagnostic-learning consent audit trigger if it drifted.
@@ -2979,7 +2979,7 @@ EXECUTE FUNCTION public.pooldocai_audit_diagnostic_learning_consent();
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 30/46: 20261023060000_storage_temporary_access_expiry_policy.sql
+-- Migration 30/47: 20261023060000_storage_temporary_access_expiry_policy.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 030: Extend restrictive temporary-account expiry policy to storage.objects.
@@ -3000,7 +3000,7 @@ END $$;
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 31/46: 20261023070000_case_level_learning_consent_dual_opt_in.sql
+-- Migration 31/47: 20261023070000_case_level_learning_consent_dual_opt_in.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 031: Case-level learning consent, applicable terms version, dual-opt-in enforcement, and automatic withdrawal revocation.
@@ -3202,7 +3202,7 @@ IS 'Atomically verifies company and case-level consent, publishes approved lesso
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 32/46: 20261023080000_public_demo_learning_consent_reconciliation.sql
+-- Migration 32/47: 20261023080000_public_demo_learning_consent_reconciliation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 032: Reconcile public-demo case consent and enforce strict fail-closed atomic approval.
@@ -3404,7 +3404,7 @@ FOR EACH ROW EXECUTE FUNCTION public.pooldocai_audit_case_learning_consent();
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 33/46: 20261023090000_stripe_webhook_atomic_claim_and_recovery.sql
+-- Migration 33/47: 20261023090000_stripe_webhook_atomic_claim_and_recovery.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 033: Stripe webhook atomic event claiming, bounded retry/recovery, and concurrency locking.
@@ -3494,7 +3494,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_claim_stripe_webhook_event(text, text
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 34/46: 20261023100000_stripe_webhook_claim_fencing.sql
+-- Migration 34/47: 20261023100000_stripe_webhook_claim_fencing.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 034: Stripe webhook claim ownership fencing, atomic billing application, and lease governance.
@@ -3824,7 +3824,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_release_stripe_webhook_event(text, te
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 35/46: 20261023110000_stripe_webhook_company_ordering_guard.sql
+-- Migration 35/47: 20261023110000_stripe_webhook_company_ordering_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 035: Per-company transactionally serialized ordering check for Stripe webhook processing.
@@ -4042,7 +4042,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_apply_and_finalize_stripe_webhook(tex
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 36/46: 20261023120000_stripe_webhook_provenance_and_ordering_guard.sql
+-- Migration 36/47: 20261023120000_stripe_webhook_provenance_and_ordering_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 036: Event provenance and authoritative company row-lock validation for Stripe webhooks.
@@ -4312,7 +4312,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_apply_and_finalize_stripe_webhook(tex
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 37/46: 20261023130000_stripe_webhook_strict_provenance_and_same_period_ordering.sql
+-- Migration 37/47: 20261023130000_stripe_webhook_strict_provenance_and_same_period_ordering.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 037: Strict invoice subscription provenance enforcement and authoritative same-period event ordering.
@@ -4632,7 +4632,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_apply_and_finalize_stripe_webhook(tex
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 38/46: 20261024100000_learning_approval_verified_repairs_and_contributor_terms.sql
+-- Migration 38/47: 20261024100000_learning_approval_verified_repairs_and_contributor_terms.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 038: Enforce verified repairs and contributor terms in learning approval RPC
@@ -4812,7 +4812,7 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_approve_learning_case(uuid, text, uui
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 39/46: 20261024110000_learning_approval_strict_metadata_and_public_demo_quarantine.sql
+-- Migration 39/47: 20261024110000_learning_approval_strict_metadata_and_public_demo_quarantine.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 039: Strict metadata preservation for company manuals and public demo quarantine in learning approval
@@ -5015,7 +5015,7 @@ $$;
 COMMIT;
 
 -- ----------------------------------------------------------------------------
--- Migration 40/46: 20261024120000_company_manual_search_rpc_metadata_contract.sql
+-- Migration 40/47: 20261024120000_company_manual_search_rpc_metadata_contract.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 040: Fix company manual search RPCs return schema contract
@@ -5187,7 +5187,7 @@ REVOKE ALL ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, ex
 GRANT EXECUTE ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, extensions.vector, integer) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 41/46: 20261024130000_company_manual_search_active_tenant_gate.sql
+-- Migration 41/47: 20261024130000_company_manual_search_active_tenant_gate.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 041: Enforce active company status on company manual search RPCs
@@ -5360,7 +5360,7 @@ REVOKE ALL ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, ex
 GRANT EXECUTE ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, extensions.vector, integer) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 42/46: 20261024140000_company_notifications_foundation.sql
+-- Migration 42/47: 20261024140000_company_notifications_foundation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 042: Company Notifications and Delivery Foundation
@@ -5959,7 +5959,7 @@ REVOKE ALL ON FUNCTION public.pooldocai_reconcile_service_request_notifications(
 GRANT EXECUTE ON FUNCTION public.pooldocai_reconcile_service_request_notifications(uuid, integer) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 43/46: 20261024150000_email_delivery_foundation.sql
+-- Migration 43/47: 20261024150000_email_delivery_foundation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 043: Email Delivery Outbox, Lease Fencing & Provider Foundation (TASK-007 Part-2)
@@ -6337,7 +6337,7 @@ REVOKE ALL ON FUNCTION public.pooldocai_finish_email_delivery(uuid, text, boolea
 GRANT EXECUTE ON FUNCTION public.pooldocai_finish_email_delivery(uuid, text, boolean, text, text, boolean) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 44/46: 20261024160000_web_push_delivery_foundation.sql
+-- Migration 44/47: 20261024160000_web_push_delivery_foundation.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 044: Web Push Delivery Foundation & Device Subscription Management (TASK-007 Part-3)
@@ -6907,7 +6907,7 @@ REVOKE ALL ON FUNCTION public.pooldocai_finish_push_delivery(uuid, text, boolean
 GRANT EXECUTE ON FUNCTION public.pooldocai_finish_push_delivery(uuid, text, boolean, text, text, boolean, text[]) TO service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 45/46: 20261024170000_company_manual_provenance_and_duplicate_guard.sql
+-- Migration 45/47: 20261024170000_company_manual_provenance_and_duplicate_guard.sql
 -- ----------------------------------------------------------------------------
 
 -- Migration 045: Company manual provenance contract and duplicate protection
@@ -7173,7 +7173,7 @@ REVOKE ALL ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, ex
 GRANT EXECUTE ON FUNCTION public.search_company_manual_chunks_hybrid(uuid, text, extensions.vector, integer) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
--- Migration 46/46: 20261025170000_security_advisor_hardening_rpc_grants.sql
+-- Migration 46/47: 20261025170000_security_advisor_hardening_rpc_grants.sql
 -- ----------------------------------------------------------------------------
 
 -- ============================================================================
@@ -7195,4 +7195,364 @@ GRANT EXECUTE ON FUNCTION public.pooldocai_mark_all_notifications_read(uuid) TO 
 -- 2. Explicitly revoke public/anon/authenticated execution on trigger function
 REVOKE ALL ON FUNCTION public.pooldocai_touch_updated_at() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.pooldocai_touch_updated_at() TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- Migration 47/47: 20261025210000_learning_safety_and_consent_lifecycle.sql
+-- ----------------------------------------------------------------------------
+
+-- Migration 047: Learning Publication Safety Trust Boundary, Knowledge Typing, and Consent Lifecycle
+-- Forward-only and additive.
+-- Enforces:
+-- 1) Schema extensions on shared_learning_knowledge:
+--    - knowledge_type: verified_repair, manufacturer_manual, observed_diagnosis, unconfirmed_suggestion
+--    - technician_verified: boolean flag
+--    - publication_status: active, revoked, quarantined
+-- 2) Strict Server-Side Evidence Gate on pooldocai_approve_learning_case:
+--    - Model-generated authenticated_troubleshooter suggestions with technician_verified=false
+--      CANNOT be published as verified shared repair knowledge, even if approved by a platform owner.
+--    - Technician jobs must have technician_verified=true and non-empty resolution outcome.
+--    - Sets exact knowledge_type and publication_status='active'.
+-- 3) Strict Read & Search Eligibility on search_shared_learning:
+--    - Excludes revoked entries (publication_status = 'revoked')
+--    - Excludes unconfirmed suggestions (knowledge_type = 'unconfirmed_suggestion')
+--    - Excludes unverified authenticated_troubleshooter records
+--    - Excludes records from companies that are inactive or opted out of diagnostic learning
+--    - Excludes records from cases whose consent was withdrawn
+-- 4) Historical Re-Review & Revocation Hygiene:
+--    - Safely revokes historical unverified authenticated_troubleshooter rows from shared retrieval.
+--    - Rejects pending review queue items lacking independent technician verification.
+--
+-- STRICT NOTE: Code-only task. This migration is committed to the repository for review and staging bundle parity.
+-- DO NOT EXECUTE on staging or production databases without separate owner authorization.
+
+BEGIN;
+
+-- 1. Extend shared_learning_knowledge schema with knowledge classification, verification status, and publication lifecycle
+ALTER TABLE public.shared_learning_knowledge
+  ADD COLUMN IF NOT EXISTS knowledge_type text DEFAULT 'observed_diagnosis'
+  CHECK (knowledge_type IN ('verified_repair', 'manufacturer_manual', 'observed_diagnosis', 'unconfirmed_suggestion'));
+
+ALTER TABLE public.shared_learning_knowledge
+  ADD COLUMN IF NOT EXISTS technician_verified boolean DEFAULT false;
+
+ALTER TABLE public.shared_learning_knowledge
+  ADD COLUMN IF NOT EXISTS publication_status text NOT NULL DEFAULT 'active'
+  CHECK (publication_status IN ('active', 'revoked', 'quarantined'));
+
+CREATE INDEX IF NOT EXISTS shared_learning_status_idx
+  ON public.shared_learning_knowledge (publication_status, knowledge_type, technician_verified);
+
+-- 2. Update pooldocai_approve_learning_case with explicit evidence gates independent of reviewer status
+CREATE OR REPLACE FUNCTION public.pooldocai_approve_learning_case(
+  p_queue_id uuid,
+  p_lesson text,
+  p_reviewed_by uuid,
+  p_review_note text DEFAULT NULL
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE
+  v_queue public.learning_review_queue%ROWTYPE;
+  v_case public.diagnostic_cases%ROWTYPE;
+  v_manual public.company_manuals%ROWTYPE;
+  v_company_opted_in boolean := false;
+  v_manual_id uuid;
+  v_has_case_consent boolean := false;
+  v_equipment_category text;
+  v_manufacturer_normalized text;
+  v_model_normalized text;
+  v_knowledge_type text;
+  v_technician_verified boolean := false;
+BEGIN
+  -- Lock review queue row
+  SELECT * INTO v_queue
+  FROM public.learning_review_queue
+  WHERE id = p_queue_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Review queue item % not found', p_queue_id;
+  END IF;
+
+  IF v_queue.status <> 'pending' THEN
+    RAISE EXCEPTION 'Review item % is not pending (status: %)', p_queue_id, v_queue.status;
+  END IF;
+
+  -- P0 Evidence Gate 1: Public demo visitor-reported answers are unverified customer feedback signals
+  -- and cannot be published as verified shared repair knowledge.
+  IF v_queue.source_kind = 'public_demo' THEN
+    RAISE EXCEPTION 'Public demo visitor-reported answers cannot be published as verified shared repair knowledge';
+  END IF;
+
+  -- P0 Evidence Gate 2: Company manual provenance and document consent
+  IF v_queue.source_kind = 'company_manual' THEN
+    SELECT (array_agg(elem))[1]::uuid INTO v_manual_id
+    FROM unnest(v_queue.supporting_source_ids) AS elem
+    WHERE elem NOT LIKE '%#chunk-%';
+
+    IF v_manual_id IS NOT NULL THEN
+      SELECT * INTO v_manual
+      FROM public.company_manuals
+      WHERE id = v_manual_id AND company_id = v_queue.tenant_id
+      FOR UPDATE;
+    END IF;
+
+    IF v_manual.id IS NULL THEN
+      RAISE EXCEPTION 'Source company manual % not found or does not belong to tenant %', v_manual_id, v_queue.tenant_id;
+    END IF;
+
+    IF NOT COALESCE(v_manual.shared_learning_opt_in, false) THEN
+      RAISE EXCEPTION 'Source company manual opt-in consent is missing or revoked';
+    END IF;
+
+    -- Recheck governing company diagnostic learning opt-in
+    SELECT diagnostic_learning_opt_in INTO v_company_opted_in
+    FROM public.companies
+    WHERE id = v_queue.tenant_id;
+
+    IF NOT COALESCE(v_company_opted_in, false) THEN
+      RAISE EXCEPTION 'Governing company diagnostic learning opt-in is required';
+    END IF;
+
+    v_equipment_category := COALESCE(v_manual.equipment_category, 'manual');
+    v_manufacturer_normalized := v_manual.manufacturer_normalized;
+    v_model_normalized := v_manual.model_normalized;
+    v_knowledge_type := 'manufacturer_manual';
+    v_technician_verified := false;
+
+  ELSIF v_queue.case_id IS NOT NULL THEN
+    -- Lock diagnostic case row
+    SELECT * INTO v_case
+    FROM public.diagnostic_cases
+    WHERE id = v_queue.case_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Diagnostic case % not found', v_queue.case_id;
+    END IF;
+
+    -- Consent and verified contributor terms check:
+    IF v_case.tenant_id IS NOT NULL THEN
+      IF NOT COALESCE(v_case.case_learning_opt_in, false) THEN
+        RAISE EXCEPTION 'Case-level learning consent was not granted or was withdrawn';
+      END IF;
+
+      IF v_case.learning_terms_version IS NULL AND v_case.legal_terms_version IS NULL THEN
+        RAISE EXCEPTION 'Verified contributor terms acceptance is required for case learning approval';
+      END IF;
+
+      -- Recheck governing company consent
+      SELECT diagnostic_learning_opt_in INTO v_company_opted_in
+      FROM public.companies
+      WHERE id = v_case.tenant_id;
+
+      IF NOT COALESCE(v_company_opted_in, false) THEN
+        RAISE EXCEPTION 'Governing company diagnostic learning opt-in is required';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'Public demo visitor-reported answers cannot be published as verified shared repair knowledge';
+    END IF;
+
+    -- P0 Evidence Gate 3: Model-generated troubleshooter suggestions without technician verification
+    -- CANNOT become established verified repairs solely because a platform reviewer approved it.
+    IF v_queue.source_kind = 'authenticated_troubleshooter' AND NOT COALESCE(v_case.technician_verified, false) THEN
+      RAISE EXCEPTION 'Model-generated authenticated_troubleshooter suggestion without technician verification cannot be published as shared repair knowledge';
+    END IF;
+
+    -- P0 Evidence Gate 4: Technician jobs must be technician_verified and have recorded resolution summary
+    IF v_queue.source_kind IN ('technician_job', 'authenticated_troubleshooter') THEN
+      IF NOT COALESCE(v_case.technician_verified, false) OR COALESCE(trim(v_case.resolution_summary_redacted), '') = '' THEN
+        RAISE EXCEPTION 'Only a resolved technician-verified case with a recorded outcome can become shared repair knowledge';
+      END IF;
+    END IF;
+
+    v_equipment_category := v_case.equipment_category;
+    v_manufacturer_normalized := v_case.manufacturer_normalized;
+    v_model_normalized := v_case.model_normalized;
+    v_technician_verified := COALESCE(v_case.technician_verified, false);
+    v_knowledge_type := CASE
+      WHEN v_technician_verified THEN 'verified_repair'
+      ELSE 'observed_diagnosis'
+    END;
+  ELSE
+    RAISE EXCEPTION 'Review queue item % has no associated case or manual source', p_queue_id;
+  END IF;
+
+  -- Upsert into shared_learning_knowledge atomically with exact metadata provenance and verification status
+  INSERT INTO public.shared_learning_knowledge (
+    source_case_id,
+    source_queue_id,
+    source_company_id,
+    source_kind,
+    equipment_category,
+    manufacturer_normalized,
+    model_normalized,
+    lesson_redacted,
+    approved_by,
+    consent_snapshot,
+    knowledge_type,
+    technician_verified,
+    publication_status,
+    review_history
+  ) VALUES (
+    v_queue.case_id,
+    v_queue.id,
+    v_queue.tenant_id,
+    v_queue.source_kind,
+    v_equipment_category,
+    v_manufacturer_normalized,
+    v_model_normalized,
+    p_lesson,
+    p_reviewed_by,
+    true,
+    v_knowledge_type,
+    v_technician_verified,
+    'active',
+    jsonb_build_array(jsonb_build_object(
+      'action', 'approved',
+      'actor', p_reviewed_by,
+      'at', now(),
+      'note', p_review_note,
+      'knowledge_type', v_knowledge_type,
+      'technician_verified', v_technician_verified
+    ))
+  )
+  ON CONFLICT (source_queue_id) DO UPDATE SET
+    lesson_redacted = EXCLUDED.lesson_redacted,
+    equipment_category = EXCLUDED.equipment_category,
+    manufacturer_normalized = EXCLUDED.manufacturer_normalized,
+    model_normalized = EXCLUDED.model_normalized,
+    approved_by = EXCLUDED.approved_by,
+    consent_snapshot = true,
+    knowledge_type = EXCLUDED.knowledge_type,
+    technician_verified = EXCLUDED.technician_verified,
+    publication_status = 'active',
+    review_history = public.shared_learning_knowledge.review_history || EXCLUDED.review_history;
+
+  -- Mark case approved if present
+  IF v_queue.case_id IS NOT NULL THEN
+    UPDATE public.diagnostic_cases
+    SET approved_for_learning = true, privacy_reviewed_at = now()
+    WHERE id = v_queue.case_id;
+  END IF;
+
+  -- Mark queue item approved
+  UPDATE public.learning_review_queue
+  SET status = 'approved', reviewed_by = p_reviewed_by, reviewed_at = now()
+  WHERE id = p_queue_id;
+
+  -- Insert audit trail record
+  INSERT INTO public.learning_review_audit (
+    queue_id,
+    case_id,
+    actor_user_id,
+    action,
+    note_redacted
+  ) VALUES (
+    p_queue_id,
+    v_queue.case_id,
+    p_reviewed_by,
+    'approved',
+    p_review_note
+  );
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'queue_id', p_queue_id,
+    'case_id', v_queue.case_id,
+    'source_kind', v_queue.source_kind,
+    'equipment_category', v_equipment_category,
+    'manufacturer_normalized', v_manufacturer_normalized,
+    'model_normalized', v_model_normalized,
+    'knowledge_type', v_knowledge_type,
+    'technician_verified', v_technician_verified,
+    'status', 'approved'
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.pooldocai_approve_learning_case(uuid, text, uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pooldocai_approve_learning_case(uuid, text, uuid, text) TO service_role;
+
+-- 3. Replace search_shared_learning to enforce read-side verification and consent eligibility
+DROP FUNCTION IF EXISTS public.search_shared_learning(text, integer);
+
+CREATE OR REPLACE FUNCTION public.search_shared_learning(
+  p_query text,
+  p_limit integer DEFAULT 4
+)
+RETURNS TABLE(
+  id uuid,
+  equipment_category text,
+  manufacturer_normalized text,
+  model_normalized text,
+  lesson_redacted text,
+  source_kind text,
+  knowledge_type text,
+  technician_verified boolean,
+  publication_status text,
+  rank real
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+  SELECT
+    k.id,
+    k.equipment_category,
+    k.manufacturer_normalized,
+    k.model_normalized,
+    k.lesson_redacted,
+    k.source_kind,
+    COALESCE(k.knowledge_type, CASE WHEN k.source_kind = 'company_manual' THEN 'manufacturer_manual' WHEN k.source_kind = 'technician_job' THEN 'verified_repair' ELSE 'observed_diagnosis' END) AS knowledge_type,
+    COALESCE(k.technician_verified, false) AS technician_verified,
+    COALESCE(k.publication_status, 'active') AS publication_status,
+    ts_rank(
+      to_tsvector('english', coalesce(k.equipment_category, '') || ' ' || coalesce(k.manufacturer_normalized, '') || ' ' || coalesce(k.model_normalized, '') || ' ' || k.lesson_redacted),
+      websearch_to_tsquery('english', coalesce(left(p_query, 1800), ''))
+    ) AS rank
+  FROM public.shared_learning_knowledge k
+  LEFT JOIN public.companies c ON c.id = k.source_company_id
+  LEFT JOIN public.diagnostic_cases dc ON dc.id = k.source_case_id
+  WHERE
+    to_tsvector('english', coalesce(k.equipment_category, '') || ' ' || coalesce(k.manufacturer_normalized, '') || ' ' || coalesce(k.model_normalized, '') || ' ' || k.lesson_redacted)
+      @@ websearch_to_tsquery('english', coalesce(left(p_query, 1800), ''))
+    -- Must be actively published (not revoked or quarantined)
+    AND COALESCE(k.publication_status, 'active') = 'active'
+    -- Unconfirmed suggestions are excluded from retrieval eligibility
+    AND COALESCE(k.knowledge_type, 'observed_diagnosis') <> 'unconfirmed_suggestion'
+    -- Authenticated troubleshooter entries strictly require technician verification
+    AND (k.source_kind <> 'authenticated_troubleshooter' OR COALESCE(k.technician_verified, false) = true)
+    -- Company-backed knowledge strictly requires that the source company remains active and opted in
+    AND (k.source_company_id IS NULL OR (c.status IN ('active', 'pilot') AND COALESCE(c.diagnostic_learning_opt_in, false) = true))
+    -- Case-backed knowledge strictly requires active case-level learning consent
+    AND (k.source_case_id IS NULL OR COALESCE(dc.case_learning_opt_in, false) = true)
+  ORDER BY rank DESC
+  LIMIT least(greatest(coalesce(p_limit, 4), 1), 8);
+$$;
+
+REVOKE ALL ON FUNCTION public.search_shared_learning(text, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_shared_learning(text, integer) TO service_role;
+
+-- 4. Safe Historical Re-Review & Revocation Hygiene:
+-- Revoke retrieval eligibility for any historical unverified authenticated_troubleshooter entries
+UPDATE public.shared_learning_knowledge
+SET
+  publication_status = 'revoked',
+  knowledge_type = 'unconfirmed_suggestion',
+  review_history = review_history || jsonb_build_array(jsonb_build_object(
+    'action', 'revoked_safety_audit',
+    'reason', 'TASK-012 Part-1 P0 Trust Boundary Enforcement: Model-generated AI suggestions without independent technician verification cannot be shared repair knowledge',
+    'at', now()
+  ))
+WHERE
+  source_kind = 'authenticated_troubleshooter'
+  AND (technician_verified IS NOT TRUE OR technician_verified IS NULL);
+
+-- Reject any pending review queue items for unverified AI suggestions
+UPDATE public.learning_review_queue
+SET
+  status = 'rejected',
+  reviewed_at = now()
+WHERE
+  source_kind = 'authenticated_troubleshooter'
+  AND status = 'pending';
+
+COMMIT;
 

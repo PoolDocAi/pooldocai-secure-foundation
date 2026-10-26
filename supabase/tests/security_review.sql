@@ -1862,3 +1862,164 @@ BEGIN
   DELETE FROM public.companies WHERE id IN (v_co_push, v_co_other);
   DELETE FROM auth.users WHERE id IN (v_user_admin, v_user_tech, v_user_other);
 END $$;
+
+-- 13. TEST TASK-012 PART-1: Learning Publication Safety Trust Boundary & Shared Retrieval Predicates
+DO $$
+DECLARE
+  v_co_active uuid := gen_random_uuid();
+  v_co_opted_out uuid := gen_random_uuid();
+  v_admin_id uuid := gen_random_uuid();
+  v_case_ai_unverified uuid := gen_random_uuid();
+  v_queue_ai_unverified uuid := gen_random_uuid();
+  v_case_tech_verified uuid := gen_random_uuid();
+  v_queue_tech_verified uuid := gen_random_uuid();
+  v_shared_pub_id uuid;
+  v_err_msg text;
+  v_res_count integer;
+  v_res_rec record;
+BEGIN
+  -- Setup test companies
+  INSERT INTO public.companies (id, name, status, diagnostic_learning_opt_in)
+  VALUES
+    (v_co_active, 'Active Opted-In Pools', 'active', true),
+    (v_co_opted_out, 'Opted-Out Pools', 'active', false);
+
+  -- Setup admin user
+  INSERT INTO auth.users (id, email)
+  VALUES (v_admin_id, 'security_reviewer_task012@pooldocai.test');
+
+  -- 1. Evidence Gate: Model-generated authenticated_troubleshooter suggestion with technician_verified=false MUST be rejected
+  INSERT INTO public.diagnostic_cases (
+    id, tenant_id, technician_verified, case_learning_opt_in, learning_terms_version, equipment_category, resolution_summary_redacted
+  ) VALUES (
+    v_case_ai_unverified, v_co_active, false, true, '2026-10-v1', 'pump', 'Chatbot suggested replacing mechanical shaft seal'
+  );
+
+  INSERT INTO public.learning_review_queue (
+    id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
+  ) VALUES (
+    v_queue_ai_unverified, v_case_ai_unverified, v_co_active, 'authenticated_troubleshooter',
+    'Pentair IntelliFlo pump leak: Replace shaft seal based on chatbot suggestion.',
+    ARRAY['authenticated-troubleshooter'], 'pending'
+  );
+
+  BEGIN
+    PERFORM public.pooldocai_approve_learning_case(
+      v_queue_ai_unverified,
+      'Pentair IntelliFlo pump leak: Replace shaft seal based on chatbot suggestion.',
+      v_admin_id,
+      'Reviewer attempted approval without technician verification'
+    );
+    RAISE EXCEPTION 'Unverified AI troubleshooter suggestion approval unexpectedly succeeded';
+  EXCEPTION WHEN OTHERS THEN
+    v_err_msg := SQLERRM;
+    IF v_err_msg NOT LIKE '%Model-generated authenticated_troubleshooter suggestion without technician verification%'
+       AND v_err_msg NOT LIKE '%Only a resolved technician-verified case%' THEN
+      RAISE EXCEPTION 'Unexpected error on unverified troubleshooter approval: %', v_err_msg;
+    END IF;
+  END;
+
+  -- 2. Verified Technician Case Approval: With technician_verified=true and recorded outcome, approval succeeds
+  INSERT INTO public.diagnostic_cases (
+    id, tenant_id, technician_verified, case_learning_opt_in, learning_terms_version, equipment_category,
+    manufacturer_normalized, model_normalized, resolution_summary_redacted
+  ) VALUES (
+    v_case_tech_verified, v_co_active, true, true, '2026-10-v1', 'Pump',
+    'Pentair', 'IntelliFlo VSF', 'Replaced shaft seal and lubricated diffuser O-ring. Primed immediately.'
+  );
+
+  INSERT INTO public.learning_review_queue (
+    id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
+  ) VALUES (
+    v_queue_tech_verified, v_case_tech_verified, v_co_active, 'technician_job',
+    'Pentair IntelliFlo VSF leak: Replaced shaft seal and lubricated diffuser O-ring. Confirmed resolved repair.',
+    ARRAY['tech-job-evidence-1'], 'pending'
+  );
+
+  PERFORM public.pooldocai_approve_learning_case(
+    v_queue_tech_verified,
+    'Pentair IntelliFlo VSF leak: Replaced shaft seal and lubricated diffuser O-ring. Confirmed resolved repair.',
+    v_admin_id,
+    'Platform reviewer signoff on verified technician repair'
+  );
+
+  -- Confirm shared_learning_knowledge row created with verified_repair and technician_verified=true
+  SELECT id INTO v_shared_pub_id
+  FROM public.shared_learning_knowledge
+  WHERE source_queue_id = v_queue_tech_verified;
+
+  IF v_shared_pub_id IS NULL THEN
+    RAISE EXCEPTION 'Expected shared_learning_knowledge row for approved verified repair was not created';
+  END IF;
+
+  SELECT knowledge_type, technician_verified, publication_status
+  INTO v_res_rec
+  FROM public.shared_learning_knowledge
+  WHERE id = v_shared_pub_id;
+
+  IF v_res_rec.knowledge_type <> 'verified_repair' OR v_res_rec.technician_verified <> true OR v_res_rec.publication_status <> 'active' THEN
+    RAISE EXCEPTION 'Metadata mismatch on approved repair: type=%, verified=%, status=%',
+      v_res_rec.knowledge_type, v_res_rec.technician_verified, v_res_rec.publication_status;
+  END IF;
+
+  -- 3. Search Retrieval Predicate Check: Active verified repair must be retrievable
+  SELECT count(*) INTO v_res_count
+  FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
+
+  IF v_res_count = 0 THEN
+    RAISE EXCEPTION 'Active verified repair must be retrievable via search_shared_learning';
+  END IF;
+
+  -- 4. Search Exclusion: Revoking publication immediately removes from retrieval
+  UPDATE public.shared_learning_knowledge
+  SET publication_status = 'revoked'
+  WHERE id = v_shared_pub_id;
+
+  SELECT count(*) INTO v_res_count
+  FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
+
+  IF v_res_count <> 0 THEN
+    RAISE EXCEPTION 'Revoked publication must NOT be returned by search_shared_learning (got % rows)', v_res_count;
+  END IF;
+
+  -- Restore active status for subsequent negative checks
+  UPDATE public.shared_learning_knowledge
+  SET publication_status = 'active'
+  WHERE id = v_shared_pub_id;
+
+  -- 5. Search Exclusion: Withdrawing case-level consent immediately excludes from retrieval
+  UPDATE public.diagnostic_cases
+  SET case_learning_opt_in = false
+  WHERE id = v_case_tech_verified;
+
+  SELECT count(*) INTO v_res_count
+  FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
+
+  IF v_res_count <> 0 THEN
+    RAISE EXCEPTION 'Withdrawn case consent must exclude entry from search_shared_learning (got % rows)', v_res_count;
+  END IF;
+
+  -- Restore case consent
+  UPDATE public.diagnostic_cases
+  SET case_learning_opt_in = true
+  WHERE id = v_case_tech_verified;
+
+  -- 6. Search Exclusion: Company opt-out immediately excludes from retrieval
+  UPDATE public.companies
+  SET diagnostic_learning_opt_in = false
+  WHERE id = v_co_active;
+
+  SELECT count(*) INTO v_res_count
+  FROM public.search_shared_learning('Pentair IntelliFlo shaft seal', 4);
+
+  IF v_res_count <> 0 THEN
+    RAISE EXCEPTION 'Company opt-out must exclude entry from search_shared_learning (got % rows)', v_res_count;
+  END IF;
+
+  -- 7. Teardown Section 13 Test Fixtures
+  DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_ai_unverified, v_queue_tech_verified);
+  DELETE FROM public.learning_review_queue WHERE id IN (v_queue_ai_unverified, v_queue_tech_verified);
+  DELETE FROM public.diagnostic_cases WHERE id IN (v_case_ai_unverified, v_case_tech_verified);
+  DELETE FROM public.companies WHERE id IN (v_co_active, v_co_opted_out);
+  DELETE FROM auth.users WHERE id = v_admin_id;
+END $$;

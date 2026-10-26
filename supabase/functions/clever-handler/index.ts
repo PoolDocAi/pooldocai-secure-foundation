@@ -1420,6 +1420,7 @@ function verifyInternalCitation(
       if (row.approved_for_learning === false || row.publication_status === "revoked") return false;
       // An unverified AI chatbot suggestion cannot be treated as a confirmed lesson or procedure
       if (row.source_kind === "authenticated_troubleshooter" && row.technician_verified !== true) return false;
+      if (row.knowledge_type === "unconfirmed_suggestion") return false;
     }
 
     // Title match if cited title is provided
@@ -2494,7 +2495,10 @@ Deno.serve(async (req: Request) => {
       // unverified chatbot turns can never be published as confirmed repair knowledge.
       if (["technician_job", "authenticated_troubleshooter"].includes(item.source_kind) &&
           (caseRow?.technician_verified !== true || !textValue(caseRow?.resolution_summary_redacted, 1200).trim())) {
-        return jsonResponse({ error: "Only a resolved technician case with a recorded outcome can become shared repair knowledge.", code: "VERIFIED_REPAIR_REQUIRED" }, 403);
+        const errDetail = item.source_kind === "authenticated_troubleshooter"
+          ? "Model-generated troubleshooter suggestions without independent technician verification cannot be published as verified shared repair knowledge."
+          : "Only a resolved technician case with a recorded outcome can become shared repair knowledge.";
+        return jsonResponse({ error: errDetail, code: "VERIFIED_REPAIR_REQUIRED" }, 403);
       }
       const lesson = (editedLesson || scrubPII(String(item.proposed_lesson_redacted || ""))).slice(0,4000);
       const chemicalRisk = /\b(muriatic acid|cal[- ]?hypo|trichlor|sodium bicarbonate|chlorine dose|chemical dosing|acid dose|ppm dose|lsi|saturation index)\b/i.test(lesson);
@@ -2511,6 +2515,12 @@ Deno.serve(async (req: Request) => {
 
       if (rpcErr) {
         console.error("Atomic learning approval failed; publication blocked", { queueId, error: rpcErr.message });
+        if (rpcErr.message?.includes("Model-generated authenticated_troubleshooter suggestion without technician verification") || rpcErr.message?.includes("Only a resolved technician-verified case")) {
+          return jsonResponse({
+            error: "Only a resolved technician case with a recorded outcome can become shared repair knowledge. Model-generated troubleshooter suggestions without independent technician verification cannot be published as verified shared repair knowledge.",
+            code: "VERIFIED_REPAIR_REQUIRED"
+          }, 403);
+        }
         if (rpcErr.message?.includes("Public demo visitor-reported answers cannot be published")) {
           return jsonResponse({
             error: "Public demo visitor-reported answers are unverified customer feedback signals and cannot be published as verified shared repair knowledge.",
@@ -2887,7 +2897,7 @@ Deno.serve(async (req: Request) => {
         if(existingError)throw existingError;
         if(existing){
           const normalizeSteps=(value:any)=>JSON.stringify((Array.isArray(value)?value:[]).map((step:any)=>({step:Number(step?.step||0),action:String(step?.action||""),parts:String(step?.parts||""),result:String(step?.result||"")})));
-          const samePayload=String(existing.complaint_redacted||"")===String(row.complaint_redacted||"")&&String(existing.diagnostic_notes_redacted||"")===String(row.diagnostic_notes_redacted||"")&&String(existing.resolution_summary_redacted||"")===String(row.resolution_summary_redacted||"")&&normalizeSteps(existing.repair_steps_redacted)===normalizeSteps(row.repair_steps_redacted)&&String(existing.equipment_category||"")===String(row.equipment_category||"")&&String(existing.manufacturer_normalized||"")===String(row.manufacturer_normalized||"")&&String(existing.model_normalized||"")===String(row.model_normalized||"")&&String(existing.outcome||"")===String(row.outcome||"")&&String(existing.job_reference_redacted||"")===String(row.job_reference_redacted||"")&&String(existing.related_case_id||"")===String(row.related_case_id||"")&&Boolean(existing.voice_transcribed)===Boolean(row.voice_transcribed);
+          const samePayload=String(existing.complaint_redacted||"")===String(row.complaint_redacted||"")&&String(existing.diagnostic_notes_redacted||"")===String(row.diagnostic_notes_redacted||"")&&String(existing.resolution_summary_redacted||"")===String(row.resolution_summary_redacted||"")&&normalizeSteps(existing.repair_steps_redacted)===normalizeSteps(row.repair_steps_redacted)&&String(existing.equipment_category||"")===String(row.equipment_category||"")&&String(existing.manufacturer_normalized||"")===String(row.manufacturer_normalized||"")&&String(existing.model_normalized||"")===String(row.model_normalized||"")&&String(existing.outcome||"")===String(row.outcome||"")&&String(existing.job_reference_redacted||"")===String(row.job_reference_redacted||"")&&(!row.related_case_id||String(existing.related_case_id||"")===String(row.related_case_id||""))&&Boolean(existing.voice_transcribed)===Boolean(row.voice_transcribed);
           if(!samePayload)return jsonResponse({error:"This queued job differs from the saved server record with the same sync ID. The local copy has been kept; open the job and resolve the conflict before deleting the local queue item.",code:"JOB_SYNC_CONFLICT",serverJob:{id:existing.id,created_at:existing.created_at,case_status:existing.case_status,sync_version:existing.sync_version}},409);
           data=existing;replayedExisting=true;
         }else{const inserted=await supabase.from("technician_job_records").insert(row).select("id,created_at,case_status,client_job_id,sync_version").single();data=inserted.data;error=inserted.error;}
@@ -2966,6 +2976,20 @@ Deno.serve(async (req: Request) => {
       }).select("id").single();
       let stepLinked = false;
       if (validatedRelatedCaseId) {
+        await supabase
+          .from("diagnostic_cases")
+          .update({
+            case_status: row.case_status,
+            resolution_summary_redacted: caseResolution || null,
+            technician_verified: row.technician_verified,
+            case_learning_opt_in: effectiveCaseOptIn,
+            learning_terms_version: authoritativeTermsVersion,
+            contributor_accepted_at: authoritativeAcceptedAt,
+            contributor_user_id: effectiveCaseOptIn ? authenticatedUserId : null
+          })
+          .eq("id", validatedRelatedCaseId)
+          .eq("tenant_id", authenticatedCompanyId);
+
         const { data: existingStep } = await supabase
           .from("diagnostic_case_steps")
           .select("id, step_number")
@@ -3014,9 +3038,15 @@ Deno.serve(async (req: Request) => {
         }
         if (!row.related_case_id) await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
       } else { console.error("Technician job learning case failed", { code: learningCaseError?.code, jobId: data.id }); }
-      return jsonResponse({ ok: true, job: data, message: row.technician_verified
-        ? "Technician job notes saved; a verified repair candidate is awaiting review and all required sharing approvals."
-        : "Technician job notes saved privately. This case is not a verified completed repair." }, 200);
+      let responseMsg: string;
+      if (row.technician_verified && effectiveCaseOptIn && companyOptedIn) {
+        responseMsg = "Technician job notes saved; a verified repair candidate is awaiting review and all required sharing approvals.";
+      } else if (!effectiveCaseOptIn || !companyOptedIn) {
+        responseMsg = "Technician job notes saved privately. Company or case learning opt-in is not active; notes will not enter the shared learning queue.";
+      } else {
+        responseMsg = "Technician job notes saved privately. This case is not a verified completed repair.";
+      }
+      return jsonResponse({ ok: true, job: data, message: responseMsg }, 200);
     } catch {
       return jsonResponse({ error: "Could not save the job record. Please retry.", code: "JOB_SAVE_FAILED" }, 500);
     }
@@ -3252,7 +3282,15 @@ Deno.serve(async (req: Request) => {
     if (withdrawErr) return jsonResponse({ error: "Could not withdraw case learning consent.", code: "CONSENT_WITHDRAWAL_FAILED" }, 500);
 
     await supabase.from("shared_learning_knowledge").delete().eq("source_case_id", targetCaseId);
-    await supabase.from("learning_review_queue").update({ status: "rejected" }).eq("case_id", targetCaseId).eq("status", "pending");
+    await supabase.from("learning_review_queue").update({ status: "rejected" }).eq("case_id", targetCaseId);
+    try {
+      await supabase.from("learning_review_audit").insert({
+        case_id: targetCaseId,
+        actor_user_id: authenticatedUserId,
+        action: "rejected",
+        note_redacted: "Case-level shared-learning consent withdrawn by company"
+      });
+    } catch {}
 
     return jsonResponse({
       ok: true,
@@ -3438,7 +3476,10 @@ Deno.serve(async (req: Request) => {
         } catch {}
       }
       const sharedRows = getRows(data).map((r: AnyRecord) => {
-        const k = kindMap[r.id] || textValue(r.source_kind, 40);
+        const k = textValue(r.source_kind, 40) || kindMap[r.id] || "observed_diagnosis";
+        const knowledgeType = textValue(r.knowledge_type, 40) || (k === "technician_job" ? "verified_repair" : (k === "company_manual" ? "manufacturer_manual" : "observed_diagnosis"));
+        const techVerified = Boolean(r.technician_verified ?? (k === "technician_job"));
+        const pubStatus = textValue(r.publication_status, 40) || "active";
         const title = k === "technician_job"
           ? "PoolDocAI confirmed technician repair"
           : (k === "company_manual" ? "PoolDocAI reviewed company manual / SOP" : "PoolDocAI reviewed shared lesson");
@@ -3452,8 +3493,15 @@ Deno.serve(async (req: Request) => {
           content_text: r.lesson_redacted,
           procedure_text: r.lesson_redacted,
           shared_learning_source: true,
-          technician_verified: k === "technician_job",
+          technician_verified: techVerified,
+          knowledge_type: knowledgeType,
+          publication_status: pubStatus,
         };
+      }).filter((r: AnyRecord) => {
+        if (r.publication_status === "revoked") return false;
+        if (r.knowledge_type === "unconfirmed_suggestion") return false;
+        if (r.source_kind === "authenticated_troubleshooter" && r.technician_verified !== true) return false;
+        return true;
       });
       kbRows = [...companyManualRows, ...sharedRows, ...kbRows.filter((r: AnyRecord) => !r.company_manual_source)];
     }

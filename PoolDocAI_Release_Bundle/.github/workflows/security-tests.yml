@@ -94,6 +94,8 @@ jobs:
         run: node website/tests/task010-part1-form-routing.test.cjs
       - name: Test TASK-011 Part-1 verified AI source contract and grounding
         run: node website/tests/task011-part1-ai-source-contract.test.cjs
+      - name: Test TASK-012 Part-1 learning publication safety and server-side job consent
+        run: node website/tests/task012-part1-learning-consent.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
@@ -159,3 +161,5 @@ jobs:
         run: node website/tests/task010-part1-form-routing.test.cjs
       - name: Test TASK-011 Part-1 verified AI source contract and grounding
         run: node website/tests/task011-part1-ai-source-contract.test.cjs
+      - name: Test TASK-012 Part-1 learning publication safety and server-side job consent
+        run: node website/tests/task012-part1-learning-consent.test.cjs
