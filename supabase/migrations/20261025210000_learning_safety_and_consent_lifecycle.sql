@@ -66,6 +66,10 @@ CREATE INDEX IF NOT EXISTS diagnostic_cases_contributor_idx
   ON public.diagnostic_cases (contributor_user_id, contributor_accepted_at)
   WHERE contributor_user_id IS NOT NULL;
 
+-- 1c. Allow case-level withdrawal audit entries when queue row is absent
+ALTER TABLE public.learning_review_audit
+  ALTER COLUMN queue_id DROP NOT NULL;
+
 -- 2. Durable Case-Specific Learning Consent Table
 CREATE TABLE IF NOT EXISTS public.case_learning_consents (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -147,10 +151,19 @@ BEGIN
 
   -- 5. Immutable audit record
   INSERT INTO public.learning_review_audit (
-    case_id, actor_user_id, action, note_redacted
-  ) VALUES (
-    p_case_id, p_actor_user_id, 'rejected', p_reason
-  );
+    queue_id, case_id, actor_user_id, action, note_redacted
+  )
+  SELECT q.id, p_case_id, p_actor_user_id, 'rejected', p_reason
+  FROM public.learning_review_queue q
+  WHERE q.case_id = p_case_id;
+
+  IF NOT FOUND THEN
+    INSERT INTO public.learning_review_audit (
+      queue_id, case_id, actor_user_id, action, note_redacted
+    ) VALUES (
+      NULL, p_case_id, p_actor_user_id, 'rejected', p_reason
+    );
+  END IF;
 
   RETURN jsonb_build_object(
     'ok', true,
