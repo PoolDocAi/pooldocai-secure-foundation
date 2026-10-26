@@ -2115,9 +2115,9 @@ BEGIN
   );
 
   INSERT INTO public.learning_review_queue (
-    id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
+    id, case_id, tenant_id, source_kind, proposed_lesson_redacted, supporting_source_ids, status
   ) VALUES (
-    v_queue_manual, v_co_active, 'company_manual',
+    v_queue_manual, v_case_tech_verified, v_co_active, 'company_manual',
     'Hayward Super Pump seal installation guide and impeller torque specifications.',
     ARRAY[v_manual_id::text], 'pending'
   );
