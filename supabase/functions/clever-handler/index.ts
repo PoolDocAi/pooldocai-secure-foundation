@@ -1471,8 +1471,8 @@ function verifyInternalCitation(
         } else if (!Number.isFinite(numStart) && !Number.isFinite(numEnd) && !Number.isFinite(numRow)) {
           return false;
         }
-      } else {
-        // Authoritative row specifies page provenance; missing cited page fails closed
+      } else if (isEquipmentManual) {
+        // Authoritative equipment manual strictly requires page provenance
         return false;
       }
     }
