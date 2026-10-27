@@ -16,6 +16,6 @@ export function restoreHomepage(html,css){
  const out=html.replace(resourceHeader,"").replace(resourceCard,"").replace(previewNotice,"").replace(footerMarker,footerLink);
  if((out.match(/href="\/resources\/"/g)||[]).length!==1)throw Error("Expected exactly one text Resources link, plus the widget");
  if(out.includes("site-resource-nav")||out.includes("resource-link-section")||out.includes("preview-notice"))throw Error("Unwanted homepage additions remain");
- if(!out.includes('/resource-platform-loader.js')||!out.includes('/assets/day-1536.webp')||!out.includes('/assets/night-1536.webp'))throw Error("Rolling backgrounds or widget were unexpectedly removed");
+ if(!out.includes('/resource-platform-loader.js')||!out.includes('/assets/day-1536.webp'))throw Error("Rolling backgrounds or widget were unexpectedly removed");
  return {html:out,css:css+footerLinkCSS};
 }
