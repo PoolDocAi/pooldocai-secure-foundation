@@ -1,0 +1,19 @@
+/* Additive only: preserves original homepage, Hub, article and consent UI. */
+.pd-legal-footer-links{
+  display:flex;flex-wrap:wrap;align-items:center;column-gap:16px;row-gap:0;
+  max-width:100%;color:inherit;font:inherit
+}
+.pd-legal-footer-links a{
+  display:inline-flex;align-items:center;min-height:44px;
+  color:inherit;text-decoration:underline;text-underline-offset:3px;
+  font:inherit;white-space:nowrap
+}
+.pd-legal-footer-links a:hover{text-decoration-thickness:2px}
+.pd-legal-footer-links a:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:3px}
+.pd-resource-hub .pd-site-footer nav.pd-legal-footer-links{
+  margin-left:0;display:flex;flex-wrap:wrap;column-gap:16px
+}
+@media(max-width:700px){
+  .pd-legal-footer-links{width:100%;justify-content:flex-start;column-gap:16px}
+  .pd-site-footer .pd-legal-footer-links{margin-left:0}
+}
