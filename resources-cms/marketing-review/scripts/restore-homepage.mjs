@@ -17,5 +17,13 @@ export function restoreHomepage(html,css){
  if((out.match(/href="\/resources\/"/g)||[]).length!==1)throw Error("Expected exactly one text Resources link, plus the widget");
  if(out.includes("site-resource-nav")||out.includes("resource-link-section")||out.includes("preview-notice"))throw Error("Unwanted homepage additions remain");
  if(!out.includes('/resource-platform-loader.js')||!out.includes('/assets/day-1536.webp'))throw Error("Rolling backgrounds or widget were unexpectedly removed");
- return {html:out,css:css+footerLinkCSS};
+ // The review-only CSS centered the original hero and changed the mobile header.
+ // Remove those exact overrides without altering the accepted scenery/animation CSS.
+ const landingOverrides=['.intro{text-align:center}', '.intro h1{margin-left:auto;margin-right:auto}', '.intro #support{margin-left:auto;margin-right:auto}', '.intro .scene-controls{justify-content:center}'];
+ let restoredCSS=css;
+ for(const rule of landingOverrides){if(!restoredCSS.includes(rule))throw Error('Missing reviewed layout override: '+rule);restoredCSS=restoredCSS.replace(rule,'');}
+ const extraNavCSS=restoredCSS.indexOf('.site-resource-nav a{');
+ if(extraNavCSS<0)throw Error('Missing Preview-only navigation stylesheet boundary');
+ restoredCSS=restoredCSS.slice(0,extraNavCSS).trimEnd();
+ return {html:out,css:restoredCSS+footerLinkCSS};
 }
