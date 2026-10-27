@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Account recovery · PoolDocAI</title><link rel="stylesheet" href="/public/admin.css"><script src="/public/recovery.js" defer></script></head>
+<body class="login-page"><main class="login-card"><h1>Recover owner access</h1><p id="instructions">Request a new recovery link, then open it in this same browser. Earlier account links cannot be reused.</p>
+<form id="request-recovery"><label>Email address<input name="email" type="email" autocomplete="username" required></label><button class="primary">Request recovery link</button></form>
+<form id="reset-password" hidden><label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></label><label>Confirm new password<input name="confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></label><button class="primary">Set new password</button></form>
+<p id="status" role="status" aria-live="polite"></p><a href="/admin/login">Return to sign in</a></main></body></html>

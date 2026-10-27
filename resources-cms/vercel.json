@@ -1,0 +1,103 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
+  "functions": {
+    "api/resources.mjs": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/analytics/collect",
+      "destination": "/api/resources?__cms_path=/analytics/collect"
+    },
+    {
+      "source": "/admin/recover",
+      "destination": "/recovery.html"
+    },
+    {
+      "source": "/admin/reset-password",
+      "destination": "/recovery.html"
+    },
+    {
+      "source": "/admin/recovery/callback",
+      "destination": "/api/resources?__cms_path=/admin/recovery/callback"
+    },
+    {
+      "source": "/admin/login",
+      "destination": "/hosted-login.html"
+    },
+    {
+      "source": "/public/:asset*",
+      "destination": "/:asset*"
+    },
+    {
+      "source": "/admin",
+      "destination": "/api/resources?__cms_path=/admin"
+    },
+    {
+      "source": "/admin/",
+      "destination": "/api/resources?__cms_path=/admin/"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/resources?__cms_path=/api/:path*"
+    },
+    {
+      "source": "/media/:path*",
+      "destination": "/api/resources?__cms_path=/media/:path*"
+    },
+    {
+      "source": "/preview/:path*",
+      "destination": "/api/resources?__cms_path=/preview/:path*"
+    },
+    {
+      "source": "/preview-assets/:path*",
+      "destination": "/api/resources?__cms_path=/preview-assets/:path*"
+    },
+    {
+      "source": "/resources-sitemap.xml",
+      "destination": "/api/resources?__cms_path=/resources-sitemap.xml"
+    },
+    {
+      "source": "/resources/:path*",
+      "destination": "/api/resources?__cms_path=/resources/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/admin/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    },
+    {
+      "source": "/recovery.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        }
+      ]
+    }
+  ]
+}

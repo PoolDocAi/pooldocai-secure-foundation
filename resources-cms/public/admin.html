@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Resources Studio · PoolDocAI</title>
+    <link rel="stylesheet" href="/public/admin.css" />
+    <script src="/public/admin.js" defer></script>
+    <script src="/public/platform-admin.js" defer></script>
+    <link rel="stylesheet" href="/public/platform.css">
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to workspace</a>
+    <div class="app">
+      <aside class="sidebar" id="cms-sidebar" aria-label="Resources Studio navigation">
+        <button id="nav-close" class="nav-close" type="button" aria-label="Close navigation">× Close</button>
+        <a class="brand" href="/admin/"
+          ><img src="/logo.svg" width="38" height="38" alt="" />PoolDoc<span
+            >AI</span
+          ></a
+        >
+        <div class="studio-label">RESOURCES STUDIO</div>
+        <nav aria-label="Administration">
+          <button data-page="dashboard" class="active">
+            ◈ <span>Dashboard</span></button
+          ><button data-page="library">▤ <span>Content library</span></button
+          ><button data-page="taxonomy">⊞ <span>Categories & tags</span></button
+          ><button data-page="media">▧ <span>Media library</span></button
+          ><button data-page="seo">⌕ <span>SEO manager</span></button
+          ><button data-page="knowledge">◎ <span>Knowledge review</span></button
+          ><button data-page="settings">⚙ <span>Settings</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <p>Good knowledge.<br />Thoughtfully shared.</p>
+          <a href="/resources/" target="_blank" rel="noopener"
+            >View Resources Hub ↗</a
+          ><button id="logout">Sign out</button>
+        </div>
+      </aside>
+      <button id="nav-backdrop" class="nav-backdrop" type="button" aria-hidden="true" tabindex="-1" hidden></button>
+      <div class="workspace">
+        <header class="topbar">
+          <button id="mobile-menu" class="mobile-menu" type="button" aria-controls="cms-sidebar" aria-expanded="false" aria-label="Open navigation">☰ <span>Menu</span></button>
+          <span>PoolDocAI <span class="muted">/ Resources</span></span
+          ><span class="private-label">● Private workspace</span
+          ><span id="identity"></span
+          ><button id="mobile-logout">Sign out</button>
+        </header>
+        <main id="main" tabindex="-1"></main>
+        <div
+          id="toast"
+          class="toast"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
+      </div>
+    </div>
+    <dialog id="dialog">
+      <div id="dialog-content"></div>
+      <button class="dialog-close" aria-label="Close dialog">×</button>
+    </dialog>
+  </body>
+</html>

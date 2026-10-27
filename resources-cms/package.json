@@ -1,0 +1,46 @@
+{
+  "name": "pooldocai-resources-cms",
+  "version": "0.6.0-platform-local.20261027",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test:integration": "node --test tests/integration-security.test.mjs",
+    "start": "node server.mjs",
+    "test": "node --test tests/api.test.mjs tests/approved-content.test.mjs tests/editorial-collection.test.mjs",
+    "test:production": "node --test tests/production-adapters.test.mjs tests/serverless-app.test.mjs tests/production-e2e-pglite.test.mjs tests/migration-static.test.mjs",
+    "test:browser": "node tests/browser.mjs",
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "backup": "node scripts/backup.mjs",
+    "preview:local": "node scripts/preview-local.mjs",
+    "test:postgres": "node tests/postgres-proposal.mjs && node tests/postgres-commands.mjs && node tests/postgres-storage.mjs",
+    "prepare:priority-drafts": "node scripts/prepare-priority-drafts.mjs",
+    "import:priority-drafts:local": "node scripts/import-priority-drafts-local.mjs",
+    "prepare:approved-content": "node scripts/prepare-approved-resources.mjs",
+    "import:approved-content:local": "node scripts/reconcile-approved-content-local.mjs",
+    "test:approved-content": "node --test tests/approved-content.test.mjs",
+    "preview:approved-content": "node scripts/capture-approved-previews.mjs",
+    "build:sanitizer": "node scripts/build-sanitizer.mjs",
+    "postinstall": "npm run build:sanitizer",
+    "build:preview": "npm run build:sanitizer && cp evidence/live/logo.svg public/logo.svg",
+    "test:login-fix": "node --test tests/login-fix.test.mjs",
+    "test:platform": "node --test tests/platform/*.test.mjs",
+    "test:platform:browser": "node tests/platform/browser.mjs",
+    "test:owner-review": "node tests/platform/owner-review-smoke.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "marked": "^16.4.1",
+    "pg": "^8.23.1",
+    "sanitize-html": "2.18.1",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@electric-sql/pglite": "0.5.11",
+    "@sparticuz/chromium": "153.0.0",
+    "playwright": "1.64.1"
+  }
+}

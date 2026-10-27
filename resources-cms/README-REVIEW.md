@@ -1,0 +1,7 @@
+# PoolDocAI Resources CMS v0.6.0 code review mirror
+
+Implementation source from private tested commit 9f762d367b52b494cd6ae5384349059e319764b6. The full private release archive SHA-256 is b57779f6c7a6ef28b31fc8348e6bfc9a788d1c420c0f53a5747344db4bcc8686. This public mirror intentionally excludes unpublished manuscripts, gated attachments, import payloads, private review screenshots and editorial evidence. It is not the exact full release tree or original Git commit. No editorial content is authorized for publication by this PR.
+
+Runtime implementation files are unchanged; FILE-PROVENANCE.json pins their source hashes. Node.js 24 is required. npm ci and npm run build:preview build the sanitizer. Full editorial/import tests require the owner's private release inputs; restoring those inputs is a local operation and they must not be pushed to this public repository. Existing migration files are historical proposals; do not replay Gate 1 or apply database changes from this PR. Gate 3B remains pending, and new taxonomy/analytics RPCs require a separate reviewed gate. Feature switches default OFF.
+
+Source is under resources-cms/ to preserve the existing core application's files. The repository-root vercel.json adds only a git.deploymentEnabled=false rule for this review branch to prevent automatic deployment to the unrelated core Vercel project. It changes no other branches and no production settings. Do not merge or deploy from this PR without separate owner approval.

@@ -1,0 +1,15 @@
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+INSERT OR IGNORE INTO schema_migrations VALUES(1,datetime('now'));
+CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('owner','editor','reviewer','viewer')),active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),csrf TEXT NOT NULL,expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS login_attempts(key TEXT PRIMARY KEY,count INTEGER NOT NULL,until_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS taxonomy(id TEXT PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN ('category','tag')),name TEXT NOT NULL,position INTEGER NOT NULL DEFAULT 0,archived INTEGER NOT NULL DEFAULT 0,UNIQUE(kind,name));
+CREATE TABLE IF NOT EXISTS articles(id TEXT PRIMARY KEY,slug TEXT NOT NULL UNIQUE,status TEXT NOT NULL CHECK(status IN ('draft','review','approved','scheduled','published','archived','deleted')),data TEXT NOT NULL,published TEXT,version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,scheduled_at TEXT,previous_status TEXT);
+CREATE TABLE IF NOT EXISTS revisions(id TEXT PRIMARY KEY,article_id TEXT NOT NULL REFERENCES articles(id),version INTEGER NOT NULL,data TEXT NOT NULL,actor_id TEXT,reason TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(article_id,version));
+CREATE TABLE IF NOT EXISTS redirects(old_slug TEXT PRIMARY KEY,article_id TEXT NOT NULL REFERENCES articles(id),created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS media(id TEXT PRIMARY KEY,name TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,alt TEXT NOT NULL DEFAULT '',sha256 TEXT NOT NULL,created_at TEXT NOT NULL,actor_id TEXT NOT NULL REFERENCES users(id));
+CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,actor_id TEXT,action TEXT NOT NULL,resource_id TEXT,detail TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS articles_schedule ON articles(status,scheduled_at);
+CREATE INDEX IF NOT EXISTS audit_time ON audit(created_at);

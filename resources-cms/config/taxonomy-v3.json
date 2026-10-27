@@ -1,0 +1,1147 @@
+{
+  "schema_version": "planning-v3-extensible-tags",
+  "prepared_on": "2026-10-26",
+  "source_archive": "PoolDocAI_Approved_Resources_COMPLETE_2026-10-26_v31_2.zip",
+  "immutable_source_resources": 32,
+  "excluded_resource_ids": [
+    "30"
+  ],
+  "routing": {
+    "entries": [
+      "whats-wrong",
+      "equipment-and-guides"
+    ],
+    "canonical_policy": "single canonical URL per published resource; both paths link to it",
+    "publication_awareness": {
+      "source_of_truth": "CMS publication state combined with verified existing live-site reconciliation; editorial approval is not publication",
+      "published": "Only records with verified live canonical URL and active published revision appear in public category pages, search, related articles, sitemap, and assistant results.",
+      "scheduled": "Not visible until scheduled publication completes successfully and live URL is verified. Optional owner-only CMS preview.",
+      "draft_or_in_review": "Owner/editor preview only. Never expose in public listings, search APIs, sitemap, assistant, or public article endpoints.",
+      "archived_or_unpublished": "Remove from public discovery and sitemap. Existing legacy URLs follow explicit reviewed redirect or 410 policy, not automatic deletion.",
+      "existing_live_not_imported": "Maintain existing public links; inventory canonical URLs and merge into CMS by content identity before any rewrite; do not mistakenly treat empty Staging CMS as absence from live site.",
+      "fallback": "When no published article matches a tag or symptom, show relevant published alternatives and a friendly no-guide-yet response; never link to drafts.",
+      "publication_consistency": "Public query filters enforce status=published and verified published revision at server/data layer, not just UI; navigation uses same read model and invalidates caches after publish/unpublish.",
+      "canonical": "Both navigation paths and widget link to the same live article canonical URL, not separate copies."
+    }
+  },
+  "equipment_categories": [
+    "pumps",
+    "filters-circulation",
+    "salt-systems",
+    "automation-controls",
+    "water-chemistry",
+    "seasonal-care",
+    "equipment-maintenance",
+    "templates-tools",
+    "professional"
+  ],
+  "problem_categories": [
+    "pump-wont-start",
+    "flow-filter-pressure",
+    "green-discolored-water",
+    "salt-not-chlorinating",
+    "chemistry-test-results",
+    "scheduling-automation",
+    "opening-winterizing"
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "resource_ids": [
+        "08",
+        "01",
+        "02",
+        "04",
+        "03",
+        "06",
+        "31",
+        "32"
+      ]
+    },
+    {
+      "wave": 2,
+      "resource_ids": [
+        "05",
+        "09",
+        "10",
+        "33",
+        "07",
+        "14",
+        "15"
+      ]
+    },
+    {
+      "wave": 3,
+      "resource_ids": [
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29"
+      ]
+    },
+    {
+      "wave": 4,
+      "resource_ids": [
+        "11",
+        "12",
+        "13",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "resource_id": "01",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_01_Pool_Pump_Wont_Start_General_approved.md",
+      "source_sha256": "70b7b02ec3e5310ce17d22755f0e15c7181b5ef0ced5b7e98bd412347c817882",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "pumps"
+      ],
+      "problem_categories": [
+        "pump-wont-start"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "02",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_02_Filter_Pressure_General_approved.md",
+      "source_sha256": "9e28f2b577aa17a4edbf55b3f6f43e5c6dedadb6c17044e3afe705c945c33124",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "filters-circulation"
+      ],
+      "problem_categories": [
+        "flow-filter-pressure"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "03",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_03_Green_Pool_With_Chlorine_General_approved.md",
+      "source_sha256": "0ecc902aad874652223b20aed102b4416d31a44879db765880a02ac00e2e2971",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "water-chemistry"
+      ],
+      "problem_categories": [
+        "green-discolored-water"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "04",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_04_Salt_Chlorine_Generator_Not_Producing_Chlorine_General_approved.md",
+      "source_sha256": "af6d381f8e2cda90db4a93d442540379adf34ad1b70c6bfa039939751b1d1764",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "salt-systems"
+      ],
+      "problem_categories": [
+        "salt-not-chlorinating"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "05",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_05_How_to_Identify_Pool_Equipment_approved.md",
+      "source_sha256": "b224819c8daeb50354408bd5a510fe00e0e5a485ff7b9901449fb2fdd7a1e183",
+      "suggested_wave": 2,
+      "equipment_categories": [
+        "equipment-maintenance"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "06",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_06_Water_Test_Results_General_approved.md",
+      "source_sha256": "ab58d080e7f0b8f52511edd5196ec341db7067cfe6d90aece470dac6da8624a3",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "water-chemistry"
+      ],
+      "problem_categories": [
+        "green-discolored-water",
+        "chemistry-test-results"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "07",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_07_Spring_Pool_Opening_approved.md",
+      "source_sha256": "cfd8b28cee04e6b3b3dbcf6cbd86db0812b762ea654cc70ea12d38d8b012522a",
+      "suggested_wave": 2,
+      "equipment_categories": [
+        "seasonal-care"
+      ],
+      "problem_categories": [
+        "opening-winterizing"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "08",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_08_Pool_Closing_and_Winterization_approved.md",
+      "source_sha256": "8201bcff9bdce4551199b5cf4f6cc42be16563aaa586d8941fd8966c7803b5a6",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "seasonal-care"
+      ],
+      "problem_categories": [
+        "opening-winterizing"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "09",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_09_Single_vs_Variable_Speed_Pumps_approved.md",
+      "source_sha256": "07cb4952dc47e03d8270c0311e86806fa6cc5caaf80d3e27aae8659975303239",
+      "suggested_wave": 2,
+      "equipment_categories": [
+        "pumps"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "10",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_10_Chemistry_and_Circulation_General_approved.md",
+      "source_sha256": "c5c87bbc374d0d2f95329d766895e6bd6aa47f8fccd0a8f63454a3b768220f36",
+      "suggested_wave": 2,
+      "equipment_categories": [
+        "filters-circulation",
+        "water-chemistry"
+      ],
+      "problem_categories": [
+        "flow-filter-pressure",
+        "chemistry-test-results"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "11",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_11_Trustworthy_Diagnostic_Answers_approved.md",
+      "source_sha256": "9dc917bc3fc81158be0d71a77e022921b60f8bca698cd567e0bdba0398197fa9",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "professional"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "12",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_12_Repeated_Pool_Service_Visits_approved.md",
+      "source_sha256": "1e041dd3ee5864fc29f1d2a2750cfeea7f133b6aadeb1a28d4e8ca4331b0af38",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "professional"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "13",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_13_Pre_Service_Checklist_approved.pdf",
+      "source_sha256": "b5daca819553adedcd087732d1a6fab42702add1d2cf52875d48f2f0750ab5d7",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "templates-tools"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "14",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_14_Pool_Equipment_Inventory_and_Maintenance_Log_approved.md",
+      "source_sha256": "8a2882d8e5b1aba89f8f0ebdc789f01edddfe3b631b0a54edf5216a44421d28b",
+      "suggested_wave": 2,
+      "equipment_categories": [
+        "equipment-maintenance",
+        "templates-tools"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "15",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_15_Pool_Water_Test_Tracking_Sheet_approved.md",
+      "source_sha256": "9020b4f57145ffa4822de823b91e1efaf5e8d700cb542e826146294f59d4facf",
+      "suggested_wave": 2,
+      "equipment_categories": [
+        "water-chemistry",
+        "templates-tools"
+      ],
+      "problem_categories": [
+        "chemistry-test-results"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "16",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_16_Pool_Service_Diagnostic_Work_Order_approved.md",
+      "source_sha256": "54fc8992d6b4167254f3a1a8c56392832d3c261ddd0765e9d8123c4fa0743fb8",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "templates-tools",
+        "professional"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "17",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_17_Diagnostic_Workflow_approved.md",
+      "source_sha256": "4076ae3e9b6d3089ad18d52a0b6e5893954b5a40b66ae18bba1a3d70da97a2b4",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "templates-tools",
+        "professional"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "18",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_18_Technician_Documentation_approved.md",
+      "source_sha256": "5cc599ffc19332d2daf5ad2bfb650d81610eca96db6016b5de56294cd0cc580c",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "professional"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "19",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_19_Customer_Friction_approved.md",
+      "source_sha256": "19888a8d799b4e5df6bfcfcbc92283b6684d32afeb10bfbabe8230efe6f6b2b8",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "professional"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "20",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_20_AI_for_Pool_Service_Companies_approved.md",
+      "source_sha256": "9b0fc22e59e820ddbc27acb094a548fec19b8bab0b43ef925c8b69e292d90d8c",
+      "suggested_wave": 4,
+      "equipment_categories": [
+        "professional"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "21",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_21_Pentair_EasyTouch_Homeowner_approved.md",
+      "source_sha256": "a0ed04379714324093125e56feb835e4f26f80abd40a5f296a5d849c99fecbc6",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "automation-controls"
+      ],
+      "problem_categories": [
+        "scheduling-automation"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "22",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_22_Pentair_IntelliFlo_Homeowner_approved.md",
+      "source_sha256": "822ae19712f7017e1a7a1412c2310843efb3e7042e52cbafbef005c4293c65d7",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "pumps"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "23",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_23_Pentair_SuperFlo_VS_VST_Homeowner_approved.md",
+      "source_sha256": "461e6d7c8422e21321c756331ac60c4737f46d66ed2967148be07e15a1bc57a5",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "pumps"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "24",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_24_Pentair_IntelliChlor_IC40_Homeowner_approved.md",
+      "source_sha256": "6152b43112c0a1245e6499ef15779752fafc37aafa275748df129f9c8ad26cad",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "salt-systems"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "25",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_25_Jandy_iAquaLink_iQ20_iQ30_Homeowner_approved.md",
+      "source_sha256": "0fff6d5fd34b1c1b542ed6f7988f62c3a8022d60c291ec4991fd75fa4e14642e",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "automation-controls"
+      ],
+      "problem_categories": [
+        "scheduling-automation"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "26",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_26_Jandy_AquaLink_PDA_Homeowner_approved.md",
+      "source_sha256": "5a87ed9221af51bff4f89ae44bcd583a6974d62388f8192d694e8769f36a7e41",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "automation-controls"
+      ],
+      "problem_categories": [
+        "scheduling-automation"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "27",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_27_Jandy_AquaLink_RS_Homeowner_approved.md",
+      "source_sha256": "ced697af033e046ec05d7b5d8faca5b759b11ee05af252d11c4287f088408000",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "automation-controls"
+      ],
+      "problem_categories": [
+        "scheduling-automation"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "28",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_28_Jandy_AquaPure_Homeowner_approved.md",
+      "source_sha256": "52a16ea14b68ddb1ee015b5ce58b029f379bf2ca1f0334040aafaec2f0f34d66",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "salt-systems"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "29",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_29_Jandy_VS_FloPro_SpeedSet_Homeowner_approved.md",
+      "source_sha256": "b75c5bb486b7348259664b72dea5b09b7ef6c041c61e7187cd3c72500bf68f25",
+      "suggested_wave": 3,
+      "equipment_categories": [
+        "pumps"
+      ],
+      "problem_categories": [],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "31",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_31_Salinity_Control_Panel_Guide_approved.md",
+      "source_sha256": "054f8f02e850f794c7bd53da4eb7d308d78ac1ace6ee3e925c6780458efd3ad7",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "salt-systems"
+      ],
+      "problem_categories": [
+        "salt-not-chlorinating"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "32",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_32_Seasonal_Salt_Output_approved.md",
+      "source_sha256": "1c60617b8755567537991c5b305999e70d1f8d25052e219a9d4da7f27f03c8eb",
+      "suggested_wave": 1,
+      "equipment_categories": [
+        "salt-systems"
+      ],
+      "problem_categories": [
+        "salt-not-chlorinating"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    },
+    {
+      "resource_id": "33",
+      "source_path": "PoolDocAI_Approved_Resources/Resource_33_Pool_Pump_Schedule_General_approved.md",
+      "source_sha256": "840fb639aa52852db849e79aa4818b5735740445bde806df018d244e52d9006d",
+      "suggested_wave": 2,
+      "equipment_categories": [
+        "pumps"
+      ],
+      "problem_categories": [
+        "scheduling-automation"
+      ],
+      "owner_editorial_status": "approved",
+      "publication_status": "not authorized for new publication; preexisting live status unverified",
+      "cms_action": "prepare protected draft after reconciliation and separate staging import approval",
+      "live_site_status": "unverified_needs_reconciliation",
+      "public_visibility": "determined_from_verified_publication_state_not_editorial_approval",
+      "cms_tags_status": "suggested_mapping_not_yet_applied",
+      "live_canonical_url": null,
+      "cms_published_revision_id": null
+    }
+  ],
+  "gates": [
+    "reconcile existing live resources and URLs first",
+    "no automatic import or publish",
+    "verify source revision, licensed assets, technical claims, SEO, and accessibility",
+    "publication authorization exact revision and destination required",
+    "no promotion to diagnostic knowledge base"
+  ],
+  "cms_editable_taxonomy": {
+    "taxonomy_groups": {
+      "equipment": [
+        "pump",
+        "pump-motor",
+        "variable-speed-pump",
+        "single-speed-pump",
+        "pump-drive",
+        "pump-seal",
+        "pump-strainer",
+        "filter",
+        "cartridge-filter",
+        "sand-filter",
+        "de-filter",
+        "filter-valve",
+        "backwash-valve",
+        "heater",
+        "gas-heater",
+        "heat-pump",
+        "electric-heater",
+        "salt-system",
+        "salt-cell",
+        "salt-controller",
+        "automation",
+        "control-panel",
+        "timer",
+        "actuator",
+        "valve",
+        "pool-cleaner",
+        "robotic-cleaner",
+        "suction-cleaner",
+        "pressure-cleaner",
+        "skimmer",
+        "main-drain",
+        "return-jet",
+        "pool-plumbing",
+        "pipe-fitting",
+        "check-valve",
+        "solar-heating",
+        "water-feature",
+        "pool-light",
+        "transformer",
+        "chemical-feeder",
+        "dosing-pump",
+        "chlorinator",
+        "pool-cover",
+        "cover-pump",
+        "water-test-kit",
+        "water-chemistry"
+      ],
+      "issue": [
+        "no-power",
+        "not-starting",
+        "starts-then-stops",
+        "intermittent-operation",
+        "tripped-breaker",
+        "gfci-trips",
+        "humming",
+        "noisy-operation",
+        "vibration",
+        "overheating",
+        "low-flow",
+        "no-flow",
+        "high-flow",
+        "lost-prime",
+        "air-in-system",
+        "air-bubbles",
+        "cavitation",
+        "high-pressure",
+        "low-pressure",
+        "pressure-fluctuation",
+        "clogged",
+        "dirty-filter",
+        "leak",
+        "suction-side-leak",
+        "pressure-side-leak",
+        "water-loss",
+        "low-water-level",
+        "backwash-problem",
+        "filter-media-return",
+        "poor-filtration",
+        "cloudy-water",
+        "green-water",
+        "yellow-water",
+        "black-water",
+        "brown-water",
+        "staining",
+        "scaling",
+        "foam",
+        "odor",
+        "algae",
+        "low-chlorine",
+        "high-chlorine",
+        "salt-not-generating",
+        "salt-reading-mismatch",
+        "low-salt",
+        "high-salt",
+        "cell-needs-cleaning",
+        "chemistry-out-of-range",
+        "ph-low",
+        "ph-high",
+        "alkalinity-low",
+        "alkalinity-high",
+        "calcium-low",
+        "calcium-high",
+        "stabilizer-low",
+        "stabilizer-high",
+        "error-code",
+        "warning-light",
+        "communication-loss",
+        "wifi-connection",
+        "app-pairing",
+        "schedule-not-running",
+        "timer-mismatch",
+        "valve-not-moving",
+        "heater-not-firing",
+        "heater-short-cycling",
+        "heater-low-flow",
+        "heater-error",
+        "cleaner-stuck",
+        "cleaner-not-moving",
+        "cleaner-not-climbing",
+        "cleaner-poor-pickup",
+        "light-not-working",
+        "cover-not-draining",
+        "winter-damage"
+      ],
+      "content_type": [
+        "troubleshooting",
+        "how-to",
+        "step-by-step",
+        "maintenance",
+        "preventive-maintenance",
+        "installation-overview",
+        "setup-configuration",
+        "programming",
+        "cleaning",
+        "testing-measurement",
+        "water-treatment",
+        "buying-guide",
+        "comparison",
+        "reference",
+        "faq",
+        "glossary",
+        "checklist",
+        "template",
+        "worksheet",
+        "calculator",
+        "seasonal-guide",
+        "safety",
+        "technician-workflow",
+        "case-study",
+        "business-operations"
+      ],
+      "component": [
+        "impeller",
+        "diffuser",
+        "lid-o-ring",
+        "pump-basket",
+        "motor-capacitor",
+        "motor-bearing",
+        "shaft-seal",
+        "drive-controller",
+        "cartridge-element",
+        "sand-media",
+        "de-grids",
+        "multiport-valve",
+        "pressure-gauge",
+        "salt-cell",
+        "flow-switch",
+        "temperature-sensor",
+        "pressure-switch",
+        "heater-ignition",
+        "heat-exchanger",
+        "gas-valve",
+        "actuator",
+        "relay",
+        "timer",
+        "circuit-board",
+        "display",
+        "remote-control",
+        "app",
+        "wifi-module",
+        "skimmer-basket",
+        "check-valve",
+        "union",
+        "filter-air-relief",
+        "cleaner-hose",
+        "cleaner-track",
+        "cleaner-bag"
+      ],
+      "water_topic": [
+        "free-chlorine",
+        "total-chlorine",
+        "combined-chlorine",
+        "ph",
+        "total-alkalinity",
+        "calcium-hardness",
+        "cyanuric-acid",
+        "salt-ppm",
+        "water-temperature",
+        "metals",
+        "phosphates",
+        "saturation-index",
+        "water-balance",
+        "water-testing",
+        "algae-management",
+        "sanitizer-demand",
+        "clarity",
+        "dosing-safety",
+        "circulation-before-chemistry"
+      ],
+      "pool_type": [
+        "in-ground",
+        "above-ground",
+        "vinyl-liner",
+        "fiberglass",
+        "plaster",
+        "saltwater-pool",
+        "chlorine-pool",
+        "spa",
+        "pool-spa-combo",
+        "commercial-pool"
+      ],
+      "maintenance_task": [
+        "prime-pump",
+        "clean-basket",
+        "clean-filter",
+        "backwash",
+        "rinse-filter",
+        "inspect-leaks",
+        "inspect-valves",
+        "check-flow",
+        "test-water",
+        "adjust-water-balance",
+        "inspect-salt-cell",
+        "set-salt-output",
+        "program-pump-schedule",
+        "identify-equipment",
+        "record-model-serial",
+        "open-pool",
+        "close-pool",
+        "winterize",
+        "restart-after-outage",
+        "document-service",
+        "prepare-service-visit"
+      ],
+      "audience": [
+        "homeowner",
+        "technician",
+        "service-company",
+        "company-admin",
+        "property-manager",
+        "pool-builder"
+      ],
+      "brand": [],
+      "model": [],
+      "model_family": [],
+      "season": [
+        "spring",
+        "summer",
+        "fall",
+        "winter",
+        "year-round"
+      ],
+      "climate_context": [
+        "freeze-risk",
+        "warm-climate",
+        "high-rainfall",
+        "high-heat"
+      ],
+      "difficulty": [
+        "beginner",
+        "intermediate",
+        "professional-only"
+      ],
+      "safety_scope": [
+        "observation-only",
+        "homeowner-safe",
+        "technician-only",
+        "electrical-hazard",
+        "gas-hazard",
+        "pressurized-equipment",
+        "chemical-hazard",
+        "permit-or-code"
+      ],
+      "format": [
+        "article",
+        "downloadable-pdf",
+        "spreadsheet",
+        "video",
+        "diagram",
+        "interactive-tool"
+      ],
+      "workflow_stage": [
+        "before-service",
+        "initial-assessment",
+        "diagnosis",
+        "repair-documentation",
+        "follow-up",
+        "preseason",
+        "in-season",
+        "offseason"
+      ]
+    },
+    "article_editing": {
+      "required": [
+        "title",
+        "canonical_slug",
+        "primary_topic",
+        "content_type",
+        "audience"
+      ],
+      "optional_multi_select": [
+        "equipment",
+        "issue",
+        "component",
+        "water_topic",
+        "pool_type",
+        "maintenance_task",
+        "brand",
+        "model",
+        "model_family",
+        "season",
+        "climate_context",
+        "difficulty",
+        "safety_scope",
+        "format",
+        "workflow_stage"
+      ],
+      "admin_ui": "Searchable grouped tag picker with typeahead, chip selection, synonym matches, parent-child drilldown, primary topic, audience and guide-type selection; owner/editor can request new tags and authorized taxonomy manager can approve/create, merge, retire and preview public placement; compact mobile UI.",
+      "preview": "Show Which sections will display this article? for published state and proposed placement for draft, with public-invisible flag.",
+      "permissions": "Only authorized CMS editorial roles can add/modify tags; only authorized publisher can publish. Tag edits to live pages follow editorial revision/approval rules.",
+      "governance": "Use stable tag IDs/slugs, unique normalized names, aliases/synonyms, merge/retire workflow and audit changes; prevent duplicate free-form synonyms."
+    },
+    "query_examples": {
+      "pump_howto": {
+        "equipment": "pump",
+        "content_type": [
+          "how-to",
+          "step-by-step"
+        ],
+        "only": "verified-published"
+      },
+      "pump_troubleshooting": {
+        "equipment": "pump",
+        "content_type": [
+          "troubleshooting"
+        ],
+        "only": "verified-published"
+      },
+      "filter_troubleshooting": {
+        "equipment": "filter",
+        "content_type": [
+          "troubleshooting"
+        ],
+        "only": "verified-published"
+      },
+      "heater_error": {
+        "equipment": "heater",
+        "issue": [
+          "heater-error",
+          "error-code"
+        ],
+        "only": "verified-published"
+      },
+      "salt_output": {
+        "equipment": "salt-system",
+        "maintenance_task": "set-salt-output",
+        "only": "verified-published"
+      },
+      "green_pool": {
+        "issue": [
+          "green-water",
+          "algae"
+        ],
+        "only": "verified-published"
+      }
+    },
+    "placement": "A published article may appear in multiple tag-filtered collections but always keeps one canonical URL.",
+    "tag_schema": {
+      "fields": [
+        "id",
+        "group",
+        "slug",
+        "display_name",
+        "parent_id",
+        "synonyms",
+        "state",
+        "visibility",
+        "created_by",
+        "reviewed_by",
+        "created_at",
+        "updated_at"
+      ],
+      "states": [
+        "active",
+        "pending_review",
+        "retired"
+      ],
+      "avoid_free_text_public_filter": true,
+      "brand_model_policy": "Do not invent supported makes or models; create only verified entities and use a manufacturer/model catalog with family inheritance and aliases",
+      "tag_alias_examples": {
+        "pump-not-working": "not-starting",
+        "no-circulation": "no-flow",
+        "vs-pump": "variable-speed-pump",
+        "fc": "free-chlorine",
+        "cya": "cyanuric-acid",
+        "ta": "total-alkalinity",
+        "de-filter": "de-filter"
+      },
+      "hierarchy": "Group > parent category > optional component/model/issue; a single article may have many cross-facet tags but one canonical URL."
+    },
+    "publication_and_discovery": {
+      "public_eligibility": "verified CMS published revision AND permitted live canonical destination; legacy live pages remain discoverable via reconciliation until migrated",
+      "public_filter": "enforce publish state and verification in server queries, sitemap, search index, category pages, widget, recommendations, related articles and direct article endpoints",
+      "draft_filters": "CMS authoring and preview only; preview tokens cannot be enumerated or indexed",
+      "zero_results": "Do not display unpublished article titles, counts or links; show published alternatives and a request-for-guide option",
+      "reviewed_tag_changes": "For a published article, changes that alter public placement require editorial permissions, validation and audited publish or approved metadata update."
+    },
+    "content_mapping_policy": "All 32 existing approved articles retain previous editorial and publication state. Tags in this schema are candidate vocabulary, not claims that approved articles cover all topics. Map tags only after reviewing actual source content; do not auto-tag every item as supported."
+  }
+}
