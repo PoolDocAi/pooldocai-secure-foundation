@@ -1,11 +1,11 @@
 # PoolDocAI legal/contact footer — protected release review
 
-**Scope:** Add owner-requested **Contact** link to `mailto:hello@pooldocai.com`, and **Privacy Policy** and **Terms of Service** links, in the bottom navigation of the landing page, Resources Hub, both existing public articles and draft legal pages. Preserve the existing bottom-left Resources link (exactly one on homepage) and Privacy choices control. Do not redesign the approved homepage.
+**Scope:** Add owner-requested **Contact** link to `mailto:hello@pooldocai.com`, and **Privacy Policy** and **Terms of Service** links, in the bottom navigation of the landing page, Resources Hub, both existing public articles and legal pages. Preserve the existing bottom-left Resources link (exactly one on homepage) and Privacy choices control. Do not redesign the approved homepage.
 
 ## Current source and intended routes
 
-- `/privacy.html`: copy of the existing `website/privacy.html` working draft with only ordinary-contact wording and footer-nav changes. **Not legally approved**.
-- `/terms.html`: copy of existing `website/terms.html` working draft with only ordinary-contact wording and footer-nav changes. **Not legally approved**.
+- `/privacy.html`: owner-requested public-facing policy text aligned with `website/privacy.html`; browser title, description, visible labels, and footer do **not** say draft. **Legal review and owner sign-off still pending before Production**.
+- `/terms.html`: owner-requested public-facing Terms of Service text aligned with `website/terms.html`; no draft labels. **Legal review and owner sign-off still pending before Production**.
 - `mailto:hello@pooldocai.com`: opens user's email software; delivery must be verified by the owner (mailbox receipt and reply).
 - `/resources/`: existing Resources Hub. Do not publish drafts through the public catalog.
 - Article routes remain **`/resources/green-pool-first-checks/`** and **`/resources/pool-pump-wont-start/`** with original canonicals.
@@ -16,7 +16,7 @@ The approved source is a code-only review subtree, **not** a full replacement fo
 
 1. The review build explicitly rejects non-Preview Vercel environments and has no command to promote Production.
 2. Vercel Authentication and `noindex` must stay enabled in the protected Preview.
-3. Both legal pages remain visibly marked *Draft — formal legal review required*. They are **not** approved for a publicly accessible Production release.
+3. Both legal pages are displayed without draft labels in accordance with owner instructions. **Removing draft labels is not equivalent to legal or release approval.** The content remains in a protected Preview-only code review branch until factual completeness and owner approval are confirmed.
 4. Final legal approval needs confirmed legal operator, effective dates, actual vendors/data flows, retention periods and user rights; contact details for privacy/legal notices; coverage of published editorial Resources and forms; and owner sign-off (legal counsel review strongly recommended).
 5. Before Production promotion, verify the `hello@pooldocai.com` mailbox receives inbound messages and replies successfully. Verify accessible navigation on homepage, Hub, both articles and legal pages in authenticated desktop and mobile Preview. Preserve the Analytics consent behavior.
 6. This PR does not run Gate 3B, create/migrate CMS tables, publish manuscripts, alter Supabase/Auth/RLS, merge the Resources code to `main`, or touch Production.
@@ -34,5 +34,13 @@ The approved source is a code-only review subtree, **not** a full replacement fo
 - Add accessible footer-nav generator and additive CSS for mobile and desktop.
 - Add navigation to the homepage and two article review outputs through the existing build script.
 - Add the same routes to the dynamic Resources Hub footer template.
-- Copy the existing draft legal pages for protected preview; keep their draft markers.
+- Keep `website/privacy.html` and `website/terms.html` synchronized with their protected marketing-review copies; no public draft labels or dead waitlist links.
 - Add isolated tests of link destinations, no duplicate Resources on homepage, unchanged article canonicals, and build refusal in Production.
+
+## Review facts still needing owner verification
+
+- Correct legal entity/operator name and business mailing address, if applicable to the release geography.
+- Confirm the website's actual form vendor, hosting/analytics tools, cookie/consent configuration, how long submitted data and logs persist, and privacy-request process. Do not assert unverified retention periods.
+- Confirm which diagnostic and authenticated CMS functions are available to the public at launch; public policy text must describe real, not future, processing.
+- Confirm hello@pooldocai.com inbound delivery and whether it should serve formal privacy/legal notices, not merely ordinary contact.
+- Obtain final owner approval of the legal content after factual review; request legal counsel review as appropriate. This requirement lives in the internal release checklist, not as a public draft banner.
