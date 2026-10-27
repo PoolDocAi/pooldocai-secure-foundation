@@ -24,9 +24,13 @@ export function normalizeArticleCommand(action, input = {}) {
   const tagIds = input.tagIds ?? [];
   if (!Array.isArray(tagIds) || tagIds.length > 30 || tagIds.some((id) => !UUID.test(String(id)))) reject("Invalid tags");
   const sources = input.sources ?? [];
-  if (!Array.isArray(sources) || sources.length > 100 || sources.some((source) =>
-    !source || typeof source !== "object" || !short(source.label, 300) || !safeURL(source.url, false)
-  )) reject("Invalid sources");
+  if (!Array.isArray(sources) || sources.length > 100) reject("Sources must be a list of at most 100 references");
+  for (const [index, source] of sources.entries()) {
+    if (!source || typeof source !== "object" || typeof source.label !== "string" ||
+      !source.label.trim() || source.label.trim().length > 300 || !safeURL(source.url, false)) {
+      reject(`Source ${index + 1} requires a name and a valid HTTPS URL`);
+    }
+  }
   const body = sanitize(short(input.body, 200_000));
   const seo = input.seo && typeof input.seo === "object" && !Array.isArray(input.seo) ? input.seo : {};
   const canonical = short(seo.canonical, 2_048);
