@@ -1020,13 +1020,53 @@ async function approvedLibrary(){
   $('#approved-import-one').onclick=async()=>{const button=$('#approved-import-one');button.disabled=true;try{const r=rows[Number($('#approved-choice').value)];const imported=await api('/api/approved-resources',{method:'POST',body:{sourceIdentity:r.sourceIdentity,sourceChecksum:r.sourceChecksum}});dialog.close();await refresh();await openEditor(imported.id);toast('Approved source imported as a protected draft');}catch(e){toast(e.message,true);button.disabled=false;}};
  });
 }
+async function verifyPublishedDelivery(slug, title) {
+  // This checks the real same-origin website route. An acknowledged database
+  // release is NOT sufficient evidence that Vercel serves the published URL.
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug || ""))) {
+    return { ok: false, reason: "Invalid public resource slug" };
+  }
+  const path = `/resources/${slug}/`;
+  try {
+    const response = await fetch(path, {
+      method: "GET", cache: "no-store", credentials: "same-origin", redirect: "manual",
+    });
+    if (response.status !== 200) return { ok: false, reason: `HTTP ${response.status}`, path };
+    if (!/^text\/html(?:;|$)/i.test(response.headers.get("content-type") || "")) {
+      return { ok: false, reason: "Expected HTML response", path };
+    }
+    const html = await response.text();
+    // Prevent a generic page or a stale static fallback from being called verified.
+    // Exact immutable-revision checks remain on the server/database release gate.
+    const canonical = `https://pooldocai.com/resources/${slug}/`;
+    const htmlTitle = String(title || "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    if (!html.includes(canonical) || (title && !html.includes(htmlTitle) && !html.includes(title))) {
+      return { ok: false, reason: "Unexpected resource page or canonical URL", path };
+    }
+    return { ok: true, path };
+  } catch {
+    return { ok: false, reason: "Website request failed", path };
+  }
+}
 async function requestOwnerPublication(){
- const info=await api(`/api/content/${current.id}/release`);
- const blocked=info.blocks?.length||!info.enabled||info.state!=='approved';
- const commandId=crypto.randomUUID();
- modal(`<h2>Authorize this revision</h2><p>This is a separate release decision for revision ${esc(info.revisionId)}.</p><p><strong>Destination: ${esc(info.destination)}</strong> · /resources/${esc(current.data.slug)}/</p><p>Content checksum: <code>${esc(info.checksum)}</code></p>${(info.blocks||[]).map(b=>`<p class="warning">${esc(b.reason)}</p>`).join('')}${info.state!=='approved'?'<p class="warning">Complete editorial review and approval first.</p>':''}${info.holdReason?`<p class="warning">${esc(info.holdReason)}</p><label class="check-label"><input id="release-hold" type="checkbox"> I reviewed this source and explicitly authorize release of this revision. Mandatory asset blocks remain enforced.</label>`:''}<label class="check-label"><input id="release-confirm" type="checkbox"> Publish exactly this revision to ${esc(info.destination)}. This grants no diagnostic knowledge eligibility.</label><button class="primary" id="release-submit" ${blocked?'disabled':''}>Authorize revision and publish</button>`,()=>{
-  $('#release-submit').onclick=async()=>{if(!$('#release-confirm').checked||($('#release-hold')&&!$('#release-hold').checked))return toast('Confirm this revision and its editorial hold before publishing',true);const button=$('#release-submit');button.disabled=true;try{await api(`/api/content/${current.id}/publish`,{method:'POST',body:{commandId,version:info.version,revisionId:info.revisionId,checksum:info.checksum,destination:info.destination,confirm:true,holdChecksum:info.holdChecksum}});dialog.close();await openEditor(current.id);toast('Authorized revision published');}catch(e){toast(e.message,true);button.disabled=false;}};
- });
+  const info=await api(`/api/content/${current.id}/release`);
+  const blocked=info.blocks?.length||!info.enabled||info.state!=='approved';
+  const commandId=crypto.randomUUID();
+  modal(`<h2>Authorize this revision</h2><p>This is a separate release decision for revision ${esc(info.revisionId)}.</p><p><strong>Destination: ${esc(info.destination)}</strong> · /resources/${esc(current.data.slug)}/</p><p>Content checksum: <code>${esc(info.checksum)}</code></p>${(info.blocks||[]).map(b=>`<p class="warning">${esc(b.reason)}</p>`).join('')}${info.state!=='approved'?'<p class="warning">Complete editorial review and approval first.</p>':''}${info.holdReason?`<p class="warning">${esc(info.holdReason)}</p><label class="check-label"><input id="release-hold" type="checkbox"> I reviewed this source and explicitly authorize release of this revision. Mandatory asset blocks remain enforced.</label>`:''}<label class="check-label"><input id="release-confirm" type="checkbox"> Publish exactly this revision to ${esc(info.destination)}. This grants no diagnostic knowledge eligibility.</label><button class="primary" id="release-submit" ${blocked?'disabled':''}>Authorize revision and publish</button>`,()=>{
+    $('#release-submit').onclick=async()=>{
+      if(!$('#release-confirm').checked||($('#release-hold')&&!$('#release-hold').checked))return toast('Confirm this revision and its editorial hold before publishing',true);
+      const button=$('#release-submit');button.disabled=true;
+      try{
+        const published=await api(`/api/content/${current.id}/publish`,{method:'POST',body:{commandId,version:info.version,revisionId:info.revisionId,checksum:info.checksum,destination:info.destination,confirm:true,holdChecksum:info.holdChecksum}});
+        dialog.close();
+        const delivery=await verifyPublishedDelivery(published.data?.slug, published.data?.title);
+        await openEditor(published.id);
+        if(delivery.ok) toast(`Authorized revision published; website URL verified: ${delivery.path}`);
+        else toast(`Database published, but website reachability FAILED (${delivery.reason}). Check ${delivery.path||'the public route'} before announcing publication.`,true);
+      }catch(e){toast(e.message,true);button.disabled=false;}
+    };
+  });
 }
 async function pickMedia(type, choose) {
   try {
