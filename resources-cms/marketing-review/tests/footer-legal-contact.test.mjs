@@ -50,13 +50,13 @@ test('preview build includes legal pages, stylesheet and footer injection on hom
 test('public-facing legal pages are no longer drafts and have direct contact',()=>{
  for(const page of ['privacy.html','terms.html']){
   const html=read(page);
-  assert.doesNotMatch(html,/\\bdraft\\b|formal legal review required|final policy must|before commercial launch/i);
+  assert.doesNotMatch(html,/\bdraft\b|formal legal review required|final policy must|before commercial launch/i);
   assert.match(html,/Last updated: October 27, 2026/);
   assert.ok(html.includes('mailto:hello@pooldocai.com'));
   assert.ok(!html.includes('href="/waitlist.html"'));
   assert.ok(html.includes('href="/privacy.html"'));
   assert.ok(html.includes('href="/terms.html"'));
  }
- assert.match(read('privacy.html'),/<title>PoolDocAI Privacy Policy<\\/title>/);
- assert.match(read('terms.html'),/<title>PoolDocAI Terms of Service<\\/title>/);
+ assert.match(read('privacy.html'),/<title>PoolDocAI Privacy Policy<\/title>/);
+ assert.match(read('terms.html'),/<title>PoolDocAI Terms of Service<\/title>/);
 });
