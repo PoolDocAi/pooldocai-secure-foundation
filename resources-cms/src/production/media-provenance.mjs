@@ -17,6 +17,7 @@ const MEDIA_TYPES = new Set([
 const APPLICABILITY = new Set(["exact_model", "representative", "not_applicable"]);
 const SCOPES = new Set(["website", "social", "download"]);
 const SHA256 = /^[a-f0-9]{64}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requiredString(value, field, max = 300) {
   if (typeof value !== "string" || !value.trim() || value.trim().length > max) {
@@ -61,6 +62,7 @@ export function createPendingMediaProvenance(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid media submission");
   noClientApprovalFields(input);
   const assetId = requiredString(input.assetId, "assetId", 80);
+  if (!UUID.test(assetId)) throw new Error("Invalid media asset UUID");
   const originalChecksum = requiredString(input.originalChecksum, "originalChecksum", 64).toLowerCase();
   if (!SHA256.test(originalChecksum)) throw new Error("Invalid original SHA-256 checksum");
   const mediaType = ensureEnum(input.mediaType, MEDIA_TYPES, "media type");
@@ -78,6 +80,10 @@ export function createPendingMediaProvenance(input) {
   if (applicability === "representative" && !representativeLabel) {
     throw new Error("Representative imagery must be clearly labeled");
   }
+  const sourceUrl = optionalString(input.sourceUrl, "sourceUrl", 2000);
+  if (sourceUrl && !/^https:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(sourceUrl)) {
+    throw new Error("Source URL must use HTTPS");
+  }
   const containsPeople = input.containsPeople === true;
   return {
     assetId,
@@ -85,7 +91,7 @@ export function createPendingMediaProvenance(input) {
     mediaType,
     sourceType,
     sourceDescription: requiredString(input.sourceDescription, "sourceDescription", 1000),
-    sourceUrl: optionalString(input.sourceUrl, "sourceUrl", 2000),
+    sourceUrl,
     copyrightHolder: requiredString(input.copyrightHolder, "copyrightHolder", 250),
     creditText: optionalString(input.creditText, "creditText", 500),
     licenseEvidenceRef: requiredString(input.licenseEvidenceRef, "licenseEvidenceRef", 250),
@@ -124,11 +130,11 @@ export function reviewMediaProvenance(pending, decision, trustedContext) {
   if (decision.action === "revoke" && pending.status !== "approved") {
     throw new Error("Only approved media can be revoked");
   }
-  if (decision.action === "approve" && !isProvenanceComplete(pending, "website")) {
+  const now = trustedContext.now instanceof Date ? trustedContext.now : new Date();
+  if (decision.action === "approve" && !isProvenanceComplete(pending, "website", now)) {
     throw new Error("Media rights or applicability are not publication-ready");
   }
   const status = {approve: "approved", reject: "rejected", revoke: "revoked"}[decision.action];
-  const now = trustedContext.now instanceof Date ? trustedContext.now : new Date();
   return {
     ...pending,
     status,
