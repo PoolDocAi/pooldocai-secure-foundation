@@ -1,7 +1,9 @@
 // Explicit Production candidate ONLY; requires separate owner deployment approval.
 
 import { readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { assertPublicCMSDeliveryTarget } from '../src/production/public-target.mjs';
 if (process.env.CMS_PUBLISHED_DELIVERY_ENABLED !== '1') throw new Error('Explicit CMS delivery gate required');
+assertPublicCMSDeliveryTarget({ ...process.env, VERCEL_ENV: 'production' });
 await import('./build-production.mjs');
 // Never permit old static files to mask a CMS 404, withdrawal or upstream error.
 for (const slug of ['pool-pump-wont-start', 'green-pool-first-checks']) rmSync(`public/resources/${slug}`, { recursive: true, force: true });
