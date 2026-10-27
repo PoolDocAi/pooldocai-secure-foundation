@@ -1,0 +1,62 @@
+name: PoolDocAI Resources CMS review-only tests
+
+on:
+  push:
+    branches:
+      - review/owner-publishing-recovery
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resources-cms-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cms-review:
+    name: CMS security, publication, production-candidate checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout review branch
+        uses: actions/checkout@v4
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: resources-cms/package-lock.json
+      - name: Install pinned CMS dependencies
+        working-directory: resources-cms
+        run: npm ci
+      - name: Test CMS production adapters and publication routes
+        working-directory: resources-cms
+        run: npm run test:production
+      - name: Test Production migration assembly (no SQL applied)
+        working-directory: resources-cms
+        run: node --test tests/production-owner-assembly.test.mjs
+      - name: Test disabled folder gate
+        working-directory: resources-cms
+        run: node --test tests/folders/hosted-feature-gate.test.mjs
+
+  marketing-review:
+    name: Marketing CMS delivery and environment isolation
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout review branch
+        uses: actions/checkout@v4
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: resources-cms/marketing-review/package-lock.json
+      - name: Install pinned marketing dependencies
+        working-directory: resources-cms/marketing-review
+        run: npm ci
+      - name: Verify Production and Staging database target protection
+        working-directory: resources-cms/marketing-review
+        run: npm run test:public-target
+      - name: Test dynamic marketing delivery
+        working-directory: resources-cms/marketing-review
+        run: node --test tests/cms-public-delivery.test.mjs
