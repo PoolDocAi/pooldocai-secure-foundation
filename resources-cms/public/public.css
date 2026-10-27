@@ -1,0 +1,174 @@
+.hub-hero {
+  max-width: 780px;
+  padding: 45px 0 30px;
+}
+.hub-hero h1 {
+  font-size: clamp(2.5rem, 6vw, 4.7rem);
+  line-height: 1.06;
+  letter-spacing: -0.05em;
+}
+.hub-hero p:last-child {
+  font-size: 1.15rem;
+  max-width: 600px;
+}
+.hub-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: end;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid #d9e6e3;
+  border-radius: 18px;
+  margin-bottom: 40px;
+}
+.hub-search label {
+  display: grid;
+  gap: 8px;
+  flex: 1 1 240px;
+}
+.hub-search input,
+.hub-search select,
+.hub-search button {
+  font: inherit;
+  padding: 12px;
+  border: 1px solid #b1c7c2;
+  border-radius: 9px;
+  max-width: 100%;
+  min-width: 0;
+}
+.hub-search button {
+  background: #13685d;
+  color: white;
+}
+.hub-category {
+  margin: 40px 0;
+}
+.feature-image {
+  max-width: 100%;
+  border-radius: 16px;
+}
+.preview-banner {
+  background: #fff1ce;
+  color: #5b4010;
+  padding: 14px;
+  border-radius: 8px;
+}
+.article-body img {
+  max-width: 100%;
+  height: auto;
+}
+.workflow-figure {
+  margin: 30px 0;
+}
+.workflow-diagram-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid #b9cec8;
+  border-radius: 14px;
+  background: #f8fcfa;
+}
+.workflow-diagram-scroll img {
+  display: block;
+  width: 1120px;
+  max-width: none;
+  height: auto;
+}
+.workflow-figure figcaption {
+  margin-top: 10px;
+  color: #42616d;
+  font-size: 0.92rem;
+}
+.article-body table {
+  border-collapse: collapse;
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+}
+.article-body td,
+.article-body th {
+  padding: 12px;
+  border: 1px solid #a4bdb6;
+}
+.article-body .callout,
+.article-body .safety-callout {
+  padding: 18px;
+  border-left: 4px solid #178575;
+  background: #e9f5ef;
+}
+.article-body .safety-callout {
+  background: #fff3d9;
+  border-color: #b17a16;
+}
+:focus-visible {
+  outline: 3px solid #b36b13;
+  outline-offset: 4px;
+}
+@media (max-width: 430px) {
+  .resource-shell {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .resource-header {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .resource-header nav {
+    flex-wrap: wrap;
+  }
+  .hub-search {
+    padding: 14px;
+  }
+  .hub-search select {
+    width: 100%;
+  }
+  .article-main {
+    min-width: 0;
+  }
+  .article-body {
+    overflow-wrap: anywhere;
+  }
+}
+/* Explicitly override the captured hub grid: the new hero is an editorial introduction. */
+.resources-page .hub-hero {
+  display: block;
+  width: 100%;
+  max-width: none;
+  padding: 48px 38px;
+  margin: 18px 0 28px;
+  border-radius: 22px;
+  background: #deefea;
+}
+.resources-page .hub-hero h1 {
+  max-width: 800px;
+  font-size: clamp(2.4rem, 5.5vw, 4.8rem);
+  line-height: 1.05;
+  margin: 18px 0 22px;
+  letter-spacing: -0.05em;
+}
+.resources-page .hub-hero .section-kicker {
+  margin: 0;
+}
+.resources-page .hub-hero p:last-child {
+  max-width: 600px;
+  margin: 0;
+}
+.resources-page .article-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+.resources-page .hub-category .article-grid {
+  max-width: 100%;
+}
+@media (max-width: 430px) {
+  .resources-page .hub-hero {
+    padding: 28px 20px;
+  }
+  .resources-page .hub-hero .section-kicker {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+  }
+}
+
+.resources-page footer {
+  color: #42616d;
+}

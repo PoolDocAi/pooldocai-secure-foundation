@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS knowledge_reviews(article_id TEXT PRIMARY KEY REFERENCES articles(id),status TEXT NOT NULL CHECK(status IN ('pending','approved','revoked')),approval_id TEXT,classification TEXT NOT NULL DEFAULT 'unverified_hypothesis',verification_status TEXT NOT NULL DEFAULT 'unverified',revision_id TEXT REFERENCES revisions(id),checksum TEXT,reviewer_id TEXT REFERENCES users(id),reviewed_at TEXT,evidence TEXT NOT NULL DEFAULT '[]',section_ids TEXT NOT NULL DEFAULT '[]',reason TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS knowledge_outbox(id TEXT PRIMARY KEY,article_id TEXT NOT NULL REFERENCES articles(id),revision_id TEXT,approval_id TEXT,event TEXT NOT NULL CHECK(event IN ('upsert','revoke')),created_at TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','failed','acknowledged')),error TEXT);
+CREATE TRIGGER IF NOT EXISTS immutable_revisions_update BEFORE UPDATE ON revisions BEGIN SELECT RAISE(ABORT,'Revisions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS immutable_revisions_delete BEFORE DELETE ON revisions BEGIN SELECT RAISE(ABORT,'Revisions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS immutable_audit_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'Audit events are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS immutable_audit_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'Audit events are immutable'); END;
+INSERT OR IGNORE INTO schema_migrations VALUES(2,datetime('now'));

@@ -1,0 +1,1098 @@
+const $ = (s) => document.querySelector(s),
+  $$ = (s) => [...document.querySelectorAll(s)];
+const esc = (s) =>
+  String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+const main = $("#main"),
+  dialog = $("#dialog");
+let me,
+  content = [],
+  taxonomy = [],
+  page = "dashboard",
+  current = null,
+  dirty = false,
+  saveTimer,
+  saving = null,
+  editGeneration = 0;
+const isOwner = () => me?.role === "owner",
+  canWrite = () => ["owner", "editor"].includes(me?.role),
+  canReview = () => ["owner", "reviewer"].includes(me?.role);
+async function api(path, { method = "GET", body } = {}) {
+  const r = await fetch(path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(me?.csrf ? { "X-CSRF-Token": me.csrf } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const d = await r.json();
+  if (r.status === 401) {
+    location.href = "/admin/login";
+    throw Error("Session expired");
+  }
+  if (!r.ok) throw Error(d.error || "Request failed");
+  return d;
+}
+function toast(text, error = false) {
+  const t = $("#toast");
+  t.textContent = text;
+  t.hidden = false;
+  t.classList.toggle("error", error);
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.hidden = true), 7000);
+}
+function modal(html, setup) {
+  $("#dialog-content").innerHTML = html;
+  dialog.showModal();
+  setup?.();
+}
+$(".dialog-close").onclick = () => dialog.close();
+dialog.addEventListener("click", (e) => {
+  if (e.target === dialog) dialog.close();
+});
+function badge(s) {
+  return `<span class="status ${esc(s)}">${esc(s.replaceAll("_", " "))}</span>`;
+}
+const title = (heading, desc, actions = "") =>
+  `<div class="page-title"><div><p class="eyebrow">RESOURCES STUDIO</p><h1>${heading}</h1><p>${desc}</p></div><div class="actions">${actions}</div></div>`;
+const cat = (id) => taxonomy.find((t) => t.id === id)?.name || "Uncategorized";
+const date = (s) =>
+  s
+    ? new Date(s).toLocaleString("en-US", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "—";
+const opt = (rows, value) =>
+  rows
+    .map(
+      (r) =>
+        `<option value="${esc(r.id)}" ${r.id === value ? "selected" : ""}>${esc(r.name)}</option>`,
+    )
+    .join("");
+function refresh() {
+  return Promise.all([api("/api/content"), api("/api/taxonomy")]).then(
+    ([c, t]) => {
+      content = c;
+      taxonomy = t;
+    },
+  );
+}
+const mobileMenu = $("#mobile-menu"),
+  sidebar = $("#cms-sidebar"),
+  backdrop = $("#nav-backdrop"), workspace = $(".workspace"), navClose = $("#nav-close"),
+  mobileViewport = window.matchMedia("(max-width: 700px)");
+function closeMobileNavigation(restoreFocus = false) {
+  const wasOpen = sidebar.classList.contains("nav-open");
+  sidebar.classList.remove("nav-open");
+  document.body.classList.remove("nav-is-open");
+  backdrop.hidden = true;
+  mobileMenu.setAttribute("aria-expanded", "false");
+  mobileMenu.setAttribute("aria-label", "Open navigation");
+  workspace.inert = false;
+  $(".skip").inert = false;
+  sidebar.inert = mobileViewport.matches;
+  sidebar.removeAttribute("role");
+  sidebar.removeAttribute("aria-modal");
+  if (restoreFocus && wasOpen) mobileMenu.focus();
+}
+function openMobileNavigation() {
+  if (!mobileViewport.matches) return;
+  sidebar.inert = false;
+  workspace.inert = true;
+  $(".skip").inert = true;
+  sidebar.setAttribute("role", "dialog");
+  sidebar.setAttribute("aria-modal", "true");
+  sidebar.classList.add("nav-open");
+  document.body.classList.add("nav-is-open");
+  backdrop.hidden = false;
+  mobileMenu.setAttribute("aria-expanded", "true");
+  mobileMenu.setAttribute("aria-label", "Close navigation");
+  sidebar.querySelector("[data-page].active")?.focus();
+}
+mobileMenu.onclick = () => sidebar.classList.contains("nav-open") ? closeMobileNavigation(true) : openMobileNavigation();
+backdrop.onclick = () => closeMobileNavigation(true);
+navClose.onclick = () => closeMobileNavigation(true);
+document.addEventListener("keydown", (event) => {
+  if (!sidebar.classList.contains("nav-open")) return;
+  if (event.key === "Escape") { event.preventDefault(); closeMobileNavigation(true); }
+  if (event.key !== "Tab") return;
+  const nodes = [...sidebar.querySelectorAll('a, button:not([disabled])')].filter(el => el.getClientRects().length);
+  if (!nodes.length) return;
+  const first = nodes[0], last = nodes[nodes.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
+mobileViewport.addEventListener("change", () => closeMobileNavigation());
+closeMobileNavigation();
+const cmsPages = new Set(["dashboard", "library", "taxonomy", "media", "seo", "knowledge", "settings"]);
+let historyPosition = 0, undoingHistory = false;
+history.replaceState({ cmsPage: page, cmsPosition: historyPosition }, "", location.href);
+let navigationQueue = Promise.resolve();
+function navigate(next, options = {}) {
+  const pending = navigationQueue.then(() => changePage(next, options));
+  navigationQueue = pending.catch(() => {});
+  return pending;
+}
+async function changePage(next, { fromHistory = false, position = historyPosition } = {}) {
+  if (!cmsPages.has(next)) next = "dashboard";
+  if (dirty && !confirm("You have unsaved changes. Leave this editor?")) {
+    if (fromHistory && position !== historyPosition) {
+      undoingHistory = true;
+      history.go(historyPosition - position);
+    }
+    return;
+  }
+  clearTimeout(saveTimer);
+  if (saving) await saving;
+  dirty = false;
+  page = next;
+  if (!fromHistory && location.hash !== `#${next}`) history.pushState({ cmsPage: next, cmsPosition: ++historyPosition }, "", `#${next}`);
+  else if (fromHistory) historyPosition = position;
+  closeMobileNavigation();
+  current = null;
+  dirty = false;
+  $$("[data-page]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.page === page);
+    if (b.dataset.page === page) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
+  await refresh();
+  if (page === "dashboard") await dashboard();
+  if (page === "library") library();
+  if (page === "taxonomy") taxonomies();
+  if (page === "media") await mediaLibrary();
+  if (page === "seo") seoManager();
+  if (page === "knowledge") knowledgeList();
+  if (page === "settings") await settings();
+  if (page === "analytics") await window.CMSPlatform.analytics();
+  main.focus();
+}
+$$("[data-page]").forEach(
+  (b) =>
+    (b.onclick = () =>
+      navigate(b.dataset.page).catch((e) => toast(e.message, true))),
+);
+window.addEventListener("popstate", (event) => {
+  if (undoingHistory) { undoingHistory = false; return; }
+  const requested = location.hash.slice(1);
+  navigate(cmsPages.has(requested) ? requested : "dashboard", { fromHistory: true, position: event.state?.cmsPosition ?? historyPosition }).catch(e => toast(e.message, true));
+});
+$("#logout").onclick = async () => {
+  if (dirty && !confirm("Unsaved changes will be lost. Sign out?")) return;
+  try {
+    clearTimeout(saveTimer);
+    if (saving) await saving;
+    await api("/api/logout", { method: "POST", body: {} });
+    dirty = false;
+    location.href = "/admin/login";
+  } catch (error) { toast(error.message, true); }
+};
+$("#mobile-logout").onclick = () => $("#logout").click();
+window.addEventListener("beforeunload", (e) => {
+  if (dirty) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+async function dashboard() {
+  const d = await api("/api/dashboard");
+  main.innerHTML =
+    title(
+      "A little knowledge. A lot of clarity.",
+      "Your editorial workspace, at a glance.",
+      canWrite()
+        ? '<button class="primary" id="new">＋ New article</button>'
+        : "",
+    ) +
+    `<div class="hero-note"><div><p class="eyebrow">THOUGHTFULLY PUBLISHED</p><h2>Help people take the right next step.</h2><p>Build a useful resource library. Every draft stays private until you choose to publish it.</p></div><button id="browse">Open content library →</button></div><div class="stats">${[
+      ["published", "Published resources"],
+      ["draft", "Drafts in progress"],
+      ["scheduled", "Scheduled"],
+      ["review", "Awaiting review"],
+      ["archived", "Archived resources"],
+    ]
+      .map(
+        ([key, label]) =>
+          `<button class="stat" data-filter="${key}"><span><i class="dot"></i>${label}</span><strong>${d.counts[key]}</strong><span>View resources →</span></button>`,
+      )
+      .join(
+        "",
+      )}</div><div class="panels"><section class="panel"><div class="panel-heading"><h2>Recent changes</h2><span class="muted">Live audit trail</span></div><div class="activity">${
+      d.recent.length
+        ? d.recent
+            .slice(0, 8)
+            .map(
+              (a) =>
+                `<div class="activity-item"><span class="activity-icon">↗</span><div><strong>${esc(a.action.replaceAll("_", " "))}</strong><small>${esc(content.find((c) => c.id === a.resource_id)?.data.title || "Workspace activity")}<br>${esc(date(a.created_at))} · ${esc(a.email || "Scheduler")}</small></div></div>`,
+            )
+            .join("")
+        : '<p class="muted">Your first change will appear here.</p>'
+    }</div></section><section class="panel"><div class="panel-heading"><h2>Editorial attention</h2><span class="badge">${d.warnings.length} checks</span></div>${
+      d.warnings.length
+        ? d.warnings
+            .slice(0, 6)
+            .map(
+              (w) =>
+                `<button class="warning" data-edit="${w.id}">${esc(w.title)}: ${esc(w.message)}</button>`,
+            )
+            .join("")
+        : '<p class="muted">Your articles have the essentials covered.</p>'
+    }<hr><h3>Separate approvals, clearer trust.</h3><p class="muted">Publishing is editorial permission. Diagnostic knowledge requires its own evidence review.</p><button id="review-knowledge">Open knowledge review →</button></section></div>`;
+  $("#new")?.addEventListener("click", newArticle);
+  $("#browse").onclick = () => navigate("library");
+  $("#review-knowledge").onclick = () => navigate("knowledge");
+  $$("[data-filter]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        await navigate("library");
+        $("#status-filter").value = b.dataset.filter;
+        drawTable();
+      }),
+  );
+  bindEdits();
+}
+function bindEdits() {
+  $$("[data-edit]").forEach(
+    (b) =>
+      (b.onclick = () =>
+        openEditor(b.dataset.edit).catch((e) => toast(e.message, true))),
+  );
+}
+function library() {
+  main.innerHTML =
+    title(
+      "Content library",
+      "A home for every idea, draft, and published guide.",
+      canWrite()
+        ? '<button id="import">Import draft</button><button class="primary" id="new">＋ New article</button>'
+        : "",
+    ) +
+    `<section class="panel"><div class="filters"><input id="search" aria-label="Search articles" placeholder="Search titles, summaries, or slugs…"><select id="category-filter" aria-label="Filter by category"><option value="">All categories</option>${opt(taxonomy.filter((t) => t.kind === "category"))}</select><select id="tag-filter" aria-label="Filter by topic"><option value="">All topics</option>${opt(taxonomy.filter((t) => t.kind === "tag"))}</select><select id="status-filter" aria-label="Filter by status"><option value="">All statuses</option>${["draft", "review", "approved", "scheduled", "published", "archived", "deleted"].map((s) => `<option>${s}</option>`).join("")}</select><select id="sort" aria-label="Sort articles"><option value="updated">Recently updated</option><option value="title">Title A–Z</option><option value="oldest">Oldest first</option></select></div><div class="panel-heading"><p class="muted" id="result-count"></p>${isOwner() ? '<button class="danger" id="bulk-archive" disabled>Archive selected</button>' : ""}</div><div id="article-table"></div></section>`;
+  $("#new")?.addEventListener("click", newArticle);
+  $("#import")?.addEventListener("click", importDraft);
+  $$(".filters input,.filters select").forEach((e) => (e.oninput = drawTable));
+  drawTable();
+}
+function drawTable() {
+  let rows = content.filter(
+    (r) =>
+      (!$("#search").value ||
+        `${r.data.title} ${r.data.summary} ${r.data.slug}`
+          .toLowerCase()
+          .includes($("#search").value.toLowerCase())) &&
+      (!$("#category-filter").value ||
+        r.data.categoryId === $("#category-filter").value) &&
+      (!$("#tag-filter").value ||
+        r.data.tagIds.includes($("#tag-filter").value)) &&
+      (!$("#status-filter").value || r.status === $("#status-filter").value),
+  );
+  if ($("#sort").value === "title")
+    rows.sort((a, b) => a.data.title.localeCompare(b.data.title));
+  if ($("#sort").value === "oldest") rows.reverse();
+  $("#result-count").textContent =
+    `${rows.length} resource${rows.length === 1 ? "" : "s"}`;
+  $("#article-table").innerHTML = rows.length
+    ? `<div class="table-wrap"><table class="library"><thead><tr><th>Resource</th><th>Status</th><th>Category</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="title-cell">${isOwner() && !["archived", "deleted"].includes(r.status) ? `<label class="check-label"><input type="checkbox" data-select-row="${r.id}" aria-label="Select ${esc(r.data.title)}"> Select</label>` : ""}<strong>${esc(r.data.title)}</strong><small>/resources/${esc(r.data.slug)}/</small>${r.data.tagIds.map((id) => `<span class="badge">${esc(cat(id))}</span>`).join("")}</td><td>${badge(r.status)}<small>Knowledge: ${esc(r.knowledge.status)}</small>${r.published && r.status !== "published" ? "<small>Earlier version is live</small>" : ""}</td><td>${esc(cat(r.data.categoryId))}</td><td>${esc(date(r.updated_at))}</td><td><div class="row-actions"><button data-edit="${r.id}">${canWrite() ? "Edit" : "View"}</button><button data-preview="${r.id}">Preview</button>${canWrite() ? `<button data-row-action="duplicate" data-id="${r.id}">Duplicate</button>` : ""}${isOwner() ? (["archived", "deleted"].includes(r.status) ? `<button data-row-action="restore" data-id="${r.id}">Restore</button>${r.status === "archived" ? `<button class="danger" data-row-action="delete" data-id="${r.id}">Move to trash</button>` : ""}` : `<button data-row-action="archive" data-id="${r.id}">Archive</button>`) : ""}</div></td></tr>`).join("")}</tbody></table></div>`
+    : '<div class="empty">No resources match these filters.</div>';
+  $$("[data-select-row]").forEach(
+    (c) =>
+      (c.onchange = () =>
+        ($("#bulk-archive").disabled = !$$("[data-select-row]:checked")
+          .length)),
+  );
+  $("#bulk-archive")?.addEventListener("click", async () => {
+    const selected = $$("[data-select-row]:checked").map((c) =>
+      content.find((r) => r.id === c.dataset.selectRow),
+    );
+    if (
+      !selected.length ||
+      !confirm(
+        `Archive ${selected.length} selected resources and revoke their public and knowledge access?`,
+      )
+    )
+      return;
+    try {
+      await api("/api/bulk/archive", {
+        method: "POST",
+        body: {
+          items: selected.map((r) => ({ id: r.id, version: r.version })),
+        },
+      });
+      await refresh();
+      drawTable();
+      toast("Selected resources archived");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
+  bindEdits();
+  $$("[data-preview]").forEach(
+    (b) => (b.onclick = () => preview(b.dataset.preview)),
+  );
+  $$("[data-row-action]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const r = content.find((c) => c.id === b.dataset.id),
+          action = b.dataset.rowAction;
+        if (
+          ["archive", "delete"].includes(action) &&
+          !confirm(
+            `${action === "archive" ? "Archive this resource and withdraw public and knowledge access?" : "Move this archived resource to recoverable trash?"}`,
+          )
+        )
+          return;
+        try {
+          await api(`/api/content/${r.id}/${action}`, {
+            method: "POST",
+            body: { version: r.version },
+          });
+          await refresh();
+          drawTable();
+          toast("Resource " + action + " completed");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }),
+  );
+}
+function newArticle() {
+  modal(
+    `<h2>Start a new resource</h2><form id="new-form"><label>Article title<input name="title" required maxlength="180" autofocus></label><label>URL slug<input name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*"><small>Lowercase words with hyphens. Categories never change this URL.</small></label><label>Primary category<select name="categoryId">${opt(taxonomy.filter((t) => t.kind === "category" && !t.archived))}</select></label><button class="primary">Create private draft</button></form>`,
+    () => {
+      $("#new-form [name=title]").oninput = (e) =>
+        ($("#new-form [name=slug]").value = e.target.value
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, ""));
+      $("#new-form").onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const defaults = await api("/api/settings");
+          const r = await api("/api/content", {
+            method: "POST",
+            body: {
+              ...Object.fromEntries(new FormData(e.target)),
+              body: "",
+              audience: defaults.defaultAudience,
+            },
+          });
+          dialog.close();
+          await refresh();
+          await openEditor(r.id);
+          toast("Private draft created");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      };
+    },
+  );
+}
+function importDraft() {
+  modal(
+    `<h2>Import an AI-generated draft</h2><p>Imports never approve or publish content. Review the sources and technical claims before using it.</p><label>JSON file<input type="file" id="import-file" accept="application/json,.json"></label><label>Or paste compatible JSON<textarea id="import-json" rows="12" placeholder='{"format":"pooldocai-resource-v1","article":{…}}'></textarea></label><button class="primary" id="import-submit">Validate and create draft</button>`,
+    () => {
+      $("#import-file").onchange = async (e) => {
+        if (e.target.files[0])
+          $("#import-json").value = await e.target.files[0].text();
+      };
+      $("#import-submit").onclick = async () => {
+        try {
+          const r = await api("/api/import", {
+            method: "POST",
+            body: JSON.parse($("#import-json").value),
+          });
+          dialog.close();
+          await refresh();
+          await openEditor(r.id);
+          toast("Imported as an unapproved draft");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      };
+    },
+  );
+}
+async function openEditor(id) {
+  if (dirty && !confirm("Leave unsaved changes?")) return;
+  clearTimeout(saveTimer);
+  if (saving) await saving;
+  current = await api("/api/content/" + id);
+  page = "editor";
+  dirty = false;
+  const d = current.data;
+  main.innerHTML =
+    title(
+      "Make knowledge useful.",
+      `Revision ${current.version} · ${current.published ? "A published version is live" : "Private working copy"}`,
+      `<button id="back">← Library</button><button id="preview">Preview</button>${canWrite() ? '<button id="save" class="primary">Save Draft</button>' : ""}`,
+    ) +
+    `<div class="save-bar">${badge(current.status)}<span id="save-status">All changes saved</span><span class="badge">Knowledge: ${esc(current.knowledge.status)}</span></div><div class="editor-layout"><section class="panel"><label>Article title<input id="title" class="editor-title" maxlength="180" value="${esc(d.title)}"></label><label>Summary<textarea id="summary" maxlength="500">${esc(d.summary)}</textarea></label><label for="body">Article content</label><div class="toolbar" role="toolbar" aria-label="Rich text formatting">${[
+      ["formatBlock", "h2", "Heading 2"],
+      ["formatBlock", "h3", "Heading 3"],
+      ["formatBlock", "p", "Paragraph"],
+      ["bold", "", "Bold"],
+      ["italic", "", "Italic"],
+      ["insertUnorderedList", "", "Bullets"],
+      ["insertOrderedList", "", "Numbered"],
+    ]
+      .map(
+        ([c, v, l]) =>
+          `<button type="button" data-command="${c}" data-value="${v}">${l}</button>`,
+      )
+      .join(
+        "",
+      )}<button type="button" id="add-link">Link</button><button type="button" id="add-internal">Resource link</button><button type="button" id="add-image">Image</button><button type="button" id="add-download">Download</button><button type="button" id="add-table">Table</button><button type="button" id="add-callout">Callout</button><button type="button" id="add-warning">Safety warning</button></div><div id="body" class="rich-editor" contenteditable="${canWrite()}" role="textbox" aria-label="Article content" aria-multiline="true">${d.body}</div><details><summary>Sources & citations</summary><div><label>Source references<textarea id="sources" rows="5">${esc(d.sources.map((s) => `${s.label} | ${s.url}`).join("\n"))}</textarea><small>One source per line: Source title | https://original-source-url. Use Link in the toolbar for inline citations.</small></label></div></details></section><aside><section class="panel"><h2>Editorial workflow</h2><p class="muted">Publishing and knowledge eligibility are separate permissions.</p><div class="actions">${canWrite() ? '<button data-action="review">Submit for Editorial Review</button>' : ""}${canReview() ? '<button data-action="approve">Approve for Publication</button>' : ""}${isOwner() ? `<button class="primary" data-action="publish">Publish</button><button data-action="unpublish">Unpublish</button><button id="schedule">Schedule publication</button>${current.status === "scheduled" ? '<button data-action="cancel-schedule">Cancel schedule</button>' : ""}` : ""}<button id="revisions">View Revision History</button></div><hr><h3>Diagnostic knowledge</h3><p class="muted">${esc(current.knowledge.classification?.replaceAll("_", " "))}<br>${esc(current.knowledge.verification_status || "Unverified")} ${current.knowledge.reviewed_at ? " · " + esc(date(current.knowledge.reviewed_at)) : ""}</p><div class="actions">${canWrite() ? '<button data-action="knowledge-submit">Submit for Knowledge Review</button>' : ""}${canReview() ? '<button id="knowledge-approve">Approve for Knowledge Base</button><button class="danger" data-action="knowledge-revoke">Revoke Knowledge Approval</button>' : ""}</div></section><section class="panel"><h2>Organization</h2><label>Primary category<select id="categoryId">${opt(
+      taxonomy.filter((t) => t.kind === "category" && !t.archived),
+      d.categoryId,
+    )}</select></label><label>Topic tags<select id="tagIds" multiple size="6">${taxonomy
+      .filter((t) => t.kind === "tag" && !t.archived)
+      .map(
+        (t) =>
+          `<option value="${t.id}" ${d.tagIds.includes(t.id) ? "selected" : ""}>${esc(t.name)}</option>`,
+      )
+      .join(
+        "",
+      )}</select><small>Select any relevant topics.</small></label><label>Audience<select id="audience">${["homeowners", "professionals", "both"].map((v) => `<option ${v === d.audience ? "selected" : ""}>${v}</option>`).join("")}</select></label><label>Editorial collection<select id="collection"><option value="">None</option><option ${d.collection ? "selected" : ""}>PoolDocAI Progress Report</option></select></label><label class="check-label"><input id="featured" type="checkbox" ${d.featured ? "checked" : ""}> Featured resource</label><label>Author<input id="author" value="${esc(d.author)}"></label><label>Related resources<select id="relatedIds" multiple size="3">${content
+      .filter((c) => c.id !== id && c.published)
+      .map(
+        (c) =>
+          `<option value="${c.id}" ${d.relatedIds.includes(c.id) ? "selected" : ""}>${esc(c.data.title)}</option>`,
+      )
+      .join(
+        "",
+      )}</select></label></section><section class="panel"><h2>Equipment context</h2><label>Manufacturer (if applicable)<input id="manufacturer" value="${esc(d.manufacturer)}"></label><label>Model (if applicable)<input id="model" value="${esc(d.model)}"></label><label>Equipment category<input id="equipmentCategory" value="${esc(d.equipmentCategory)}" placeholder="Pump, filter, heater…"></label></section><section class="panel"><h2>Search & social</h2><label>URL slug<input id="slug" value="${esc(d.slug)}"><small>Publishing a changed slug adds a permanent redirect.</small></label><label>SEO title<input id="seo-title" value="${esc(d.seo.title)}" maxlength="180"></label><label>Meta description<textarea id="seo-description" maxlength="500">${esc(d.seo.description)}</textarea></label><label>Canonical URL<input id="seo-canonical" type="url" value="${esc(d.seo.canonical)}"></label><label>Open Graph title<input id="seo-ogTitle" value="${esc(d.seo.ogTitle)}"></label><label>Open Graph description<textarea id="seo-ogDescription">${esc(d.seo.ogDescription)}</textarea></label><label>Social image<input id="seo-image" value="${esc(d.seo.image)}" placeholder="/media/…"></label><button type="button" id="pick-social">Choose social image</button><label>Social image alt text<input id="seo-imageAlt" value="${esc(d.seo.imageAlt)}"></label><label>Featured image<input id="featuredImage" value="${esc(d.featuredImage)}" placeholder="/media/…"></label><button type="button" id="pick-featured">Choose featured image</button><label>Featured image alt text<input id="featuredImageAlt" value="${esc(d.featuredImageAlt)}"></label><label>Original publication date<input id="publishedAt" type="date" value="${esc(d.publishedAt?.slice(0, 10) || "")}"><small>Leave blank for first publication. Revision dates are recorded automatically.</small></label><label class="check-label"><input id="seo-noindex" type="checkbox" ${d.seo.noindex ? "checked" : ""}> Exclude from search indexing</label><div id="editor-warnings">${current.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("")}</div></section></aside></div>`;
+  $("#back").onclick = () => navigate("library");
+  $("#save")?.addEventListener("click", () =>
+    save()
+      .then(() => toast("Draft saved"))
+      .catch((e) => toast(e.message, true)),
+  );
+  $("#preview").onclick = async () => {
+    try {
+      await save();
+      preview(id);
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+  $("#revisions").onclick = showRevisions;
+  $("#schedule")?.addEventListener("click", schedule);
+  $("#knowledge-approve")?.addEventListener("click", knowledgeApprove);
+  $$("[data-action]").forEach(
+    (b) => (b.onclick = () => editorAction(b.dataset.action)),
+  );
+  if (
+    !canWrite() ||
+    ["scheduled", "archived", "deleted"].includes(current.status)
+  ) {
+    $$(
+      ".editor-layout input,.editor-layout select,.editor-layout textarea,.toolbar button",
+    ).forEach((e) => (e.disabled = true));
+    $("#body").contentEditable = "false";
+  }
+  $$(
+    ".editor-layout input,.editor-layout select,.editor-layout textarea,#body",
+  ).forEach((e) => e.addEventListener("input", markDirty));
+  $$("[data-command]").forEach((b) => {
+    b.onmousedown = (e) => e.preventDefault();
+    b.onclick = () => {
+      document.execCommand(b.dataset.command, false, b.dataset.value);
+      markDirty();
+    };
+  });
+  $("#body").addEventListener("paste", (e) => {
+    e.preventDefault();
+    document.execCommand(
+      "insertText",
+      false,
+      e.clipboardData.getData("text/plain"),
+    );
+    markDirty();
+  });
+  let selection = null;
+  function remember() {
+    const s = getSelection();
+    selection = s.rangeCount ? s.getRangeAt(0).cloneRange() : null;
+  }
+  function insert(html) {
+    $("#body").focus();
+    if (selection) {
+      const s = getSelection();
+      s.removeAllRanges();
+      s.addRange(selection);
+    }
+    document.execCommand("insertHTML", false, html);
+    markDirty();
+  }
+  $("#add-link").onmousedown = remember;
+  $("#add-link").onclick = () =>
+    modal(
+      '<h2>Add a citation or link</h2><label>Link label<input id="link-label" required></label><label>HTTPS URL<input id="link-url" type="url" required></label><button class="primary" id="link-insert">Insert link</button>',
+      () =>
+        ($("#link-insert").onclick = () => {
+          const href = $("#link-url").value;
+          if (!/^https:\/\//.test(href)) return toast("Use an HTTPS URL", true);
+          const label = $("#link-label").value;
+          dialog.close();
+          insert(`<a href="${esc(href)}">${esc(label || href)}</a>`);
+        }),
+    );
+  $("#add-internal").onmousedown = remember;
+  $("#add-internal").onclick = () =>
+    modal(
+      `<h2>Link to a published resource</h2><label>Resource<select id="internal-resource">${content
+        .filter((c) => c.published)
+        .map((c) => `<option value="${c.id}">${esc(c.data.title)}</option>`)
+        .join(
+          "",
+        )}</select></label><button class="primary" id="internal-insert">Insert resource link</button>`,
+      () =>
+        ($("#internal-insert").onclick = () => {
+          const r = content.find((c) => c.id === $("#internal-resource").value);
+          if (!r) return;
+          dialog.close();
+          insert(
+            `<a href="/resources/${esc(r.slug)}/">${esc(r.data.title)}</a>`,
+          );
+        }),
+    );
+  for (const [button, type] of [
+    ["#add-image", "image"],
+    ["#add-download", "download"],
+  ]) {
+    $(button).onmousedown = remember;
+    $(button).onclick = () =>
+      pickMedia(type, (m) => {
+        if (type === "image")
+          insert(
+            `<figure><img src="/media/${m.id}" alt="${esc(m.alt)}"><figcaption>${esc(m.alt)}</figcaption></figure><p><br></p>`,
+          );
+        else
+          insert(`<p><a href="/media/${m.id}">Download ${esc(m.name)}</a></p>`);
+      });
+  }
+  $("#pick-social").onclick = () =>
+    pickMedia("image", (m) => {
+      $("#seo-image").value = "/media/" + m.id;
+      $("#seo-imageAlt").value=m.alt;
+      markDirty();
+    });
+  $("#pick-featured").onclick = () =>
+    pickMedia("image", (m) => {
+      $("#featuredImage").value = "/media/" + m.id;
+      $("#featuredImageAlt").value = m.alt;
+      markDirty();
+    });
+  $("#add-table").onclick = () => {
+    remember();
+    insert(
+      '<table><caption>Table title</caption><thead><tr><th scope="col">Item</th><th scope="col">Notes</th></tr></thead><tbody><tr><td>Item</td><td>Notes</td></tr><tr><td>Item</td><td>Notes</td></tr></tbody></table><p><br></p>',
+    );
+  };
+  $("#add-callout").onclick = () => {
+    remember();
+    insert(
+      '<aside class="callout"><p><strong>Good to know.</strong> Add helpful context here.</p></aside><p><br></p>',
+    );
+  };
+  $("#add-warning").onclick = () => {
+    remember();
+    insert(
+      '<aside class="safety-callout"><p><strong>Safety warning.</strong> Describe the hazard and safe stopping point.</p></aside><p><br></p>',
+    );
+  };
+  main.focus();
+}
+function collect() {
+  const d = { ...current.data };
+  for (const id of [
+    "title",
+    "summary",
+    "slug",
+    "categoryId",
+    "audience",
+    "collection",
+    "author",
+    "featuredImage",
+    "featuredImageAlt",
+    "manufacturer",
+    "model",
+    "equipmentCategory",
+  ])
+    d[id] = $("#" + id).value;
+  d.body = $("#body").innerHTML;
+  d.sources = $("#sources")
+    .value.split("\n")
+    .filter((x) => x.trim())
+    .map((x) => {
+      const i = x.indexOf("|");
+      return { label: x.slice(0, i).trim(), url: x.slice(i + 1).trim() };
+    });
+  d.tagIds = [...$("#tagIds").selectedOptions].map((o) => o.value);
+  if($("#primaryTopicId"))d.discovery=Object.fromEntries(["primaryTopicId","guideTypeId","audienceTagId"].map(k=>[k,$("#"+k).value||null]));
+  d.relatedIds = [...$("#relatedIds").selectedOptions].map((o) => o.value);
+  d.featured = $("#featured").checked;
+  d.publishedAt = $("#publishedAt").value || null;
+  d.seo = {};
+  for (const k of [
+    "title",
+    "description",
+    "canonical",
+    "ogTitle",
+    "ogDescription",
+    "image",
+    "imageAlt",
+  ])
+    d.seo[k] = $("#seo-" + k).value;
+  d.seo.noindex = $("#seo-noindex").checked;
+  delete d.legacyHtml;
+  return d;
+}
+function markDirty() {
+  dirty = true;
+  editGeneration++;
+  $("#save-status").textContent = "Unsaved changes";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(
+    () => save().catch((e) => toast("Autosave failed: " + e.message, true)),
+    1300,
+  );
+}
+async function save() {
+  clearTimeout(saveTimer);
+  if (saving) await saving;
+  if (!dirty) return current;
+  const generation = editGeneration,
+    payload = collect();
+  $("#save-status").textContent = "Saving…";
+  saving = api("/api/content/" + current.id, {
+    method: "PUT",
+    body: { ...payload, version: current.version },
+  })
+    .then((r) => {
+      current = r;
+      if (generation === editGeneration) dirty = false;
+      $("#save-status").textContent = dirty
+        ? "New changes waiting to save"
+        : "All changes saved · " + new Date().toLocaleTimeString();
+      $("#editor-warnings").innerHTML = r.warnings
+        .map((w) => `<p class="warning">${esc(w)}</p>`)
+        .join("");
+      return r;
+    })
+    .catch((e) => {
+      $("#save-status").textContent =
+        "Save failed — your changes are still here";
+      throw e;
+    })
+    .finally(() => (saving = null));
+  await saving;
+  if (dirty) return save();
+  return current;
+}
+async function editorAction(action) {
+  try {
+    await save();
+    if (
+      ["publish", "unpublish", "knowledge-revoke"].includes(action) &&
+      !confirm(
+        action === "publish"
+          ? "Publish this approved revision publicly?"
+          : action === "unpublish"
+            ? "Remove the public page? Knowledge access will also be revoked."
+            : "Revoke diagnostic knowledge eligibility immediately?",
+      )
+    )
+      return;
+    current = await api(`/api/content/${current.id}/${action}`, {
+      method: "POST",
+      body: { version: current.version },
+    });
+    await openEditor(current.id);
+    toast(action.replaceAll("-", " ") + " completed");
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+function preview(id) {
+  modal(
+    `<h2>Private preview</h2><div class="actions"><button id="desktop-preview">Desktop</button><button id="mobile-preview">Mobile · 320px</button><a class="button" href="/preview/${id}" target="_blank" rel="noopener">Open full preview ↗</a></div><p class="muted">Only authenticated editorial users can view this draft.</p><iframe class="preview-frame" id="preview-frame" title="Private article preview" src="/preview/${id}"></iframe>`,
+    () => {
+      $("#desktop-preview").onclick = () =>
+        $("#preview-frame").classList.remove("mobile");
+      $("#mobile-preview").onclick = () =>
+        $("#preview-frame").classList.add("mobile");
+    },
+  );
+}
+async function showRevisions() {
+  try {
+    await save();
+    const rows = await api(`/api/content/${current.id}/revisions`);
+    modal(
+      `<h2>Revision history</h2><p>Restoring creates a new draft revision. It does not publish or restore knowledge eligibility.</p>${rows.map((r) => `<div class="revision-item"><div><strong>Revision ${r.version}</strong> · ${esc(r.reason)}<br><small>${esc(date(r.created_at))} · ${esc(r.data.title)}</small></div>${canWrite() ? `<button data-restore-revision="${r.id}">Restore Version</button>` : ""}</div>`).join("")}`,
+      () => {
+        $$("[data-restore-revision]").forEach(
+          (b) =>
+            (b.onclick = async () => {
+              if (!confirm("Restore this version as a working draft?")) return;
+              try {
+                const r = await api(`/api/content/${current.id}/rollback`, {
+                  method: "POST",
+                  body: {
+                    version: current.version,
+                    revisionId: b.dataset.restoreRevision,
+                  },
+                });
+                dialog.close();
+                await openEditor(r.id);
+                toast(
+                  "Revision restored as draft; knowledge approval remains revoked",
+                );
+              } catch (e) {
+                toast(e.message, true);
+              }
+            }),
+        );
+      },
+    );
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+function schedule() {
+  modal(
+    '<h2>Schedule approved publication</h2><p>Choose a future time in your device’s timezone. The stored time uses UTC.</p><label>Publication date and time<input id="schedule-time" type="datetime-local" required></label><button id="schedule-confirm" class="primary">Schedule publication</button>',
+    () =>
+      ($("#schedule-confirm").onclick = async () => {
+        try {
+          await save();
+          await api(`/api/content/${current.id}/schedule`, {
+            method: "POST",
+            body: {
+              version: current.version,
+              scheduledAt: new Date($("#schedule-time").value).toISOString(),
+            },
+          });
+          dialog.close();
+          await openEditor(current.id);
+          toast("Publication scheduled");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }),
+  );
+}
+function knowledgeApprove() {
+  const d = current.data;
+  modal(
+    `<h2>Approve for diagnostic knowledge</h2><p>Publication is not technical verification. This approval applies only to revision ${current.version}. Editing or withdrawing the article revokes eligibility.</p><label>Knowledge classification<select id="k-class">${["general_education", "homeowner_safe_observation", "manufacturer_supported_diagnostic", "technician_reviewed_diagnostic", "verified_repair_procedure", "unverified_hypothesis"].map((c) => `<option value="${c}">${esc(c.replaceAll("_", " "))}</option>`).join("")}</select></label><label>Supporting source<select id="k-source">${d.sources.map((s) => `<option value="${esc(s.url)}">${esc(s.label)} — ${esc(s.url)}</option>`).join("")}</select></label><label>Evidence type<select id="k-type"><option value="authority">Recognized safety / technical authority</option><option value="manufacturer">Original manufacturer documentation</option></select></label><label>Evidence excerpt<textarea id="k-excerpt" placeholder="Specific passage or section supporting this classification" required></textarea></label><label>Technician verification record (source URL, for actionable guidance)<select id="k-tech"><option value="">Not applicable to background education</option>${d.sources.map((s) => `<option value="${esc(s.url)}">${esc(s.label)}</option>`).join("")}</select></label><label>Verification method<textarea id="k-method" placeholder="Who verified the procedure, against which equipment and manual revision?"></textarea></label><label class="check-label"><input type="checkbox" id="k-human"> I personally verified the technical guidance and recorded the evidence.</label><label>Section IDs (optional, comma separated)<input id="k-sections"><small>Leave empty to approve the whole article. Section IDs are in the knowledge export contract.</small></label><button class="primary" id="k-confirm">Approve this revision for Knowledge Base</button>`,
+    () =>
+      ($("#k-confirm").onclick = async () => {
+        try {
+          await save();
+          const evidence = [
+            {
+              url: $("#k-source").value,
+              type: $("#k-type").value,
+              excerpt: $("#k-excerpt").value,
+            },
+          ];
+          if ($("#k-tech").value)
+            evidence.push({
+              url: $("#k-tech").value,
+              type: "technician_verification",
+              excerpt: $("#k-method").value,
+            });
+          await api(`/api/content/${current.id}/knowledge-approve`, {
+            method: "POST",
+            body: {
+              version: current.version,
+              classification: $("#k-class").value,
+              evidence,
+              humanVerified: $("#k-human").checked,
+              verificationMethod: $("#k-method").value,
+              sectionIds: $("#k-sections")
+                .value.split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            },
+          });
+          dialog.close();
+          await openEditor(current.id);
+          toast(
+            "Knowledge eligibility approved. Indexing remains disconnected.",
+          );
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }),
+  );
+}
+function taxonomies() {
+  main.innerHTML =
+    title(
+      "Organize with intention.",
+      "Categories and topics help people find the right guide. Article URLs stay stable.",
+    ) +
+    `<div class="notice">Merging updates assignments and revokes affected knowledge approvals. Reassign resources before archiving a category or topic. These actions never create empty public landing pages.</div><div class="two-columns">${[
+      "category",
+      "tag",
+    ]
+      .map(
+        (kind) =>
+          `<section class="panel"><div class="panel-heading"><h2>${kind === "category" ? "Primary categories" : "Topic tags"}</h2>${isOwner() ? `<button data-new-tax="${kind}">＋ Add</button>` : ""}</div>${taxonomy
+            .filter((t) => t.kind === kind)
+            .map(
+              (t) =>
+                `<div class="taxonomy-item"><strong>${esc(t.name)} ${t.archived ? badge("archived") : ""}</strong>${isOwner() ? `<button data-tax="${t.id}" data-tax-action="rename">Rename</button><button data-tax="${t.id}" data-tax-action="up" aria-label="Move ${esc(t.name)} up">↑</button><button data-tax="${t.id}" data-tax-action="down" aria-label="Move ${esc(t.name)} down">↓</button><button data-tax="${t.id}" data-tax-action="merge">Merge</button><button data-tax="${t.id}" data-tax-action="archive">${t.archived ? "Restore" : "Archive"}</button>` : ""}</div>`,
+            )
+            .join("")}</section>`,
+      )
+      .join("")}</div>`;
+  $$("[data-new-tax]").forEach(
+    (b) =>
+      (b.onclick = () =>
+        modal(
+          `<h2>Add ${b.dataset.newTax}</h2><label>Name<input id="tax-name" maxlength="100"></label><button class="primary" id="tax-create">Create</button>`,
+          () =>
+            ($("#tax-create").onclick = async () => {
+              try {
+                await api("/api/taxonomy", {
+                  method: "POST",
+                  body: { kind: b.dataset.newTax, name: $("#tax-name").value },
+                });
+                dialog.close();
+                await navigate("taxonomy");
+              } catch (e) {
+                toast(e.message, true);
+              }
+            }),
+        )),
+  );
+  $$("[data-tax]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const t = taxonomy.find((t) => t.id === b.dataset.tax),
+          action = b.dataset.taxAction;
+        const update = async (body) => {
+          await api("/api/taxonomy/" + t.id, { method: "PUT", body });
+          await navigate("taxonomy");
+        };
+        try {
+          if (action === "archive") {
+            if (!confirm(`${t.archived ? "Restore" : "Archive"} ${t.name}?`))
+              return;
+            await update({ archived: !t.archived });
+          }
+          if (action === "up" || action === "down") {
+            const same = taxonomy.filter((x) => x.kind === t.kind),
+              i = same.findIndex((x) => x.id === t.id),
+              other = same[i + (action === "up" ? -1 : 1)];
+            if (other) {
+              await api("/api/taxonomy/" + other.id, {
+                method: "PUT",
+                body: { position: t.position },
+              });
+              await update({ position: other.position });
+            }
+          }
+          if (action === "rename")
+            modal(
+              `<h2>Rename ${esc(t.kind)}</h2><label>Name<input id="tax-rename" value="${esc(t.name)}"></label><button class="primary" id="tax-save">Save name</button>`,
+              () =>
+                ($("#tax-save").onclick = async () => {
+                  try {
+                    await update({ name: $("#tax-rename").value });
+                    dialog.close();
+                  } catch (e) {
+                    toast(e.message, true);
+                  }
+                }),
+            );
+          if (action === "merge")
+            modal(
+              `<h2>Merge ${esc(t.name)}</h2><p>All assignments will move to the target. The source will be archived. Article URLs remain unchanged.</p><label>Merge into<select id="tax-target">${opt(taxonomy.filter((x) => x.kind === t.kind && x.id !== t.id && !x.archived))}</select></label><button class="danger" id="tax-merge">Merge assignments</button>`,
+              () =>
+                ($("#tax-merge").onclick = async () => {
+                  if (
+                    !confirm(
+                      "Merge all assignments and revoke affected knowledge approvals?",
+                    )
+                  )
+                    return;
+                  try {
+                    await update({ mergeInto: $("#tax-target").value });
+                    dialog.close();
+                  } catch (e) {
+                    toast(e.message, true);
+                  }
+                }),
+            );
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }),
+  );
+}
+async function upload(file, alt = "") {
+  if (!file) throw Error("Choose a file");
+  if (file.size > 3 * 1024 * 1024) throw Error("Image exceeds 3 MB");
+  if (!['image/jpeg','image/png','image/webp'].includes(file.type)) throw Error("Only JPEG, PNG and WebP images are enabled");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  return api("/api/media", {
+    method: "POST",
+    body: { name: file.name, mime: file.type, alt, base64: btoa(binary) },
+  });
+}
+async function mediaLibrary() {
+  const media = await api("/api/media");
+  main.innerHTML =
+    title(
+      "A useful media library.",
+      "Images stay private until referenced by published content. PDF and document uploads remain disabled pending independent validation.",
+    ) +
+    `<section class="panel">${canWrite() ? '<form id="upload-form"><div class="two-columns"><label>Upload image<input id="upload-file" type="file" accept="image/jpeg,image/png,image/webp" required><small>Maximum 3 MB. Images are decoded and re-encoded to metadata-free WebP. PDF and documents are disabled.</small></label><label>Alternative text<input id="upload-alt" maxlength="300" placeholder="Describe the image for someone who cannot see it"></label></div><button class="primary">Upload securely</button></form><hr>' : ""}<div class="media-grid">${media.map((m) => `<article class="media-card">${m.mime.startsWith("image/") ? `<img src="/media/${m.id}" alt="${esc(m.alt)}">` : "<p>▤ Download</p>"}<h3>${esc(m.name)}</h3><p class="muted">${Math.ceil(m.size / 1024)} KB · ${esc(m.mime)}</p><label>Alt text<input data-alt="${m.id}" value="${esc(m.alt)}"></label><button data-media-save="${m.id}">Save metadata</button><a class="button" href="/media/${m.id}" target="_blank" rel="noopener">View</a><button data-copy="/media/${m.id}">Copy URL</button></article>`).join("") || '<p class="muted">Upload your first image.</p>'}</div></section>`;
+  $("#upload-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const b = e.target.querySelector("button");
+    b.disabled = true;
+    try {
+      await upload($("#upload-file").files[0], $("#upload-alt").value);
+      await mediaLibrary();
+      toast("File validated and saved");
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      b.disabled = false;
+    }
+  });
+  $$("[data-media-save]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        try {
+          await api("/api/media/" + b.dataset.mediaSave, {
+            method: "PUT",
+            body: { alt: $(`[data-alt="${b.dataset.mediaSave}"]`).value },
+          });
+          toast("Media metadata saved");
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }),
+  );
+  $$("[data-copy]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(b.dataset.copy);
+          toast("Media URL copied");
+        } catch {
+          toast("URL: " + b.dataset.copy);
+        }
+      }),
+  );
+}
+async function pickMedia(type, choose) {
+  try {
+    const media = (await api("/api/media")).filter((m) =>
+      type === "image"
+        ? m.mime.startsWith("image/")
+        : !m.mime.startsWith("image/"),
+    );
+    modal(
+      `<h2>Choose ${type === "image" ? "an image" : "a download"}</h2><p>Upload files in the Media library first. Images require alt text before publication.</p><div class="media-grid">${media.map((m) => `<button data-choose-media="${m.id}">${m.mime.startsWith("image/") ? `<img src="/media/${m.id}" width="80" alt="${esc(m.alt)}">` : ""}${esc(m.name)}</button>`).join("") || "<p>No matching files yet.</p>"}</div>`,
+      () =>
+        $$("[data-choose-media]").forEach(
+          (b) =>
+            (b.onclick = () => {
+              dialog.close();
+              choose(media.find((m) => m.id === b.dataset.chooseMedia));
+            }),
+        ),
+    );
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+function seoManager() {
+  main.innerHTML =
+    title(
+      "Make every resource discoverable.",
+      "Metadata checks for your editorial library. External source reachability is not automatically fetched.",
+    ) +
+    content
+      .filter((r) => r.status !== "deleted")
+      .map(
+        (r) =>
+          `<section class="panel"><div class="panel-heading"><h2>${esc(r.data.title)}</h2><button data-edit="${r.id}">Edit SEO</button></div><p class="muted">/resources/${esc(r.data.slug)}/ · ${r.data.seo.noindex ? "Excluded from indexing" : "Indexable when published"}</p>${r.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("") || "<p>✓ Essential metadata is present.</p>"}</section>`,
+      )
+      .join("");
+  bindEdits();
+}
+function knowledgeList() {
+  main.innerHTML =
+    title(
+      "Useful information. Earned trust.",
+      "Public publication does not approve content for diagnostic retrieval.",
+      isOwner()
+        ? '<a class="button" href="/api/knowledge/export" target="_blank" rel="noopener">Export approved knowledge</a>'
+        : "",
+    ) +
+    `<div class="notice">Diagnostic indexing is disconnected. Exports contain only explicitly approved current revisions. Edits, archive, deletion, and revocation immediately exclude material from new exports.</div>` +
+    content
+      .filter((r) => r.status !== "deleted")
+      .map(
+        (r) =>
+          `<section class="panel"><div class="panel-heading"><h2>${esc(r.data.title)}</h2><button data-edit="${r.id}">Review evidence</button></div>${badge(r.status)} ${badge(r.knowledge.status)}<p class="muted">${esc(r.knowledge.classification?.replaceAll("_", " "))} · Revision ${r.version}</p>${r.knowledge.reviewed_at ? `<p>Reviewed ${esc(date(r.knowledge.reviewed_at))} by ${esc(r.knowledge.reviewer_id)}<br>Approved revision ${esc(r.knowledge.revision_id)}</p>` : ""}<p>${r.data.sources.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label)}</a>`).join(" · ")}</p></section>`,
+      )
+      .join("");
+  bindEdits();
+}
+async function settings() {
+  const s = await api("/api/settings");
+  main.innerHTML =
+    title(
+      "Workspace settings",
+      "Editorial defaults and a clear path to future integration.",
+    ) +
+    `<div class="two-columns"><section class="panel"><h2>Publication defaults</h2><form id="settings-form"><label>Default audience<select name="defaultAudience">${["homeowners", "professionals", "both"].map((v) => `<option ${v === s.defaultAudience ? "selected" : ""}>${v}</option>`).join("")}</select></label><p>Sources and metadata are required for publication. New imports always enter as drafts.</p><label>Future authentication issuer (documentation only)<input name="integrationIssuer" value="${esc(s.integrationIssuer)}" placeholder="Not connected"></label><p class="muted">IndexNow is disabled. No autonomous publication or embedding calls are enabled.</p>${isOwner() ? '<button class="primary">Save settings</button>' : ""}</form></section><section class="panel"><h2>Backup & export</h2><p>Download the complete editorial export, including revisions, redirects, knowledge approvals, and audit events. Media bytes require a separate server backup.</p>${isOwner() ? '<a class="button" href="/api/export">Download editorial backup</a>' : ""}<h2>Editorial permissions</h2>${Object.entries(
+      s.permissions,
+    )
+      .map(
+        ([role, perms]) =>
+          `<p><strong>${esc(role)}</strong><br><span class="muted">${esc(perms.join(", "))}</span></p>`,
+      )
+      .join(
+        "",
+      )}<p class="notice">Only the initial owner is provisioned. Future role assignments require a reviewed authentication integration; the browser cannot grant roles.</p></section></div>`;
+  $("#settings-form").onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: Object.fromEntries(new FormData(e.target)),
+      });
+      toast("Settings saved");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+}
+api("/api/me")
+  .then((u) => {
+    me = u;
+    $("#identity").textContent = `${u.email} · ${u.role}`;
+    const initial = location.hash.slice(1);
+    return navigate(cmsPages.has(initial) ? initial : "dashboard", { fromHistory: true });
+  })
+  .catch((e) => toast(e.message, true));

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Sign in · PoolDocAI Resources</title>
+    <link rel="stylesheet" href="/public/admin.css" />
+    <script src="/public/login.js" defer></script>
+  </head>
+  <body class="login-page">
+    <main class="login-card">
+      <a class="brand" href="/resources/"
+        ><img src="/logo.svg" width="42" height="42" alt="" />PoolDoc<span
+          >AI</span
+        ></a
+      >
+      <p class="eyebrow">RESOURCES STUDIO</p>
+      <h1>Your knowledge.<br />A clearer voice.</h1>
+      <p class="muted">Sign in to your private editorial workspace.</p>
+      <form id="login">
+        <label
+          >Email address<input
+            name="email"
+            type="email"
+            autocomplete="username"
+            required /></label
+        ><label
+          >Password<input
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required /></label
+        ><button class="primary" type="submit">Sign in securely →</button>
+        <p id="error" class="error" role="alert"></p>
+      </form>
+      <p><a href="/admin/recover">Recover your password</a></p>
+      <small>Owner access only. Articles stay private until publication.</small>
+    </main>
+  </body>
+</html>
