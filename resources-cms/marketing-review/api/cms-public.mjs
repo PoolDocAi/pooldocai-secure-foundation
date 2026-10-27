@@ -1,6 +1,7 @@
 /* Opt-in live published-revision bridge. No owner cookies, CMS write calls, or
  * privileged keys. Existing snapshot previews remain unchanged until cutover. */
 import { readFileSync } from 'node:fs';
+import { assertPublicCMSDeliveryTarget } from '../src/production/public-target.mjs';
 import { PublicCMSDelivery, createPublicDelivery } from '../src/production/public-delivery.mjs';
 import { renderPublicArticle } from '../src/production/render.mjs';
 import { discover, renderDiscovery } from '../src/platform/catalog.mjs';
@@ -120,6 +121,7 @@ export default async function handler(req, res) {
   try {
     if (process.env.CMS_PUBLISHED_DELIVERY_ENABLED !== '1') { res.statusCode = 404; res.setHeader('Cache-Control', 'no-store'); return res.end('Not found'); }
     if (process.env.CMS_DATABASE_URL || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY) throw new Error('Privileged public credentials forbidden');
+    assertPublicCMSDeliveryTarget(process.env);
     const preview = process.env.VERCEL_ENV !== 'production';
     configured ||= createMarketingCMSDelivery({ preview, client: new PublicCMSDelivery({ supabaseUrl: process.env.PUBLIC_RESOURCES_SUPABASE_URL, publishableKey: process.env.PUBLIC_RESOURCES_PUBLISHABLE_KEY }) });
     const incoming = new URL(req.url, `https://${req.headers.host || 'pooldocai.com'}`), path = incoming.searchParams.get('__path') || incoming.pathname;
