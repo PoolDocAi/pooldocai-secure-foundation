@@ -23,6 +23,17 @@ Deferred, not blockers:
 - Marketing CMS bridge is code prepared under `resources-cms/marketing-review/`; its private, original marketing package must be preserved. The public GitHub mirror is NOT a deployable replacement for the complete approved marketing source.
 - PR #25 contains legal/footer candidate; PR #26 contains owner publishing and dynamic marketing bridge; neither is merged. No Production deployment verified.
 
+## Current Production preflight findings — read-only, verified
+
+- **Approved architecture:** existing Production Supabase project `owfeebydlyacssqpnmkq`, new isolated `resources_cms` schema. This is **not** an authorization to apply SQL migrations or publish articles.
+- Production Postgres **17.11**, nine recorded schema migrations, 44 existing public tables, four Auth users. Neither `resources_cms` schema nor `resources_cms_runtime` / `resources_cms_command_owner` database roles exists yet.
+- The exact verified owner email/account in CMS Staging does **not** exist in Production Auth (compared by hash without disclosing email or credentials). Owner must create/invite and verify a Production Auth identity, then bootstrap only that Production UUID as CMS owner, with account acceptance and permissions checks. **Never copy Staging's user UUID or credentials into Production.**
+- Existing `owner-publication.sql` is **Staging-specific**: it requires 46 recorded migrations, a Staging owner UUID, baseline function hashes, and seeds `owner_release_policy.destination='staging'`. **Do not run this unchanged against Production.** Produce and independently review a Production migration which uses the actual authenticated Production owner ID, avoids hardcoded Staging migration counts/hashes, and initializes an enabled `production` destination only after explicit owner release approval. Preserve the Staging migration separately.
+- Supabase custom schema `resources_cms` must be explicitly listed in **Data API > Exposed schemas** before CMS RPCs work. Grant only minimal schema USAGE and carefully allowlisted function EXECUTE. Do **not** apply broad example SQL that grants ALL to anon/authenticated on CMS tables or routines.
+- Production security advisors report existing core-application `SECURITY DEFINER` function-access warnings and RLS informational notices. These predate the CMS migration and must be reviewed, not swept away by adjusting production grants.
+- Owner private ZIP: checksum verifier PASS; **34** catalog entries = 32 approved additions + two historical. Among the additional 32, **26** are not asset-gated, **5** require asset review (05/14/15/16/17), and **one** remains blocked (13). The catalog does not preauthorize public release or diagnostic knowledge use.
+- Read-only SQL preflight: `PRODUCTION-CMS-PREFLIGHT-READONLY.sql`. Keep all change authorization separate from these checks.
+
 ## Critical release sequence
 
 ### Gate A — Choose and authorize Production CMS isolation
