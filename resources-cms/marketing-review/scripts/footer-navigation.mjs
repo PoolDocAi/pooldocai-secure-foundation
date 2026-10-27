@@ -1,7 +1,7 @@
 /**
  * Protected marketing preview footer enhancement.
  * The original homepage and articles retain every existing element and link.
- * Legal documents remain explicitly DRAFT until separately approved.
+ * Public-facing legal pages have no draft labels; Production legal approval is a separate release gate.
  */
 export const legalLinks = Object.freeze([
  {label:'Privacy Policy',href:'/privacy.html'},
