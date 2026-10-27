@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "document": {
+    "format": "pooldocai-navigation-v1",
+    "paths": [
+      {
+        "id": "whats-wrong",
+        "name": "What's Wrong?"
+      },
+      {
+        "id": "equipment-and-guides",
+        "name": "Equipment & Guides"
+      },
+      {
+        "id": "explore-resources",
+        "name": "Explore Resources"
+      }
+    ],
+    "folders": [
+      {
+        "id": "f59ff33f-520e-5bed-bf53-244c948b5c19",
+        "name": "Industry News & Trends",
+        "slug": "industry-news-trends",
+        "description": "",
+        "icon": "",
+        "parentId": null,
+        "pathId": "explore-resources",
+        "position": 0,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "7d0e231b-41f4-51c7-9e5f-6cbb8b249e35",
+        "name": "State of the Industry",
+        "slug": "state-of-the-industry",
+        "description": "",
+        "icon": "",
+        "parentId": "f59ff33f-520e-5bed-bf53-244c948b5c19",
+        "pathId": "explore-resources",
+        "position": 0,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "caeab408-d1f5-578e-8cfd-1d9ce380e1b7",
+        "name": "Industry Events",
+        "slug": "industry-events",
+        "description": "",
+        "icon": "",
+        "parentId": "f59ff33f-520e-5bed-bf53-244c948b5c19",
+        "pathId": "explore-resources",
+        "position": 1,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "04eb044f-d949-54f5-95d5-517efd2b5404",
+        "name": "New Products & Innovations",
+        "slug": "new-products-innovations",
+        "description": "",
+        "icon": "",
+        "parentId": null,
+        "pathId": "explore-resources",
+        "position": 1,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "93f92c2a-9108-55d0-96a2-0c3048076af6",
+        "name": "Product Announcements",
+        "slug": "product-announcements",
+        "description": "",
+        "icon": "",
+        "parentId": "04eb044f-d949-54f5-95d5-517efd2b5404",
+        "pathId": "explore-resources",
+        "position": 0,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "ef21ecbe-34f7-5938-84af-ff3d212d20f9",
+        "name": "Product Reviews",
+        "slug": "product-reviews",
+        "description": "",
+        "icon": "",
+        "parentId": "04eb044f-d949-54f5-95d5-517efd2b5404",
+        "pathId": "explore-resources",
+        "position": 1,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "5db3d205-c888-5cb0-957b-cc56151ffae2",
+        "name": "Tips & Tricks",
+        "slug": "tips-tricks",
+        "description": "",
+        "icon": "",
+        "parentId": null,
+        "pathId": "explore-resources",
+        "position": 2,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "3b2cde86-f230-58b4-b352-ea18308c55e7",
+        "name": "Homeowner Tips",
+        "slug": "homeowner-tips",
+        "description": "",
+        "icon": "",
+        "parentId": "5db3d205-c888-5cb0-957b-cc56151ffae2",
+        "pathId": "explore-resources",
+        "position": 0,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "6df01f73-df17-516b-b777-b1285ce97414",
+        "name": "Technician Tips",
+        "slug": "technician-tips",
+        "description": "",
+        "icon": "",
+        "parentId": "5db3d205-c888-5cb0-957b-cc56151ffae2",
+        "pathId": "explore-resources",
+        "position": 1,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "e61441e9-836e-5d3e-9d00-e4b28ced76e6",
+        "name": "Learning Center",
+        "slug": "learning-center",
+        "description": "",
+        "icon": "",
+        "parentId": null,
+        "pathId": "explore-resources",
+        "position": 3,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "c4b1fcc4-1768-5675-8785-58fbe0d26895",
+        "name": "Seasonal Advice",
+        "slug": "seasonal-advice",
+        "description": "",
+        "icon": "",
+        "parentId": null,
+        "pathId": "explore-resources",
+        "position": 4,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "082bd8fa-d7e9-5e4d-9acb-7a63c0f062aa",
+        "name": "Buying Guides & Comparisons",
+        "slug": "buying-guides-comparisons",
+        "description": "",
+        "icon": "",
+        "parentId": null,
+        "pathId": "explore-resources",
+        "position": 5,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": false,
+          "assistant": true
+        }
+      },
+      {
+        "id": "67f3504a-f0e5-515d-8755-3d064bc99e5c",
+        "name": "Troubleshooting first checks",
+        "slug": "first-checks",
+        "description": "Currently live educational guides.",
+        "icon": "",
+        "parentId": null,
+        "pathId": "whats-wrong",
+        "position": 0,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": true,
+          "assistant": true
+        }
+      },
+      {
+        "id": "ff528095-5bdb-5b92-aee6-f91abef2c073",
+        "name": "Equipment and pool care",
+        "slug": "pool-care",
+        "description": "Currently live educational guides.",
+        "icon": "",
+        "parentId": null,
+        "pathId": "equipment-and-guides",
+        "position": 1,
+        "archived": false,
+        "visibility": {
+          "hub": true,
+          "header": true,
+          "assistant": true
+        }
+      }
+    ],
+    "memberships": [
+      {
+        "articleId": "0f753005-2570-4195-8175-5c149b0fb937",
+        "folderIds": [
+          "67f3504a-f0e5-515d-8755-3d064bc99e5c",
+          "ff528095-5bdb-5b92-aee6-f91abef2c073"
+        ],
+        "primaryFolderId": "67f3504a-f0e5-515d-8755-3d064bc99e5c"
+      },
+      {
+        "articleId": "1ecff574-4af2-47a7-82c1-67de606505df",
+        "folderIds": [
+          "67f3504a-f0e5-515d-8755-3d064bc99e5c",
+          "ff528095-5bdb-5b92-aee6-f91abef2c073"
+        ],
+        "primaryFolderId": "67f3504a-f0e5-515d-8755-3d064bc99e5c"
+      }
+    ]
+  },
+  "redirects": []
+}

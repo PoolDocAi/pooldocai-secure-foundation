@@ -1,6 +1,6 @@
 {
   "name": "pooldocai-resources-cms",
-  "version": "0.6.0-platform-local.20261027",
+  "version": "0.6.1-folders-design.20261027",
   "private": true,
   "type": "module",
   "engines": {
@@ -28,7 +28,9 @@
     "test:login-fix": "node --test tests/login-fix.test.mjs",
     "test:platform": "node --test tests/platform/*.test.mjs",
     "test:platform:browser": "node tests/platform/browser.mjs",
-    "test:owner-review": "node tests/platform/owner-review-smoke.mjs"
+    "test:owner-review": "node tests/platform/owner-review-smoke.mjs",
+    "test:folders": "node --test tests/folders/*.test.mjs",
+    "test:folders:browser": "node tests/folders/browser.mjs"
   },
   "dependencies": {
     "esbuild": "0.28.2",

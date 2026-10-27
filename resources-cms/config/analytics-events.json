@@ -1,6 +1,6 @@
 {
-  "schema_version": "proposal-1",
-  "status": "design-only",
+  "schema_version": "folders-v1",
+  "status": "implemented-local-pending-database-authorization",
   "events": [
     {
       "name": "page_view",
@@ -976,6 +976,150 @@
       "group": "video",
       "server_confirmed": false,
       "privacy": "No field values; bounded aggregate metadata only"
+    },
+    {
+      "name": "discovery_path_impression",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "discovery_path_select",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_impression",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_open",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_move",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_article_click",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "navigation_back",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "navigation_exit",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
     }
   ],
   "stable_id_examples": [

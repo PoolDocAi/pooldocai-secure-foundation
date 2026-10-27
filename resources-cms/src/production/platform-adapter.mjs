@@ -1,7 +1,7 @@
 // New RPCs remain unavailable until separately reviewed migration/config gates.
 // Uses only existing publishable key + verified caller JWT; no privileged key.
 export class SupabasePlatformAdapter {
- constructor(cms){this.cms=cms;}
+ constructor(cms){this.cms=cms;this.navigation={read:user=>this.rpc('navigation_query',user),command:(user,input)=>this.rpc('navigation_command',user,{p_command:input}),published:(surface='hub')=>this.rpc('navigation_public',null,{p_surface:surface})};}
  rpc(name,user,payload={}){return this.cms.rpc(name,payload,user?.accessToken);}
  facets(user){return this.rpc('facet_query',user);}
  command(user,input){return this.rpc('facet_command',user,{p_command:input});}

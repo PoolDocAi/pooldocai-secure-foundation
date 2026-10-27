@@ -1,3 +1,4 @@
+import {publicNavigation,paths} from './navigation.mjs';
 import {randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {transaction} from '../store.mjs';
@@ -5,10 +6,10 @@ const schema=JSON.parse(readFileSync(new URL('../../config/analytics-events.json
 export const eventNames=new Set(schema.events.filter(e=>!e.server_confirmed&&!e.name.startsWith('admin_')).map(e=>e.name));
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const allowed=new Set(['event_id','event_name','session_id','sequence_number','page_instance_id','occurred_at','route','surface','element_id','content_id','consent','device','source','payload']);
-const numeric=new Set(['active_seconds','scroll_depth','result_count','rating']);
+const numeric=new Set(['active_seconds','scroll_depth','result_count','rating','navigation_depth']);
 const fail=(s,m)=>{throw Object.assign(Error(m),{status:s});};
 export function installAnalytics(db){db.exec(`CREATE TABLE IF NOT EXISTS resource_events(event_id TEXT PRIMARY KEY,session_id TEXT NOT NULL,sequence_number INTEGER NOT NULL,page_instance_id TEXT NOT NULL,event_name TEXT NOT NULL,occurred_at TEXT NOT NULL,received_at TEXT NOT NULL,route TEXT NOT NULL,surface TEXT NOT NULL,element_id TEXT,content_id TEXT,revision_id TEXT,device TEXT NOT NULL,source TEXT NOT NULL,payload TEXT NOT NULL,tag_context TEXT NOT NULL,category_id TEXT,UNIQUE(session_id,sequence_number));CREATE INDEX IF NOT EXISTS resource_events_received ON resource_events(received_at);CREATE INDEX IF NOT EXISTS resource_events_session ON resource_events(session_id,sequence_number);CREATE TABLE IF NOT EXISTS analytics_budget(day TEXT PRIMARY KEY,count INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS analytics_conversion_receipts(receipt_id TEXT PRIMARY KEY,event_id TEXT NOT NULL);`);}
-export function validateEvent(e,catalog,now=Date.now()){
+export function validateEvent(e,catalog,now=Date.now(),navigation=null){
  if(!e||typeof e!=='object'||Object.keys(e).some(k=>!allowed.has(k))||!eventNames.has(e.event_name)||e.event_name==='conversion_complete')fail(422,'Unsupported event');
  if(e.consent!==true)fail(403,'Optional analytics consent required');
  if(!UUID.test(e.event_id)||!UUID.test(e.session_id)||!UUID.test(e.page_instance_id)||!Number.isInteger(e.sequence_number)||e.sequence_number<1||e.sequence_number>10000)fail(422,'Invalid event identity or sequence');
@@ -16,16 +17,17 @@ export function validateEvent(e,catalog,now=Date.now()){
  if(!['website','resources','widget'].includes(e.surface)||!['mobile','tablet','desktop','unknown'].includes(e.device)||!['direct','organic','social','referral','email','paid','unknown'].includes(e.source))fail(422,'Invalid aggregate dimensions');
  if(e.element_id&&!/^[a-z][a-z0-9_.-]{0,79}$/.test(e.element_id))fail(422,'Stable element identifier required');
  const article=catalog.find(r=>r.id===e.content_id);if(e.content_id&&!article)fail(422,'Published resource unavailable');
- const routes=new Set(['/','/resources/',...catalog.map(r=>new URL(r.url).pathname)]);if(!routes.has(e.route))fail(422,'Public canonical route required');
- const payload=e.payload||{};if(typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).some(k=>!numeric.has(k)&&k!=='intent_id')||Object.entries(payload).some(([k,v])=>k!=='intent_id'&&(typeof v!=='number'||!Number.isFinite(v)||v<0||v>10000)))fail(422,'Only bounded aggregate measurements permitted');
+ const navFolders=navigation?.folders||[];if(['folder_id','previous_folder_id'].some(k=>e.payload?.[k]&&!navFolders.some(f=>f.id===e.payload[k]))||e.payload?.path_id&&!paths.some(p=>p.id===e.payload.path_id)||e.payload?.navigation_depth!==undefined&&(!Number.isInteger(e.payload.navigation_depth)||e.payload.navigation_depth>8))fail(422,'Published navigation identity required');
+ const routes=new Set(['/','/resources/',...catalog.map(r=>new URL(r.url).pathname),...navFolders.map(f=>f.url)]);if(!routes.has(e.route))fail(422,'Public canonical route required');
+ const payload=e.payload||{};if(typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).some(k=>!numeric.has(k)&&!['intent_id','folder_id','previous_folder_id','path_id'].includes(k))||Object.entries(payload).some(([k,v])=>!['intent_id','folder_id','previous_folder_id','path_id'].includes(k)&&(typeof v!=='number'||!Number.isFinite(v)||v<0||v>10000)))fail(422,'Only bounded aggregate measurements permitted');
  if(payload.scroll_depth!==undefined&&![25,50,75,90].includes(payload.scroll_depth)||payload.active_seconds>30)fail(422,'Invalid engagement checkpoint');
  if(payload.intent_id&&!catalog.some(r=>r.tags.some(t=>t.id===payload.intent_id)))fail(422,'Published safe intent required');
  return {...e,content_id:article?.id||null,revision_id:article?.revisionId||null,payload,tag_context:article?.tags||[],category_id:article?.categoryId||null};
 }
-export function ingest(db,events,catalog,{gpc=false,bot=false,now=Date.now()}={}){
+export function ingest(db,events,catalog,{gpc=false,bot=false,now=Date.now(),navigation=null}={}){
  if(gpc||bot)return {accepted:0,excluded:true};
  if(!Array.isArray(events)||events.length<1||events.length>20)fail(413,'Batch must contain 1–20 events');
- const valid=events.map(e=>validateEvent(e,catalog,now)),day=new Date(now).toISOString().slice(0,10);
+ const valid=events.map(e=>validateEvent(e,catalog,now,navigation)),day=new Date(now).toISOString().slice(0,10);
  return transaction(db,()=>{
   db.prepare('INSERT OR IGNORE INTO analytics_budget VALUES(?,0)').run(day);const budget=db.prepare('SELECT count FROM analytics_budget WHERE day=?').get(day).count;
   if(budget+valid.length>10000)fail(429,'Daily collection budget reached');

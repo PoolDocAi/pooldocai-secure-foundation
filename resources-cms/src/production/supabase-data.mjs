@@ -101,7 +101,7 @@ export class SupabaseDataCMS {
   settings(user) { return this.admin(user, "settings-read"); }
   knowledgeStatuses(user) { return this.admin(user, "knowledge-statuses"); }
   recentAudit(user, limit = 25) { return this.admin(user, "recent-audit", { limit: Math.min(Math.max(Number(limit) || 25, 1), 100) }); }
-  exportAll(user) { return this.platformEnabled?this.rpc("platform_backup",{},principal(user).accessToken):this.admin(user,"export-all"); }
+  async exportAll(user) { const base=await (this.platformEnabled?this.rpc("platform_backup",{},principal(user).accessToken):this.admin(user,"export-all"));if(this.navigationEnabled)base.navigationHistory=await this.rpc("navigation_query",{},principal(user).accessToken);return base; }
   knowledgeExport(user) { return this.admin(user, "knowledge-export"); }
 
   publicArticle(slug) {

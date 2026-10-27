@@ -171,6 +171,7 @@ async function changePage(next, { fromHistory = false, position = historyPositio
   if (page === "seo") seoManager();
   if (page === "knowledge") knowledgeList();
   if (page === "settings") await settings();
+  if (page === "folders") await window.CMSNavigation.load();
   if (page === "analytics") await window.CMSPlatform.analytics();
   main.focus();
 }
@@ -959,7 +960,7 @@ async function mediaLibrary() {
   main.innerHTML =
     title(
       "A useful media library.",
-      "Images stay private until referenced by published content. PDF and document uploads remain disabled pending independent validation.",
+      "Authentic media only. Rights, attribution and technical relevance must be verified before public use. New imagery remains pending review. PDF/document uploads and cloud Storage remain gated.",
     ) +
     `<section class="panel">${canWrite() ? '<form id="upload-form"><div class="two-columns"><label>Upload image<input id="upload-file" type="file" accept="image/jpeg,image/png,image/webp" required><small>Maximum 3 MB. Images are decoded and re-encoded to metadata-free WebP. PDF and documents are disabled.</small></label><label>Alternative text<input id="upload-alt" maxlength="300" placeholder="Describe the image for someone who cannot see it"></label></div><button class="primary">Upload securely</button></form><hr>' : ""}<div class="media-grid">${media.map((m) => `<article class="media-card">${m.mime.startsWith("image/") ? `<img src="/media/${m.id}" alt="${esc(m.alt)}">` : "<p>▤ Download</p>"}<h3>${esc(m.name)}</h3><p class="muted">${Math.ceil(m.size / 1024)} KB · ${esc(m.mime)}</p><label>Alt text<input data-alt="${m.id}" value="${esc(m.alt)}"></label><button data-media-save="${m.id}">Save metadata</button><a class="button" href="/media/${m.id}" target="_blank" rel="noopener">View</a><button data-copy="/media/${m.id}">Copy URL</button></article>`).join("") || '<p class="muted">Upload your first image.</p>'}</div></section>`;
   $("#upload-form")?.addEventListener("submit", async (e) => {
