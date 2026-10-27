@@ -3,6 +3,10 @@
   "outputDirectory": "public",
   "rewrites": [
     {
+      "source": "^/resources/collections/([a-z0-9-]+(?:/[a-z0-9-]+)+)/$",
+      "destination": "/api/review?__path=/resources/collections/$1/"
+    },
+    {
       "source": "/resources/collections/:path*",
       "destination": "/api/review?__path=/resources/collections/:path*"
     },
