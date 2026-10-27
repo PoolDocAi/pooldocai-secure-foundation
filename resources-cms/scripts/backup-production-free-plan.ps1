@@ -39,7 +39,7 @@ try {
   [Environment]::SetEnvironmentVariable('PGPORT', '5432', 'Process')
   [Environment]::SetEnvironmentVariable('PGUSER', "postgres.$ProjectRef", 'Process')
   [Environment]::SetEnvironmentVariable('PGDATABASE', 'postgres', 'Process')
-  [Environment]::SetEnvironmentVariable('PGSSLMODE', 'verify-full', 'Process')
+  [Environment]::SetEnvironmentVariable('PGSSLMODE', 'require', 'Process')
 
   $Root = Join-Path (Get-Location).Path 'private-backups'
   New-Item -Path $Root -ItemType Directory -Force | Out-Null
