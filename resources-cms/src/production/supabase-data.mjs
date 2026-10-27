@@ -101,9 +101,16 @@ export class SupabaseDataCMS {
   settings(user) { return this.admin(user, "settings-read"); }
   knowledgeStatuses(user) { return this.admin(user, "knowledge-statuses"); }
   recentAudit(user, limit = 25) { return this.admin(user, "recent-audit", { limit: Math.min(Math.max(Number(limit) || 25, 1), 100) }); }
-  async exportAll(user) { const base=await (this.platformEnabled?this.rpc("platform_backup",{},principal(user).accessToken):this.admin(user,"export-all"));if(this.navigationEnabled)base.navigationHistory=await this.rpc("navigation_query",{},principal(user).accessToken);return base; }
+  async exportAll(user) { const base=await(this.ownerPublishing?this.rpc("owner_backup",{},principal(user).accessToken):this.platformEnabled?this.rpc("platform_backup",{},principal(user).accessToken):this.admin(user,"export-all"));if(this.navigationEnabled)base.navigationHistory=await this.rpc("navigation_query",{},principal(user).accessToken);return base; }
   knowledgeExport(user) { return this.admin(user, "knowledge-export"); }
 
+  releaseInfo(user, id) { uuid(id, "Article"); return this.rpc("release_info", {p_id:id}, principal(user).accessToken); }
+  ownerPublish(user,id,request) {
+    uuid(id,"Article"); uuid(request.commandId,"Command"); uuid(request.revisionId,"Revision");
+    if(!Number.isInteger(request.version)||request.version<1||! /^[a-f0-9]{64}$/.test(request.checksum||"")||request.confirm!==true) throw new TypeError("Explicit approved revision confirmation required");
+    return this.rpc("owner_publish",{p_command_id:request.commandId,p_id:id,p_version:request.version,p_revision_id:request.revisionId,p_checksum:request.checksum,p_destination:request.destination,p_confirm:true,p_hold_checksum:request.holdChecksum??null},principal(user).accessToken);
+  }
+  ownerImport(user, envelope) { return this.rpc("owner_import",{p_command_id:envelope.commandId,p_payload:envelope},principal(user).accessToken); }
   publicArticle(slug) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug || ""))) return null;
     return this.rpc(this.useVerifiedCatalog?"verified_public_article":"public_article", { p_slug: slug });

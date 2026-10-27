@@ -21,6 +21,7 @@ export function createProductionApp(runtime = productionRuntime()) {
   const { config, db } = runtime;
   if(config.features?.discovery)db.useVerifiedCatalog=true;
   if(config.features?.taxonomy)db.platformEnabled=true;
+  if(config.ownerPublishing)db.ownerPublishing=true;
   if(config.features?.folders)db.navigationEnabled=true;
   const authConfig = { url: config.supabaseUrl, publishableKey: config.publishableKey };
   const identity = async (request) => {
@@ -39,7 +40,8 @@ export function createProductionApp(runtime = productionRuntime()) {
   const command = commandRoute({ identity, db, origin: config.origin });
   const upload = mediaUploadRoute({ identity, db, storage, origin: config.origin });
   const media = mediaReadRoute({ identity, db, storage });
-  const compat = compatibilityRoute({ db, identity, memberRole, origin: config.origin, uploadRoute: upload });
+  const approvedImports = config.approvedImportCatalogPath ? JSON.parse(readFileSync(config.approvedImportCatalogPath,"utf8")) : null;
+  const compat = compatibilityRoute({ db, identity, memberRole, origin: config.origin, uploadRoute: upload, approvedImports, ownerPublishing: config.ownerPublishing === true });
   const health = healthRoute({ db });
   const platformAdapter=new SupabasePlatformAdapter(db);
   const platform=platformRoutes({features:config.features||{},adapter:platformAdapter,origin:config.origin,identity:async request=>{const u=await identity(request);return {...u,role:await memberRole(u)};},guardWrite:async request=>{requireOrigin(request,config.origin);requireCsrf(request);}});

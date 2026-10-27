@@ -18,14 +18,14 @@ export function renderPublicArticle(record, { preview = false } = {}) {
   const slug = data.slug || record.slug;
   const canonical = preview ? `${ORIGIN}/resources/${esc(slug)}/` : (data.seo?.canonical || `${ORIGIN}/resources/${slug}/`);
   const structured = preview ? null : { "@context": "https://schema.org", "@graph": [
-    { "@type": "Article", headline: title, description: summary, datePublished: record.publishedAt || record.published_at, dateModified: data.updatedAt || record.publishedAt || record.published_at, mainEntityOfPage: canonical, author: { "@type": "Organization", name: data.author || "PoolDocAI" }, articleSection: record.categoryName || record.category_name || undefined },
+    { "@type": "Article", headline: title, description: summary, datePublished: record.publishedAt || record.published_at, dateModified: record.updatedAt || data.updatedAt || record.publishedAt || record.published_at, mainEntityOfPage: canonical, author: { "@type": "Organization", name: data.author || "PoolDocAI" }, articleSection: record.categoryName || record.category_name || undefined },
     { "@type": "BreadcrumbList", itemListElement: [["Home", `${ORIGIN}/`], ["Resources", `${ORIGIN}/resources/`], [title, canonical]].map(([name, item], index) => ({ "@type": "ListItem", position: index + 1, name, item })) },
   ] };
   return layout({
     title: data.seo?.title || title, description: data.seo?.description || summary, canonical,
     noindex: preview || Boolean(data.seo?.noindex), structured, ogTitle: data.seo?.ogTitle || data.seo?.title || title,
     ogDescription: data.seo?.ogDescription || data.seo?.description || summary, image: data.seo?.image || "", imageAlt: data.seo?.imageAlt || "",
-    publishedAt: record.publishedAt || record.published_at || "", updatedAt: data.updatedAt || record.publishedAt || record.published_at || "",
+    publishedAt: record.publishedAt || record.published_at || "", updatedAt: record.updatedAt || data.updatedAt || record.publishedAt || record.published_at || "",
     body: `${preview ? '<div class="preview-banner" role="status">Private editorial preview · Not published</div>' : ""}<main id="main"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/resources/">Resources</a> / <span aria-current="page">${esc(title)}</span></nav><article class="article-main"><header class="article-header"><p class="section-kicker">${esc(record.categoryName || record.category_name || "Resources")}</p><h1>${esc(title)}</h1><p class="summary">${esc(summary)}</p></header><div class="article-body">${injectEditorialPreviewAsset(sanitize(record.renderedHtml || record.rendered_html || data.body || ""), slug, preview)}</div>${(record.sources || data.sources || []).length && !hasInlineSources(record.renderedHtml || record.rendered_html || data.body || "") ? `<section><h2>Sources</h2><ol>${(record.sources || data.sources).filter(s=>safeURL(s.url,false)).map((source) => `<li><a href="${esc(source.url)}">${esc(source.label)}</a></li>`).join("")}</ol></section>` : ""}</article></main>`,
   });
 }
