@@ -630,7 +630,7 @@ function collect() {
   ])
     d[id] = $("#" + id).value;
   d.body = $("#body").innerHTML;
-  d.sources = $("#sources")
+  d.sources = document.querySelector("textarea#sources")
     .value.split("\n")
     .filter((x) => x.trim())
     .map((x) => {
