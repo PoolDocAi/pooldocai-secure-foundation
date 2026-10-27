@@ -46,7 +46,8 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "review/resources-platform-v060": false
+      "review/resources-platform-v060": false,
+      "review/resources-folders-design-v061": false
     }
   }
 }

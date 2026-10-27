@@ -1,0 +1,13 @@
+# Mandatory authentic imagery policy — effective October 27, 2026
+
+No AI-generated or generatively altered imagery may be used in educational resources, equipment guides, product reviews, covers or the Hub. Do not synthesize equipment, installations, manufacturer products or troubleshooting scenes. This policy also applies to the future AI Editorial Studio: generated article text never authorizes image generation, image rights or publication.
+
+Preferred evidence: PoolDocAI-owned originals; manufacturer photographs/diagrams with documented reuse rights; licensed professional photography; commercially permitted reputable library photographs; contributor images with explicit permission. Public accessibility is not a reuse license. Watermarks, scraped competitor photographs and unclear licenses are rejected.
+
+For technical guides, verify the actual manufacturer, model, generation and relevant component. Representative images require an explicit representative caption and may not imply an exact model. Preserve technical details; ordinary safe image re-encoding does not authorize generative edits.
+
+The current redesign uses the existing logo, hand-authored interface icons and abstract CSS geometry. It adds no new photographic media. The two published article bodies and source/revision metadata remain unchanged. Existing landing-page background assets are retained from the live site; their original provenance has not been independently established by this task and should be recorded in the media register before future reuse in resources.
+
+`config/media-rights.schema.json` and `src/platform/media-rights.mjs` prepare the future trusted media-review contract: source, attribution, license, permission reference, copyright, model associations, representative label, alt, dimensions, checksum, expiration, reviewer and review date. New media defaults to pending/unverified. The reusable `mediaReady` guard rejects synthetic, missing-rights, expired or unlabeled representative records. This contract is tested locally; it is NOT an installed cloud rights database or a completed approval interface.
+
+Existing upload validation/re-encoding remains in place; documents/PDF uploads and cloud Storage remain gated. No new public image gateway is enabled. Before enabling media publication, a separately authorized schema/API/UI integration must persist these records, prevent editors from self-approving authenticity/rights, enforce expiration and scope at delivery/publication, attach required captions, and protect pending files. File-content checksums support exact duplicate detection; responsive WebP/AVIF variants must retain their original source identity and evidence. Do not claim automatic authenticity verification from a checksum.

@@ -13,7 +13,7 @@ export function readRuntimeConfig(env = process.env) {
     supabaseUrl: env.SUPABASE_URL,
     publishableKey: env.SUPABASE_PUBLISHABLE_KEY,
     origin,
-    features:{taxonomy:env.CMS_TAXONOMY_V3==='1',discovery:env.CMS_DISCOVERY_V3==='1',analytics:env.CMS_ANALYTICS_ENABLED==='1',assistant:env.CMS_ASSISTANT_ENABLED==='1'},
+    features:{folders:env.CMS_FOLDERS_ENABLED==='1',taxonomy:env.CMS_TAXONOMY_V3==='1',discovery:env.CMS_DISCOVERY_V3==='1',analytics:env.CMS_ANALYTICS_ENABLED==='1',assistant:env.CMS_ASSISTANT_ENABLED==='1'},
     recoveryOwnerId: env.CMS_RECOVERY_OWNER_ID,
     recoveryOwnerEmail: env.CMS_RECOVERY_OWNER_EMAIL,
   };

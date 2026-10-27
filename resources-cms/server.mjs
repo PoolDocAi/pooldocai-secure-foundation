@@ -45,7 +45,7 @@ export function createCMS({
   mediaPath = process.env.CMS_MEDIA || "data/media",
   origin = process.env.CMS_ORIGIN || "http://127.0.0.1:4173",
   testMode = false,
-  features = {taxonomy:process.env.CMS_TAXONOMY_V3==='1',discovery:process.env.CMS_DISCOVERY_V3==='1',analytics:process.env.CMS_ANALYTICS_ENABLED==='1',assistant:process.env.CMS_ASSISTANT_ENABLED==='1'},
+  features = {folders:process.env.CMS_FOLDERS_ENABLED==='1',taxonomy:process.env.CMS_TAXONOMY_V3==='1',discovery:process.env.CMS_DISCOVERY_V3==='1',analytics:process.env.CMS_ANALYTICS_ENABLED==='1',assistant:process.env.CMS_ASSISTANT_ENABLED==='1'},
 } = {}) {
   const db = openStore(dbPath);
   collectionSchema(db);
@@ -241,7 +241,7 @@ export function createCMS({
   }
   const interval = setInterval(runScheduled, 1000);
   interval.unref();
-  const platform=features.taxonomy?localPlatform(db,save):null;
+  const platform=(features.taxonomy||features.folders)?localPlatform(db,save):null;
   const server = http.createServer(async (req, res) => {
     let pathname = "";
     try {
@@ -1071,6 +1071,7 @@ export function createCMS({
           return send(res, 200, {
             format: "pooldocai-backup-v1",
             exportedAt: now(),
+            ...(features.folders?{navigationHistory:await platform.navigation.read(requirePerm(req,"export"))}:{}),
             ...(features.taxonomy?{platform:{format:'resources-platform-local-v1',facetTags:db.prepare('SELECT * FROM facet_tags').all(),tagRequests:db.prepare('SELECT * FROM facet_requests').all(),liveVerifications:db.prepare('SELECT * FROM live_verifications').all()}}:{}),
             editorialHolds: db.prepare('SELECT * FROM editorial_holds').all(),
             knowledgeReviews: db
@@ -1232,6 +1233,10 @@ export function createCMS({
           "/public/login.js",
           "/public/public.css",
           "/public/platform-admin.js",
+          "/public/navigation-admin.js",
+          "/public/navigation-proposed.json",
+          "/public/resource-design.css",
+          "/public/resource-reading.js",
           "/public/platform.css",
           "/public/resource-analytics.js",
           "/public/resource-assistant.js",

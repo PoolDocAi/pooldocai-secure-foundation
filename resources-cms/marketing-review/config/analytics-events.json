@@ -1,0 +1,1206 @@
+{
+  "schema_version": "folders-v1",
+  "status": "implemented-local-pending-database-authorization",
+  "events": [
+    {
+      "name": "page_view",
+      "group": "page",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "page_exit",
+      "group": "page",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "resource_impression",
+      "group": "resource",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "resource_open",
+      "group": "resource",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "resource_engagement",
+      "group": "resource",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "resource_scroll_checkpoint",
+      "group": "resource",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "resource_complete",
+      "group": "resource",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "resource_related_click",
+      "group": "resource",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "nav_section_select",
+      "group": "nav",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "nav_category_select",
+      "group": "nav",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "nav_filter_apply",
+      "group": "nav",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "search_submit",
+      "group": "search",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "search_results_view",
+      "group": "search",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "search_zero_results",
+      "group": "search",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "search_result_click",
+      "group": "search",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "ui_link_click",
+      "group": "ui",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "ui_button_click",
+      "group": "ui",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "ui_accordion_toggle",
+      "group": "ui",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "ui_tab_select",
+      "group": "ui",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "download_start",
+      "group": "download",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "download_complete",
+      "group": "download",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "cta_view",
+      "group": "cta",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "cta_click",
+      "group": "cta",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "conversion_complete",
+      "group": "conversion",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": true
+    },
+    {
+      "name": "widget_open",
+      "group": "widget",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "widget_close",
+      "group": "widget",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "widget_route_select",
+      "group": "widget",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "widget_search_submit",
+      "group": "widget",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "widget_results_view",
+      "group": "widget",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "widget_no_match",
+      "group": "widget",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "widget_result_click",
+      "group": "widget",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "feedback_submit",
+      "group": "feedback",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "quality_route_error",
+      "group": "quality",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "quality_client_event_drop",
+      "group": "quality",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "consent_update",
+      "group": "consent",
+      "required_fields": [
+        "event_id",
+        "event_name",
+        "occurred_at",
+        "session_id",
+        "sequence_number",
+        "page_instance_id",
+        "surface",
+        "route",
+        "consent_category"
+      ],
+      "optional_fields": [
+        "element_id",
+        "content_id",
+        "content_revision_id",
+        "taxonomy_ids",
+        "referrer_domain",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign"
+      ],
+      "privacy": "no PII, raw input or auth tokens",
+      "server_confirmed": false
+    },
+    {
+      "name": "form_start",
+      "group": "form",
+      "server_confirmed": false,
+      "privacy": "No field values; bounded aggregate metadata only"
+    },
+    {
+      "name": "form_submit_attempt",
+      "group": "form",
+      "server_confirmed": false,
+      "privacy": "No field values; bounded aggregate metadata only"
+    },
+    {
+      "name": "video_start",
+      "group": "video",
+      "server_confirmed": false,
+      "privacy": "No field values; bounded aggregate metadata only"
+    },
+    {
+      "name": "video_progress",
+      "group": "video",
+      "server_confirmed": false,
+      "privacy": "No field values; bounded aggregate metadata only"
+    },
+    {
+      "name": "video_complete",
+      "group": "video",
+      "server_confirmed": false,
+      "privacy": "No field values; bounded aggregate metadata only"
+    },
+    {
+      "name": "discovery_path_impression",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "discovery_path_select",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_impression",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_open",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_move",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "folder_article_click",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "navigation_back",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    },
+    {
+      "name": "navigation_exit",
+      "group": "navigation",
+      "server_confirmed": false,
+      "required_fields": [
+        "event_id",
+        "session_id",
+        "sequence_number",
+        "consent"
+      ],
+      "optional_fields": [
+        "payload.folder_id",
+        "payload.previous_folder_id",
+        "payload.path_id",
+        "payload.navigation_depth"
+      ],
+      "privacy": "Published stable IDs only; no raw queries or personal data"
+    }
+  ],
+  "stable_id_examples": [
+    "hub.nav.whats_wrong",
+    "hub.nav.equipment_guides",
+    "article.related.open",
+    "widget.launcher.open",
+    "widget.results.card.open",
+    "footer.admin.open"
+  ],
+  "scripted_journey": [
+    {
+      "sequence_number": 1,
+      "event_name": "page_view",
+      "surface": "website"
+    },
+    {
+      "sequence_number": 2,
+      "event_name": "widget_open",
+      "surface": "widget"
+    },
+    {
+      "sequence_number": 3,
+      "event_name": "widget_route_select",
+      "surface": "widget"
+    },
+    {
+      "sequence_number": 4,
+      "event_name": "widget_result_click",
+      "surface": "widget"
+    },
+    {
+      "sequence_number": 5,
+      "event_name": "resource_open",
+      "surface": "resources"
+    },
+    {
+      "sequence_number": 6,
+      "event_name": "cta_click",
+      "surface": "resources"
+    }
+  ],
+  "canonical_publication_rule": "verified_published_revision_only",
+  "resource_inventory_ids": [
+    8,
+    1,
+    2,
+    4,
+    3,
+    6,
+    31,
+    32,
+    5,
+    9,
+    10,
+    33,
+    7,
+    14,
+    15,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    11,
+    12,
+    13,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "excluded_resource_ids": [
+    30
+  ],
+  "trackability_note": "Track meaningful events where lawful and technically possible; respect consent and blockers.",
+  "implementation_version": "local-2",
+  "source_catalog_sha256": "9d1bd58e3374220e17e5bc515109331f8a8eff939ed299e239feff729bcc3d60"
+}

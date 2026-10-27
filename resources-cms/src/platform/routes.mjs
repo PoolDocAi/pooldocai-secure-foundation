@@ -1,15 +1,18 @@
 import {discover,renderDiscovery} from './catalog.mjs';
+import {publicNavigation} from './navigation.mjs';
 import {placement} from './taxonomy.mjs';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Robots-Tag':'noindex'}});
-export const platformPath=p=>p.startsWith('/api/platform/')||p==='/api/public/resources'||p==='/analytics/collect'||p==='/resources/discover/'||p==='/resources/';
+export const platformPath=p=>p.startsWith('/api/platform/')||p==='/api/public/resources'||p==='/analytics/collect'||p==='/resources/discover/'||p==='/resources/'||p.startsWith('/resources/collections/');
 export function platformRoutes({features,adapter,identity,guardWrite,origin}){
  return async(request)=>{
   const url=new URL(request.url),path=url.pathname;if(!platformPath(path))return null;
   try{
-   if(path==='/api/public/resources'||path==='/resources/discover/'||path==='/resources/'){
+   if(path==='/api/public/resources'||path==='/resources/discover/'||path==='/resources/'||path.startsWith('/resources/collections/')){
     if(!features.discovery)return json({error:'Not available'},404);
     if(request.method!=='GET')return json({error:'Method not allowed'},405);
-    const result=discover(await adapter.catalog(),{query:url.searchParams.get('q')||'',slug:url.searchParams.get('slug')||'',tags:url.searchParams.getAll('tag').filter(Boolean),path:url.searchParams.get('path')||'',offset:Math.max(0,Math.min(100000,Number(url.searchParams.get('offset'))||0))});
+    const catalog=await adapter.catalog();const nav=features.folders?publicNavigation(await adapter.navigation.published(url.searchParams.get('surface')==='assistant'?'assistant':url.searchParams.get('surface')==='header'?'header':'hub'),catalog,url.searchParams.get('surface')==='assistant'?'assistant':url.searchParams.get('surface')==='header'?'header':'hub'):null;
+    if(path.startsWith('/resources/collections/')){const redirect=nav?.redirects.find(r=>r.from===path),folder=nav?.folders.find(f=>f.url===path||f.id===redirect?.folderId);if(!folder)return json({error:'Not found'},404);if(redirect)return new Response(null,{status:308,headers:{Location:folder.url,'Cache-Control':'no-store'}});url.searchParams.set('folder',folder.id);url.searchParams.set('path',folder.pathId);}
+    const result=discover(catalog,{navigation:nav,folder:url.searchParams.get('folder')||'',query:url.searchParams.get('q')||'',slug:url.searchParams.get('slug')||'',tags:url.searchParams.getAll('tag').filter(Boolean),path:url.searchParams.get('path')||'',offset:Math.max(0,Math.min(100000,Number(url.searchParams.get('offset'))||0))});
     if(path==='/api/public/resources')return json(result);
     let internal=false;try{internal=Boolean((await identity(request)).role);}catch{}
     return new Response(renderDiscovery(result,url.searchParams,{...features,analytics:features.analytics&&!internal}),{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
@@ -24,6 +27,7 @@ export function platformRoutes({features,adapter,identity,guardWrite,origin}){
    }
    const user=await identity(request);
    if(path==='/api/platform/config')return json({features,role:user.role});
+   if(path==='/api/platform/navigation'){if(!features.folders)return json({error:'Folder backend requires an authorized database migration; writes are disabled'},503);if(request.method==='GET')return json(await adapter.navigation.read(user));if(request.method==='POST'){if(user.role!=='owner')return json({error:'Owner required'},403);await guardWrite(request,user);const text=await request.text();if(Buffer.byteLength(text)>262144)return json({error:'Navigation document too large'},413);return json(await adapter.navigation.command(user,JSON.parse(text)));}return json({error:'Method not allowed'},405);}
    if(!features.taxonomy)return json({error:'Feature is disabled'},404);
    if(request.method!=='GET')await guardWrite(request,user);
    const owner=()=>{if(user.role!=='owner')throw Object.assign(Error('Owner required'),{status:403});};

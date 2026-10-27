@@ -1,3 +1,4 @@
+import {publicNavigation,addNavigationBreadcrumbs} from '../platform/navigation.mjs';
 import { membership, sessionToken, signInWithPassword, verifiedIdentity } from "./auth.mjs";
 import { compatibilityRoute } from "./compat-api.mjs";
 import { productionRuntime } from "./runtime.mjs";
@@ -20,6 +21,7 @@ export function createProductionApp(runtime = productionRuntime()) {
   const { config, db } = runtime;
   if(config.features?.discovery)db.useVerifiedCatalog=true;
   if(config.features?.taxonomy)db.platformEnabled=true;
+  if(config.features?.folders)db.navigationEnabled=true;
   const authConfig = { url: config.supabaseUrl, publishableKey: config.publishableKey };
   const identity = async (request) => {
     const accessToken = sessionToken(request);
@@ -88,7 +90,7 @@ export function createProductionApp(runtime = productionRuntime()) {
     if (article) {
       if(config.features?.discovery){const catalogue=await platformAdapter.catalog();if(!catalogue.some(r=>r.slug===article[1])){const target=await db.redirect(article[1]);return target&&catalogue.some(r=>r.slug===target)?new Response(null,{status:308,headers:{Location:`/resources/${target}/`,'Cache-Control':'no-store'}}):new Response(null,{status:404,headers:{'Cache-Control':'no-store'}});}}
       const record = await db.publicArticle(article[1]);
-      if (record){let internal=false;try{const u=await identity(request);internal=Boolean(await memberRole(u));}catch{}return html(addPublicCapabilities(renderPublicArticle(record),{...config.features,analytics:config.features?.analytics&&!internal}), 200, { "Cache-Control": "no-store" });}
+      if (record){let internal=false;try{const u=await identity(request);internal=Boolean(await memberRole(u));}catch{}let rendered=renderPublicArticle(record);if(config.features?.folders){const catalog=await platformAdapter.catalog(),article=catalog.find(r=>r.slug===record.slug);if(article)rendered=addNavigationBreadcrumbs(rendered,publicNavigation(await platformAdapter.navigation.published(),catalog),article);}return html(addPublicCapabilities(rendered,{...config.features,analytics:config.features?.analytics&&!internal}), 200, { "Cache-Control": "no-store" });}
       const redirect = await db.redirect(article[1]);
       if (redirect) return new Response(null, { status: 308, headers: { Location: `/resources/${redirect}/`, "Cache-Control": "public, max-age=3600" } });
       return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
