@@ -631,11 +631,20 @@ function collect() {
     d[id] = $("#" + id).value;
   d.body = $("#body").innerHTML;
   d.sources = document.querySelector("textarea#sources")
-    .value.split("\n")
-    .filter((x) => x.trim())
-    .map((x) => {
-      const i = x.indexOf("|");
-      return { label: x.slice(0, i).trim(), url: x.slice(i + 1).trim() };
+    .value.split(/\r?\n/)
+    .map((line, index) => ({ text: line.trim(), number: index + 1 }))
+    .filter(({ text }) => text)
+    .map(({ text, number }) => {
+      const separator = text.indexOf("|");
+      if (separator < 1) {
+        throw new Error(`Source line ${number}: use Source name | https://source-url`);
+      }
+      const label = text.slice(0, separator).trim();
+      const url = text.slice(separator + 1).trim();
+      if (!label || label.length > 300 || !/^https:\/\/[^\s<>"'\\\\]+$/i.test(url) || url.length > 2048) {
+        throw new Error(`Source line ${number}: enter a name and a valid HTTPS URL`);
+      }
+      return { label, url };
     });
   d.tagIds = [...$("#tagIds").selectedOptions].map((o) => o.value);
   if($("#primaryTopicId"))d.discovery=Object.fromEntries(["primaryTopicId","guideTypeId","audienceTagId"].map(k=>[k,$("#"+k).value||null]));
