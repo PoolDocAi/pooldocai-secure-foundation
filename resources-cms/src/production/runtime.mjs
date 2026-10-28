@@ -20,6 +20,7 @@ export function readRuntimeConfig(env = process.env) {
     origin,
     features:{folders:env.CMS_FOLDERS_ENABLED==='1',taxonomy:env.CMS_TAXONOMY_V3==='1',discovery:env.CMS_DISCOVERY_V3==='1',analytics:env.CMS_ANALYTICS_ENABLED==='1',assistant:env.CMS_ASSISTANT_ENABLED==='1'},
     requireMfa: env.CMS_REQUIRE_TOTP_MFA === '1',
+    mfaEnrollmentEnabled: env.CMS_MFA_ENROLLMENT_ENABLED === '1',
     ownerPublishing: env.CMS_OWNER_PUBLISHING === "1",
     approvedImportCatalogPath: env.CMS_APPROVED_IMPORT_CATALOG || null,
     recoveryOwnerId: env.CMS_RECOVERY_OWNER_ID,
