@@ -58,6 +58,36 @@ try{
     assert(Math.abs(foot.center-foot.brand)<2,'Footer brand is not centered');
     assert(foot.nav>=foot.brandBottom,'Footer links must be below PoolDocAI');
     assert.deepEqual(errors,[],'Unhandled homepage JavaScript error(s): '+errors.join('; '));
+    for(const dot of await page.locator('[data-step]').all()){
+      assert.equal((await dot.textContent()).trim(),'','Scene control must be visibly unlabeled');
+      assert(await dot.getAttribute('aria-label'),'Scene control needs an accessible label');
+    }
+    await page.locator('.assistant-launcher').click();
+    await page.locator('#widget-resource-search').fill('');
+    await page.locator('#widget-resource-search').press('Enter');
+    await page.locator('.pd-widget-card').first().waitFor();
+    assert.equal(await page.locator('.pd-widget-card').count(),2);
+    await page.locator('#widget-resource-search').fill('pump');
+    await page.locator('#widget-resource-search').press('Enter');
+    await page.waitForFunction(()=>document.querySelector('.pd-widget-status')?.textContent==='1 published resource');
+    assert.match(await page.locator('.pd-widget-card').innerText(),/pump/i);
+    await page.locator('#widget-resource-search').fill('green');
+    await page.locator('#widget-resource-search').press('Enter');
+    await page.waitForFunction(()=>document.querySelector('.pd-widget-card h3')?.textContent.toLowerCase().includes('green'));
+    assert.equal(await page.locator('.pd-widget-card').count(),1);
+    await page.locator('#widget-resource-search').fill('zzzz-no-approved-guide');
+    await page.locator('#widget-resource-search').press('Enter');
+    await page.locator('.pd-empty').waitFor();
+    assert.equal(await page.locator('.pd-widget-card').count(),0);
+    assert.match(await page.locator('.pd-widget-status').innerText(),/No published resource/);
+    await page.locator('[data-close]').click();
+    const catalog=await (await page.request.get('http://127.0.0.1:'+server.address().port+'/published-guides.json')).json();
+    assert.deepEqual(catalog.map(r=>r.slug).sort(),['green-pool-first-checks','pool-pump-wont-start']);
+    for(const guide of catalog){
+      const response=await page.request.get('http://127.0.0.1:'+server.address().port+guide.url);
+      assert.equal(response.status(),200,'Guide link must resolve');
+    }
+    assert.deepEqual(errors,[]);
     console.log('BROWSER PASS '+viewport.width+'x'+viewport.height+' backgrounds, scene buttons, footer, links');
   }
   await page.close();
