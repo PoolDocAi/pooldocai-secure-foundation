@@ -33,6 +33,10 @@ Deferred, not blockers:
 - Production security advisors report existing core-application `SECURITY DEFINER` function-access warnings and RLS informational notices. These predate the CMS migration and must be reviewed, not swept away by adjusting production grants.
 - Owner private ZIP: checksum verifier PASS; **34** catalog entries = 32 approved additions + two historical. Among the additional 32, **26** are not asset-gated, **5** require asset review (05/14/15/16/17), and **one** remains blocked (13). The catalog does not preauthorize public release or diagnostic knowledge use.
 - Read-only SQL preflight: `PRODUCTION-CMS-PREFLIGHT-READONLY.sql`. Keep all change authorization separate from these checks.
+- **Independent core immutability baseline (October 27):** `PRODUCTION-CORE-INVARIANTS-READONLY.sql` captures 44 public application tables, 63 core RLS policies, 42 core functions, and 326 table/routine grants, with SHA-256 metadata checksums. Executed against Production: **all 9 assertions true**. Re-run after any reviewed CMS migration; explain any drift rather than overwriting the core.
+- **Production owner bootstrap review candidate:** `resources-cms/supabase/schema-proposals/owner-bootstrap-production.sql` has an intentionally invalid UUID placeholder and fails closed unless a verified, non-banned Production Auth identity is provided. It must run only after v1/v2 migration and backup/rehearsal gates. Nothing has been provisioned yet.
+- **Latest Production generator correction:** `scripts/owner-production-proposal.mjs` now relies on the import fragment's own role transitions (no duplicate SET/RESET commands). Local assembly structure verified against 70,558-byte candidate with one BEGIN/COMMIT, four SET and four RESET commands, no hardcoded Staging owner, disabled Production publishing; PostgreSQL execution not verified.
+
 
 ## Critical release sequence
 
