@@ -117,7 +117,7 @@ test('full CMS app blocks AAL1 from admin and privileged command routes',async()
     publicIndex:async()=>[],publicArticle:async()=>null,redirect:async()=>null
   };
   const app=createProductionApp({
-    config:{...config,origin,requireMfa:true},db
+    config:{supabaseUrl:config.url,publishableKey:config.publishableKey,origin,requireMfa:true},db
   });
   try{
     const low=await app(new Request(origin+'/admin/',{headers:{Cookie:'__Host-pooldocai-cms-access='+encodeURIComponent(v1)}}));
