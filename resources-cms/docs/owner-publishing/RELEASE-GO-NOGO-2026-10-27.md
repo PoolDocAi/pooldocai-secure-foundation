@@ -36,3 +36,15 @@ Alternative: rehearse the owner's existing private backup in an isolated Postgre
 **Do not merge PR #26, deploy `--prod`, expose Staging RPCs on the public domain, alter DNS, change Formspree routing, or mutate the core Production schema to bypass these gates.**
 
 This review is a snapshot of directly observed status, not a claim of background monitoring or future task completion.
+
+## Owner decision — Full CMS only (October 28)
+
+The owner expressly selected **"Full cms"** when offered a marketing-only launch. **Do not perform a public marketing-only cutover** or substitute static two-article delivery for a functioning owner CMS. The isolated Vercel production-mode marketing rehearsal remains valid test evidence but is **not approved for public promotion**.
+
+Current verified remote findings:
+- Staging CMS owner and public routes remain healthy: owner login and health API HTTP 200; two public articles, three private draft records (including one staging-only lifecycle test); active owner, 34 allowlist identities.
+- Supabase organization `PoolDocAI` uses the **Free** plan, with two active projects `owfeebydlyacssqpnmkq` (core Production) and `rzkgmvyyeclrpomrlyft` (CMS Staging). Official Supabase Billing FAQ specifies a limit of **two active free projects**; adding a third in the same organization is not an assured no-cost path. Supabase's cost checker returned $0 for a project but does not override plan quota restrictions. A new dedicated Free organization, a paid upgrade, or a carefully authorized reuse of Staging would need a separate owner decision.
+- A Supabase branch cost check returned **$0.01344/hour**. Branches do **not** copy core Production records by default and are not a verified restore of the owner's existing local PostgreSQL dump, so creating one does not solve the Production recovery requirement.
+- The connected Supabase integration cannot create organizations or restore the owner's private local backup into a new database. No further Production DDL, CMS publishing switch, DNS changes, or marketing-only launch were made.
+
+Recommended safest route: separate production CMS Supabase project, authenticated editor migration and full end-to-end tests, with source-reproducible rollback. Creating its organization/project and selecting any nonzero paid tier require explicit authorization. **Never silently repurpose Staging or mislabel it as Production**; doing so changes staging isolation, rollback and editorial source-of-truth semantics.
