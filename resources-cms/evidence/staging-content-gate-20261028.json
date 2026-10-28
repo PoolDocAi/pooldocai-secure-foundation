@@ -1,0 +1,33 @@
+{
+  "kind": "pooldocai-staging-prepublication",
+  "version": 1,
+  "observedDate": "2026-10-28",
+  "project": "PoolDocAI Staging",
+  "statement": "Read-only SQL from Staging; not a live publishing approval",
+  "counts": {
+    "articles": 33,
+    "drafts": 32,
+    "published_state": 1,
+    "held_drafts": 31,
+    "held_published": 1,
+    "holds": 32,
+    "historical_public_pointers": 2,
+    "scheduled": 0,
+    "knowledge_grants": 0,
+    "synthetic_draft": 1,
+    "publicly_returned": 2,
+    "synthetic_public": 0,
+    "table_count": 21,
+    "rls_table_count": 21,
+    "direct_anon_grants": 0,
+    "direct_auth_grants": 0
+  },
+  "publicSlugs": [
+    "green-pool-first-checks",
+    "pool-pump-wont-start"
+  ],
+  "productionBackupVerified": false,
+  "productionCmsDeployed": false,
+  "cmsSchedulingEnabled": false,
+  "checks": "Live public_index() returned exactly the two approved guides; unheld draft is staging-publication-lifecycle-test; all 31 held drafts stay private. No article contents, user IDs or credentials in evidence."
+}
