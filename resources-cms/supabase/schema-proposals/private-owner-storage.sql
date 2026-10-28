@@ -27,14 +27,15 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
  AND p_name ~ '^images/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.webp$'
  AND NOT EXISTS(SELECT 1 FROM resources_cms.media WHERE object_key=p_name)
 $$;
-ALTER FUNCTION resources_cms.owner_storage_member(text[]) OWNER TO resources_cms_command_owner;
-ALTER FUNCTION resources_cms.owner_storage_public_object(text) OWNER TO resources_cms_command_owner;
-ALTER FUNCTION resources_cms.owner_storage_orphan_object(text) OWNER TO resources_cms_command_owner;
 REVOKE ALL ON FUNCTION resources_cms.owner_storage_member(text[]),resources_cms.owner_storage_public_object(text),resources_cms.owner_storage_orphan_object(text) FROM PUBLIC,anon,authenticated,resources_cms_runtime;
 GRANT EXECUTE ON FUNCTION resources_cms.owner_storage_member(text[]) TO anon,authenticated;
 GRANT EXECUTE ON FUNCTION resources_cms.owner_storage_orphan_object(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION resources_cms.owner_storage_public_object(text) TO anon,authenticated;
 GRANT EXECUTE ON FUNCTION resources_cms.owner_storage_member(text[]),resources_cms.owner_storage_public_object(text),resources_cms.owner_storage_orphan_object(text) TO resources_cms_command_owner;
+-- Finalize ACLs while still the creator; managed postgres is not a superuser.
+ALTER FUNCTION resources_cms.owner_storage_member(text[]) OWNER TO resources_cms_command_owner;
+ALTER FUNCTION resources_cms.owner_storage_public_object(text) OWNER TO resources_cms_command_owner;
+ALTER FUNCTION resources_cms.owner_storage_orphan_object(text) OWNER TO resources_cms_command_owner;
 CREATE POLICY resources_cms_media_insert ON storage.objects FOR INSERT TO authenticated
  WITH CHECK(bucket_id='resources-cms-media' AND owner_id=auth.uid()::text AND resources_cms.owner_storage_orphan_object(name));
 CREATE POLICY resources_cms_media_member_select ON storage.objects FOR SELECT TO authenticated

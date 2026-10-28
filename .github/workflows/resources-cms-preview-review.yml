@@ -1,6 +1,9 @@
 name: PoolDocAI Resources CMS review-only tests
 
 on:
+  pull_request:
+    branches:
+      - review/owner-publishing-recovery
   push:
     branches:
       - review/owner-publishing-recovery
@@ -35,6 +38,9 @@ jobs:
       - name: Test Production migration assembly (no SQL applied)
         working-directory: resources-cms
         run: node --test tests/production-owner-assembly.test.mjs
+      - name: Test owner authorization and private media boundaries
+        working-directory: resources-cms
+        run: node --test tests/owner-media-rights.test.mjs tests/owner-publication.test.mjs tests/owner-media.test.mjs tests/login-fix.test.mjs
       - name: Test disabled folder gate
         working-directory: resources-cms
         run: node --test tests/folders/hosted-feature-gate.test.mjs

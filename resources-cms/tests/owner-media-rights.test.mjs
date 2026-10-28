@@ -61,6 +61,28 @@ for (const storageProposal of ['owner-storage.sql','private-owner-storage.sql'])
  await db.exec("CREATE POLICY synthetic_existing_broad_guard ON storage.objects FOR ALL TO authenticated USING(true) WITH CHECK(true);");
  if(storageProposal==='owner-storage.sql') await db.exec('GRANT USAGE ON SCHEMA auth TO resources_cms_command_owner');
  await db.exec(readFileSync(`supabase/schema-proposals/${storageProposal}`,'utf8'));
+ // Reproduce hosted ACL drift, then repair as the actual NOLOGIN function
+ // owner. Superuser-only fixtures otherwise hide managed-admin grantor errors.
+ const repair=readFileSync('supabase/schema-proposals/private-media-execute-grants.sql','utf8');
+ await assert.rejects(db.exec(repair),/exact function owner/);
+ await db.exec(`SET ROLE resources_cms_command_owner;
+  GRANT EXECUTE ON FUNCTION resources_cms.media_release_ready(uuid),resources_cms.media_rights_read(uuid),
+   resources_cms.media_rights_command(uuid,uuid,integer,text,jsonb),resources_cms.owner_storage_orphan_object(text) TO PUBLIC;RESET ROLE;`);
+ assert.equal((await db.query("SELECT has_function_privilege('anon','resources_cms.media_rights_read(uuid)','EXECUTE') value")).rows[0].value,true);
+ await db.exec('SET ROLE resources_cms_command_owner');await db.exec(repair);await db.exec('RESET ROLE');
+ for(const role of ['anon','authenticated']) {
+  await db.exec(`SET ROLE ${role}`);
+  await assert.rejects(db.query('SELECT resources_cms.media_release_ready($1)',[media]),/permission denied/);
+  if(role==='anon') {
+   await assert.rejects(db.query('SELECT resources_cms.media_rights_read($1)',[media]),/permission denied/);
+   await assert.rejects(command(db,0,'submit',details()),/permission denied/);
+   await assert.rejects(db.query('SELECT resources_cms.owner_storage_orphan_object($1)',['images/test.webp']),/permission denied/);
+  }
+  await db.exec('RESET ROLE');
+ }
+ await signIn(db,owner);const pending=await command(db,0,'submit',details());assert.equal(pending.status,'pending');
+ assert.equal((await db.query('SELECT resources_cms.media_rights_read($1) value',[media])).rows[0].value[0].status,'pending');
+ await db.exec('SET SESSION AUTHORIZATION postgres;RESET ROLE');
  await db.exec(`INSERT INTO storage.objects(bucket_id,name,owner_id)VALUES('resources-cms-media','images/${media}.webp','${owner}')`);
  await db.query("SELECT set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner,role:'authenticated'})]);await db.exec('SET SESSION AUTHORIZATION local_storage_transport;SET ROLE authenticated');
  const orphan='00000000-0000-4000-8000-000000000099';await db.exec(`INSERT INTO storage.objects(bucket_id,name,owner_id)VALUES('resources-cms-media','images/${orphan}.webp','${owner}')`);
