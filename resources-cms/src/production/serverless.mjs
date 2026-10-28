@@ -1,3 +1,4 @@
+import { aal2Required, pendingCookies, verifiedFactors } from './mfa.mjs';
 import {
   AuthError,
   clearSessionCookies,
@@ -34,7 +35,7 @@ function withCookies(body, cookies, status = 200) {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-export function loginRoute({ origin, signIn, memberRole, onIdentityVerified = () => {} }) {
+export function loginRoute({ origin, signIn, memberRole, authConfig, requireMfa = false, onIdentityVerified = () => {} }) {
   return async (request) => {
     try {
       if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -44,7 +45,13 @@ export function loginRoute({ origin, signIn, memberRole, onIdentityVerified = ()
       // Emit no credentials/tokens. This allows bootstrap verification before
       // the first owner membership exists; it does not grant access.
       onIdentityVerified({ id: session.identity.id });
+      if (requireMfa) aal2Required(session.access_token,session.identity);
       const role = await memberRole({ ...session.identity, accessToken: session.access_token });
+      if (requireMfa) {
+        const factors=await verifiedFactors(session.access_token,authConfig);
+        const cookies=pendingCookies(session.access_token);
+        return withCookies({mfaRequired:true,setup:factors.length===0,factors,csrf:cookies.csrf},cookies.headers);
+      }
       const cookies = sessionCookies(session);
       return withCookies({ id: session.identity.id, email: session.identity.email, role, csrf: cookies.csrf }, cookies.headers);
     } catch (error) {
@@ -67,7 +74,7 @@ export function logoutRoute({ origin, authConfig }) {
   };
 }
 
-export function refreshRoute({ origin, authConfig, memberRole }) {
+export function refreshRoute({ origin, authConfig, memberRole, requireMfa = false }) {
   return async (request) => {
     try {
       if (request.method !== "POST") return new Response(null, { status: 405 });
