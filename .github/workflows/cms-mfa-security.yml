@@ -28,7 +28,7 @@ jobs:
         run: npm ci
       - name: Test TOTP password-only denial and verified sessions
         working-directory: resources-cms
-        run: node --test tests/totp-mfa.test.mjs
+        run: node --test tests/totp-mfa.test.mjs tests/serverless-app.test.mjs tests/login-fix.test.mjs
       - name: Check server and browser syntax
         working-directory: resources-cms
         run: |
