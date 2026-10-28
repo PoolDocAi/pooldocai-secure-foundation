@@ -26,3 +26,9 @@ The owner requested two changes before launch:
 - The checkbox is **marketing permission only**, not automatic enrollment into an external email list. Any newsletter or article campaign must filter for `email_updates_opt_in=yes`; missing/no must not become marketing recipients. A live emailing system must honor opt-outs and applicable sender disclosures.
 - No Formspree endpoint or recipient routing was changed. Source still targets `mrpppgkw`, while a separate account-transition handoff refers to `xzedoqqq`. Confirm the intended live form and conduct a labeled, fabricated-data delivery test before public launch; do not silently redirect real customer data.
 - Protected Preview `review-adapter.js` intentionally prevents live waitlist submission. Do not infer Formspree delivery from the simulated tests. Keep Preview's noindex/auth protection and don't run `vercel --prod`.
+
+## Owner confirmation — Formspree target
+
+On October 27, 2026, in response to the request to confirm the **intended live waitlist endpoint**, the owner supplied **https://formspree.io/f/mrpppgkw**. Treat `mrpppgkw` as the explicitly confirmed target for this marketing waitlist, while preserving existing routing. The separate historical `xzedoqqq` reference is **not** authorization to replace the owner-confirmed target. Do not change notification recipients or any Formspree settings based on this note.
+
+**Outstanding:** The owner has not yet confirmed the mailbox currently receiving notification emails, and no labeled live opted-in/opted-out delivery-and-stored-field test has been performed. Avoid claiming Formspree submission/delivery is verified until test entries and recipient delivery are observed. The protected Preview suppresses real submissions.
