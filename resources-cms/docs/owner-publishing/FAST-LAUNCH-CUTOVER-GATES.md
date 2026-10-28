@@ -26,9 +26,9 @@ Deferred, not blockers:
 ## Current Production preflight findings — read-only, verified
 
 - **Approved architecture:** existing Production Supabase project `owfeebydlyacssqpnmkq`, new isolated `resources_cms` schema. This is **not** an authorization to apply SQL migrations or publish articles.
-- Production Postgres **17.11**, nine recorded schema migrations, 44 existing public tables, four Auth users. Neither `resources_cms` schema nor `resources_cms_runtime` / `resources_cms_command_owner` database roles exists yet.
+- Production Postgres **17.11**, nine recorded schema migrations, 44 existing public tables, five Auth users. Neither `resources_cms` schema nor `resources_cms_runtime` / `resources_cms_command_owner` database roles exists yet.
 - **Production CMS owner identity verified (October 27):** newly created Production Auth user is email-confirmed, has a password credential, is not banned/deleted, and its email fingerprint matches the verified Staging CMS owner. It has not signed in yet. Owner role has **not** been granted; bind only the independently verified **Production Auth UUID**, never the Staging UUID. Validate actual login and CSRF once the Production CMS is deployed. Do not commit account identifiers, credentials, or email addresses to the public review mirror.
-- Existing `owner-publication.sql` is **Staging-specific**: it requires 46 recorded migrations, a Staging owner UUID, baseline function hashes, and seeds `owner_release_policy.destination='staging'`. **Do not run this unchanged against Production.** Produce and independently review a Production migration which uses the actual authenticated Production owner ID, avoids hardcoded Staging migration counts/hashes, and initializes an enabled `production` destination only after explicit owner release approval. Preserve the Staging migration separately.
+- Existing `owner-publication.sql` is **Staging-specific** and must never be applied to Production. A separate `owner-publication-production.sql` review candidate and `owner-production-proposal.mjs` assembly now remove Staging owner/migration-count assumptions and initialize `owner_release_policy.destination='production', enabled=false`. The assembled SQL is reproducible; it has **not** been applied or validated by a full disposable-hosted installation. It still requires preceding isolated-schema/commands migrations, Production owner provisioning and an independent privilege review.
 - Supabase custom schema `resources_cms` must be explicitly listed in **Data API > Exposed schemas** before CMS RPCs work. Grant only minimal schema USAGE and carefully allowlisted function EXECUTE. Do **not** apply broad example SQL that grants ALL to anon/authenticated on CMS tables or routines.
 - Production security advisors report existing core-application `SECURITY DEFINER` function-access warnings and RLS informational notices. These predate the CMS migration and must be reviewed, not swept away by adjusting production grants.
 - Owner private ZIP: checksum verifier PASS; **34** catalog entries = 32 approved additions + two historical. Among the additional 32, **26** are not asset-gated, **5** require asset review (05/14/15/16/17), and **one** remains blocked (13). The catalog does not preauthorize public release or diagnostic knowledge use.
@@ -39,7 +39,7 @@ Deferred, not blockers:
 ### Gate A — Choose and authorize Production CMS isolation
 Recommended lower-friction option: a separately protected `resources_cms` schema in the existing core Production Supabase project, **only if** a security/permission audit confirms isolation from the multi-tenant diagnostics schema and existing app tables. Alternative: a dedicated new Supabase Production CMS project for stronger operational separation, with any associated cost explicitly approved. Either way **Staging must remain separate**; do not use Staging as the permanent public origin.
 
-Before DDL: capture backup, schema snapshot, table/RPC permissions, Auth and role invariants, and migration history. Review migrations as one explicit, independently approved Production change. No automatic copying of Staging Auth users/sessions.
+Before DDL: confirm an owner-controlled, recoverable backup, schema snapshot, table/RPC permissions, Auth and role invariants, and migration history. The owner reports a successful 2026-10-27 PostgreSQL 18.6 custom archive from Production (738,886 bytes; SHA-256 `6E715820DB8C13C9350074A86E5651D623A4A97C0EABD1870E8393F2332F35C7`). The `pg_restore --list`/table-metadata checks passed **locally on the owner's machine**; **encryption, complete restore and recovery verification remain unconfirmed**. Store the archive privately, verify restore in a disposable environment, and do not treat a metadata check as a proven Supabase recovery. Review migrations as one explicit, independently approved Production change. No copying Staging Auth users/sessions.
 
 ### Gate B — Production owner and content
 Bootstrap owner's verified CMS identity and least-privilege membership; verify hosted login, CSRF, password recovery, and session expiry. Import only the **two** already approved historical source snapshots with provenance and checksum verification. Re-authorize those exact revisions in Production; don't migrate the staging test article or automatically publish 32 additional draft resources. Verify owned source catalog can import any of the 32 as private drafts, respecting Resource 30 exclusion and asset rights holds.
@@ -59,10 +59,10 @@ Observe logs for HTTP 5xx/404, API usage and security events. Add scheduled publ
 
 ## Current blockers (not to paper over)
 
-1. No Production CMS schema/project is configured.
+1. No Production CMS schema/project is configured, and the owner-reported backup has not yet been test-restored.
 2. The full approved marketing package and CMS integration are not yet verified together in a hosted marketing Preview.
-3. PR #25/26 and code-only new URL verification still require test review. Preview branch is not Production.
-4. Production Auth/owner migration, static-shadow removal, and real public domain smoke/regression checks are not complete.
+3. PR #25/26 and code-only new URL verification still require test review. Preview branch is not Production. Review-branch CI and independent hosted dry-run have not been confirmed green.
+4. Production Auth/owner migration, Data API schema exposure, static-shadow removal, and real public domain smoke/regression checks are not complete.
 5. Automated *external* reachability monitoring is not yet installed; the CMS owner-editor check catches same-origin HTTP/HTML failure after release but is not a substitute for testing `pooldocai.com`.
 
 **No folder migration is required for the initial Resources release. Do not relax editorial holds or diagnostic-knowledge safeguards to accelerate release.**
