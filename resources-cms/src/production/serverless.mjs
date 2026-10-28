@@ -45,7 +45,6 @@ export function loginRoute({ origin, signIn, memberRole, authConfig, requireMfa 
       // Emit no credentials/tokens. This allows bootstrap verification before
       // the first owner membership exists; it does not grant access.
       onIdentityVerified({ id: session.identity.id });
-      if (requireMfa) aal2Required(session.access_token,session.identity);
       const role = await memberRole({ ...session.identity, accessToken: session.access_token });
       if (requireMfa) {
         const factors=await verifiedFactors(session.access_token,authConfig);
@@ -81,6 +80,7 @@ export function refreshRoute({ origin, authConfig, memberRole, requireMfa = fals
       requireOrigin(request, origin);
       requireCsrf(request);
       const session = await refreshSession(refreshToken(request), authConfig);
+      if (requireMfa) aal2Required(session.access_token,session.identity);
       const role = await memberRole({ ...session.identity, accessToken: session.access_token });
       const cookies = sessionCookies(session);
       return withCookies({ id: session.identity.id, email: session.identity.email, role, csrf: cookies.csrf }, cookies.headers);
