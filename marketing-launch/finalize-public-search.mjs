@@ -45,7 +45,7 @@ home=home.replace(unbranded,'<strong class="launch-footer-brand">PoolDoc<span cl
 const appScript='<script src="/app.js" defer></script>';
 assert.equal(home.split(appScript).length,2,'Expected a single app.js script');
 assert(!home.includes('/scene-autoplay.js'),'Autoplay already registered');
-home=home.replace(appScript,appScript+'\\n<script src="/scene-autoplay.js" defer></script>');
+home=home.replace(appScript,appScript+'\n<script src="/scene-autoplay.js" defer></script>');
 write('public/index.html',home);
 write('public/scene-autoplay.js',read('scripts/scene-autoplay.js','utf8'));
 assert(home.includes('<span class="brand-ai">AI</span>'));
