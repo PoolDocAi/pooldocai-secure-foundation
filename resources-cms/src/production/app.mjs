@@ -21,6 +21,7 @@ export function createProductionApp(runtime = productionRuntime()) {
   const { config, db } = runtime;
   if(config.features?.discovery)db.useVerifiedCatalog=true;
   if(config.features?.taxonomy)db.platformEnabled=true;
+  if(config.ownerPublishing)db.ownerPublishing=true;
   if(config.features?.folders)db.navigationEnabled=true;
   const authConfig = { url: config.supabaseUrl, publishableKey: config.publishableKey };
   const identity = async (request) => {
@@ -39,7 +40,8 @@ export function createProductionApp(runtime = productionRuntime()) {
   const command = commandRoute({ identity, db, origin: config.origin });
   const upload = mediaUploadRoute({ identity, db, storage, origin: config.origin });
   const media = mediaReadRoute({ identity, db, storage });
-  const compat = compatibilityRoute({ db, identity, memberRole, origin: config.origin, uploadRoute: upload });
+  const approvedImports = config.approvedImportCatalogPath ? JSON.parse(readFileSync(config.approvedImportCatalogPath,"utf8")) : null;
+  const compat = compatibilityRoute({ db, identity, memberRole, origin: config.origin, uploadRoute: upload, approvedImports, ownerPublishing: config.ownerPublishing === true });
   const health = healthRoute({ db });
   const platformAdapter=new SupabasePlatformAdapter(db);
   const platform=platformRoutes({features:config.features||{},adapter:platformAdapter,origin:config.origin,identity:async request=>{const u=await identity(request);return {...u,role:await memberRole(u)};},guardWrite:async request=>{requireOrigin(request,config.origin);requireCsrf(request);}});
@@ -73,16 +75,26 @@ export function createProductionApp(runtime = productionRuntime()) {
     }
     const previewAsset = path.match(/^\/preview-assets\/(resource-17\/workflow\.(?:svg|png|pdf))$/);
     if (previewAsset && request.method === "GET") {
+      // Authentication and editorial file availability are separate gates.
+      // Missing private review assets must never masquerade as a bad login.
       try {
-        const user = await identity(request); await memberRole(user);
-        const asset = editorialAsset(previewAsset[1]);
-        if (!asset) return new Response(null, { status: 404 });
-        return new Response(asset.bytes, { status: 200, headers: {
-          "Content-Type": asset.mime, "Content-Disposition": `${asset.mime.startsWith("application/pdf") ? "attachment" : "inline"}; filename="${asset.filename}"`,
-          "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff",
-          "Content-Security-Policy": "default-src 'none'; sandbox",
-        } });
-      } catch { return new Response(null, { status: 401, headers: { "Cache-Control": "no-store" } }); }
+        const user = await identity(request);
+        await memberRole(user);
+      } catch {
+        return new Response(null, { status: 401, headers: { "Cache-Control": "no-store" } });
+      }
+      let asset;
+      try {
+        asset = editorialAsset(previewAsset[1]);
+      } catch {
+        return new Response(null, { status: 503, headers: { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow" } });
+      }
+      if (!asset) return new Response(null, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+      return new Response(asset.bytes, { status: 200, headers: {
+        "Content-Type": asset.mime, "Content-Disposition": `${asset.mime.startsWith("application/pdf") ? "attachment" : "inline"}; filename="${asset.filename}"`,
+        "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+      } });
     }
     if (path === "/resources/" || path === "/resources") return html(renderPublicHub(await db.publicIndex(), url.searchParams), 200, { "Cache-Control": url.search ? "no-store" : "no-store" });
     if (path === "/resources-sitemap.xml") return new Response(config.features?.discovery?catalogSitemap(await platformAdapter.catalog()):renderSitemap(await db.publicIndex()), { headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store" } });

@@ -30,7 +30,9 @@ export async function validatedImage(bytes) {
   if (!metadata.width || !metadata.height || metadata.width > 10_000 || metadata.height > 10_000) {
     throw new Error("Image dimensions rejected");
   }
+  if ((metadata.pages || 1) !== 1) throw new Error("Animated images are not enabled");
   const output = await image.rotate().webp({ quality: 85, effort: 4 }).toBuffer();
+  if (output.length > MAX_IMAGE_BYTES) throw new Error("Canonical image size rejected");
   return {
     bytes: output,
     mime: "image/webp",
@@ -54,8 +56,11 @@ export class PrivateStorage {
   }
 
   async request(objectKey, token, { method = "GET", body, contentType, allowAnonymous = false } = {}) {
-    if (!/^images\/[0-9a-f-]{36}\.webp$/i.test(String(objectKey || ""))) throw new Error("Invalid object key");
+    const match = String(objectKey || "").match(/^images\/([^/]+)\.webp$/i);
+    if (!match || !UUID.test(match[1])) throw new Error("Invalid object key");
     if ((!token && !allowAnonymous) || String(token || "").length > 8192) throw new Error("Authentication required");
+    if (!['GET','POST','DELETE'].includes(method) || (allowAnonymous && method !== 'GET')) throw new Error("Storage operation rejected");
+    if (/[\r\n]/.test(String(token || ""))) throw new Error("Authentication rejected");
     const response = await this.fetchImpl(new URL(`/storage/v1/object/${this.bucket}/${objectKey}`, this.url), {
       method,
       headers: {
@@ -94,16 +99,19 @@ export class PrivateStorage {
 }
 
 export async function mediaGateway(id, { authorize, readPrivate, published = false, etag = null }) {
-  if (!UUID.test(String(id || ""))) return new Response(null, { status: 404 });
+  const unavailable = () => new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (!UUID.test(String(id || ""))) return unavailable();
   const authorization = await authorize(id);
-  if (!authorization) return new Response(null, { status: 404 });
+  if (!authorization) return unavailable();
   const value = await readPrivate(id);
   const bytes = value instanceof Response ? await value.arrayBuffer() : value;
   return new Response(bytes, {
     headers: {
       "Content-Type": "image/webp",
       "Content-Length": String(bytes.byteLength),
-      "Cache-Control": published ? "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400" : "private, no-store",
+      // A public reference can be withdrawn on the next request. Never serve an
+      // old cached object after the database no longer authorizes its delivery.
+      "Cache-Control": published ? "no-store, max-age=0, s-maxage=0" : "private, no-store",
       ...(etag ? { ETag: `"${etag}"` } : {}),
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",

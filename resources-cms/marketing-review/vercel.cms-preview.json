@@ -1,0 +1,92 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
+  "rewrites": [
+    {
+      "source": "/media/:mediaId([0-9a-f-]{36})",
+      "destination": "/api/cms-public?__path=/media/:mediaId"
+    },
+    {
+      "source": "/resources/collections/:collectionPath([a-z0-9-]+(?:/[a-z0-9-]+)+)/",
+      "destination": "/api/cms-public?__path=/resources/collections/:collectionPath/"
+    },
+    {
+      "source": "/resources/collections/:path*",
+      "destination": "/api/cms-public?__path=/resources/collections/:path*"
+    },
+    {
+      "source": "/resources/:articleSlug([a-z0-9-]+)/",
+      "destination": "/api/cms-public?__path=/resources/:articleSlug/"
+    },
+    {
+      "source": "/resources/:articleSlug([a-z0-9-]+)",
+      "destination": "/api/cms-public?__path=/resources/:articleSlug"
+    },
+    {
+      "source": "/resources/",
+      "destination": "/api/cms-public?__path=/resources/"
+    },
+    {
+      "source": "/resources",
+      "destination": "/api/cms-public?__path=/resources"
+    },
+    {
+      "source": "/api/public/resources",
+      "destination": "/api/cms-public?__path=/api/public/resources"
+    },
+    {
+      "source": "/resources-sitemap.xml",
+      "destination": "/api/cms-public?__path=/resources-sitemap.xml"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/cms-public?__path=/resources-sitemap.xml"
+    },
+    {
+      "source": "/llms.txt",
+      "destination": "/api/cms-public?__path=/llms.txt"
+    },
+    {
+      "source": "/analytics/collect",
+      "destination": "/api/review?__path=/analytics/collect"
+    },
+    {
+      "source": "/api/review-mode",
+      "destination": "/api/review?__path=/api/review-mode"
+    },
+    {
+      "source": "/public/:asset*",
+      "destination": "/:asset*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow, noarchive"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'sha256-UzfK5VgY11o7T9BtOY3Q6sHMid5P8QyFd282tQRFh8A=' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.google-analytics.com https://www.facebook.com; connect-src 'self' https://formspree.io https://www.google-analytics.com https://region1.google-analytics.com https://www.facebook.com; form-action 'self' https://formspree.io; frame-ancestors 'none'; base-uri 'none'"
+        }
+      ]
+    }
+  ],
+  "buildCommand": "node scripts/build-sanitizer.mjs && node scripts/build-cms-preview.mjs",
+  "installCommand": "npm ci",
+  "framework": null,
+  "functions": {
+    "api/cms-public.mjs": {
+      "includeFiles": "{review-navigation.json,live-catalog.json,review-pages/**}"
+    },
+    "api/review.mjs": {
+      "includeFiles": "{review-navigation.json,live-catalog.json,config/analytics-events.json}"
+    }
+  }
+}

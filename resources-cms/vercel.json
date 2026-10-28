@@ -60,6 +60,22 @@
       "destination": "/api/resources?__cms_path=/resources-sitemap.xml"
     },
     {
+      "source": "/resources",
+      "destination": "/api/resources?__cms_path=/resources/"
+    },
+    {
+      "source": "/resources/",
+      "destination": "/api/resources?__cms_path=/resources/"
+    },
+    {
+      "source": "/resources/:slug/",
+      "destination": "/api/resources?__cms_path=/resources/:slug/"
+    },
+    {
+      "source": "/resources/:slug",
+      "destination": "/api/resources?__cms_path=/resources/:slug/"
+    },
+    {
       "source": "/resources/:path*",
       "destination": "/api/resources?__cms_path=/resources/:path*"
     }

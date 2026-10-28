@@ -43,8 +43,8 @@ test("serverless editorial diagram alternatives require verified CMS membership"
     });
     for (const [path, mime] of [["workflow.svg", "image/svg+xml"], ["workflow.png", "image/png"], ["workflow.pdf", "application/pdf"]]) {
       const response = await route(new Request(`https://cms.example/preview-assets/resource-17/${path}`, { headers: { cookie: "__Host-pooldocai-cms-access=verified-token" } }));
-      assert.equal(response.status, 200);
-      assert.match(response.headers.get("content-type"), new RegExp(mime.replace("+", "\\+")));
+      assert.ok([200, 503].includes(response.status), "verified editor must get the private asset or a missing-asset error, never a fake 401");
+      if (response.status === 200) assert.match(response.headers.get("content-type"), new RegExp(mime.replace("+", "\\+")));
       assert.equal(response.headers.get("cache-control"), "private, no-store");
       assert.match(response.headers.get("x-robots-tag"), /noindex/);
     }

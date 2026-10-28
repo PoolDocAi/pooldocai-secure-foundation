@@ -1,0 +1,19 @@
+# Owner publishing recovery — implementation checkpoint
+
+Branch: launch/owner-publishing-recovery. Private baseline v0.6.0 commit9f762d3, reconciled with the accepted v0.6.1 source (ZIP SHA fcea1711ff9507f59ddda253a7374ffd8a97721c3e5a1352651801e822c81df0). No core application changes.
+
+Implemented: single trusted approved-resource selection/import; immutable source history and checksum allowlist; existing live snapshot imports; separate owner revision-release confirmation; SQL transaction/idempotency/version guards; published-pointer isolation while editing; publication blocks; private image rights/relevance review; fail-closed restore/export; public published-only delivery and approved marketing renderer integration.
+
+Private inputs live outside the public code mirror: ../private-imports contains 32 approved resource envelopes, two original live snapshots, the complete private catalog and an allowlist seed. Resource30 remains excluded. The public mirror intentionally cannot run private-content tests without those inputs; use the private release package. Run prepare-owner-imports.mjs with the preserved original Gate3B source to regenerate deterministically; do not execute or rewrite that SQL.
+
+Local tests are actual application/HTTP/PGlite/Sharp and browser executions; Auth signing, managed PostgREST transport, Storage HTTP and media RLS schemas are test fixtures. They do not establish hosted Supabase/Vercel acceptance. Full owner workflow covers both original articles and Resource11; no cloud publication occurred. A fake local user or JWT is never a substitute for the owner's hosted identity test.
+
+The old absolute editorial hold remains immutable. Exact owner acknowledgement creates an append-only release for one revision/checksum/destination/version. Mandatory media/download blocks remain absolute. A stale release cannot publish a later revision or silently republish after unpublish. Source and draft imports confer no diagnostic eligibility. New image publication requires independently approved rights for the registered checksum. The existing historical OG asset is retained only for the two checksum-anchored original snapshots.
+
+Runtime gates (off until approved migrations and hosted validation): CMS_OWNER_PUBLISHING=1 and CMS_APPROVED_IMPORT_CATALOG=<private server-only catalog path>. Existing SUPABASE_URL, publishable key, CMS_ORIGIN and owner identity stay unchanged. No service-role or database credential is used. PDFs/SVG uploads remain disabled. Folder/taxonomy/analytics feature gates remain independently controlled; no new unrelated migrations are implied.
+
+Public integration is a separate full marketing candidate/commit, not an overwrite from older PR subtrees. It keeps PR25 legal text, Resources/Privacy Policy/Terms of Service/Contact (hello@pooldocai.com), the original homepage and current visual design. Public reads use anonymous publishable-key public RPCs and no-store caches; API outages return controlled503 rather than serving a revoked stale article. Homepage availability stays independent. No new subscription/worker/vector service is introduced.
+
+IMPORTANT: Staging public projections become anonymously retrievable from Supabase after a test revision is published, even with Vercel Preview authentication. A hosted acceptance gate must explicitly authorize the exact staged test revisions and their cleanup; Vercel protection alone does not protect anonymous DataAPI RPCs.
+
+No remote migrations, imports, Storage setup, publication, Production deployment, DNS changes, security weakening or PR merges occurred in this sprint. Existing Gate3B SQL/checksums remain untouched; after incremental imports its empty-baseline rehearsal must not be replayed. Use the new separately approved gate instead of reconstructing or reusing the old bulk transaction.

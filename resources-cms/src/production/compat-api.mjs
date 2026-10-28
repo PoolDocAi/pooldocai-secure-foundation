@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { AuthError, CSRF_COOKIE, parseCookies, requireCsrf, requireOrigin } from "./auth.mjs";
 import { normalizeArticleCommand } from "./validation.mjs";
+import {readMediaRights,reviewMediaRights} from "./media-rights-review.mjs";
+import {validateApprovedImport} from "./approved-import.mjs";
 import {sanitize,safeURL} from '../content.mjs';
 
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -39,20 +41,37 @@ function status(error) {
   return 500;
 }
 
-export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute }) {
+export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute, approvedImports=null, ownerPublishing=false }) {
   return async (request) => {
     try {
       const url = new URL(request.url), path = url.pathname;
       if (request.method !== "GET") { requireOrigin(request, origin); requireCsrf(request); }
       const user = await identity(request), role = await memberRole(user);
-      if (path === "/api/me" && request.method === "GET") return json({ id: user.id, email: user.email || "", role, csrf: parseCookies(request.headers.get("cookie"))[CSRF_COOKIE] || null });
+      if (path === "/api/me" && request.method === "GET") return json({ id: user.id, email: user.email || "", role, ownerPublishing, approvedCollectionInstalled:Array.isArray(approvedImports), csrf: parseCookies(request.headers.get("cookie"))[CSRF_COOKIE] || null });
+      if(path === "/api/approved-resources") {
+        if(role!=="owner") return json({error:"Owner required"},403);
+        if(!Array.isArray(approvedImports))return json({error:"Private approved collection is not installed"},503);
+        if(request.method==="GET") return json(approvedImports.map(e=>({resourceId:e.resourceId,title:e.article.title,slug:e.article.slug,sourceIdentity:e.source.identity,sourceChecksum:e.source.sha256,assetStatus:e.assetStatus})));
+        if(request.method==="POST") {
+          const incoming=await body(request),selected=approvedImports.find(e=>e.source.identity===incoming.sourceIdentity&&e.source.sha256===incoming.sourceChecksum);
+          if(!selected)return json({error:"Approved source not found"},404);
+          const entry=validateApprovedImport(selected,approvedImports),result=await db.ownerImport(user,entry);
+          return json(formatted(await db.read(user,result.id)),200);
+        }
+      }
       if (path === "/api/content" && request.method === "GET") {
         const [rows, statuses] = await Promise.all([db.list(user, { limit: 200 }), db.knowledgeStatuses(user)]);
         const map = new Map(statuses.map((item) => [item.article_id, item]));
         return json(rows.map((row) => formatted(row, map.get(row.id))));
       }
       if (["/api/content", "/api/import"].includes(path) && request.method === "POST") {
-        const incoming = await body(request), value = path === "/api/import" ? incoming.article : incoming;
+        const incoming = await body(request,2_000_000), value = path === "/api/import" ? incoming.article : incoming;
+        if(path==="/api/import"&&incoming.format==="pooldocai-owner-import-v1") {
+          if(role!=="owner")return json({error:"Owner required"},403);
+          if(!Array.isArray(approvedImports))return json({error:"Private approved collection is not installed"},503);
+          const entry=validateApprovedImport(incoming,approvedImports),result=await db.ownerImport(user,entry);
+          return json(formatted(await db.read(user,result.id)),200);
+        }
         if (path === "/api/import" && incoming.format !== "pooldocai-resource-v1") throw Object.assign(new Error("Invalid import format"), { status: 422 });
         const id = randomUUID();
         const result = await db.command(user, id, 0, "create", normalizeArticleCommand("create", value), randomUUID());
@@ -65,6 +84,16 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
         if (!action && request.method === "PUT") {
           const incoming = await body(request), result = await db.command(user, id, incoming.version, "save", normalizeArticleCommand("save", incoming), randomUUID());
           return json(formatted(await db.read(user, result.id)));
+        }
+        if(action === "release" && request.method === "GET") {
+          if(role!=="owner")return json({error:"Owner required"},403);
+          if(!ownerPublishing)return json({error:"Owner publication gate is not installed"},503);
+          return json(await db.releaseInfo(user,id));
+        }
+        if(action === "publish" && request.method === "POST" && ownerPublishing) {
+          if(role!=="owner")return json({error:"Owner required"},403);
+          const incoming=await body(request),result=await db.ownerPublish(user,id,incoming);
+          return json(formatted(await db.read(user,result.id)));
         }
         if (action === "revisions" && request.method === "GET") return json((await db.revisions(user, id)).map((row) => ({ ...row, reason: "immutable_snapshot" })));
         if (request.method === "POST") {
@@ -102,8 +131,15 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
         headers.set("x-image-alt", encodeURIComponent(incoming.alt || ""));
         return uploadRoute(new Request(request.url, { method: "POST", headers, body: bytes }));
       }
+      const rights=path.match(/^\/api\/media\/([0-9a-f-]{36})\/rights$/i);
+      if(rights){
+        if(!ownerPublishing)return json({error:"Image rights review gate is not installed"},503);
+        if(request.method==="GET")return json(await readMediaRights(db,user,rights[1]));
+        if(request.method==="POST"){const incoming=await body(request,25000);return json(await reviewMediaRights(db,user,incoming.action,{...incoming,mediaId:rights[1]}));}
+      }
       const media = path.match(/^\/api\/media\/([0-9a-f-]{36})$/i);
       if (media && request.method === "PUT") { const incoming = await body(request); return json(await db.mediaCommand(user, "update-alt", { id: media[1], alt: incoming.alt })); }
+      if(media && request.method==="DELETE")return json(await db.mediaCommand(user,"archive",{id:media[1]}));
       if (path === "/api/settings" && request.method === "GET") return json({ ...(await db.settings(user)), permissions: { owner: ["write", "review", "publish", "knowledge"], editor: ["write"], reviewer: ["review", "knowledge"], viewer: ["read"] } });
       if (path === "/api/settings" && request.method === "PUT") return json(await db.settingsCommand(user, await body(request)));
       if (path === "/api/dashboard" && request.method === "GET") {

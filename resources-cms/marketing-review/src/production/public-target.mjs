@@ -1,0 +1,37 @@
+// Production public Resources must not be wired to a Staging CMS database.
+// All project references are public identifiers, not credentials.
+const REF = /^[a-z0-9]{20}$/;
+// Owner approved moving THIS isolated Free-tier CMS from Staging to Production.
+// Exceptional same-ref delivery requires a separately configured exact-ref gate.
+const APPROVED_FREE_CMS_PROMOTION_REF = 'rzkgmvyyeclrpomrlyft';
+
+export function assertPublicCMSDeliveryTarget(env) {
+  if (env.VERCEL_ENV !== 'production') return;
+  if (env.CMS_PUBLISHED_DELIVERY_ENABLED !== '1') {
+    throw new Error('Production CMS public-delivery gate is disabled');
+  }
+  const expected = env.PUBLIC_RESOURCES_PRODUCTION_PROJECT_REF;
+  const staging = env.PUBLIC_RESOURCES_STAGING_PROJECT_REF;
+  // Normal releases require distinct Staging/Production projects. Option B may
+  // promote the EXISTING isolated CMS project only after the owner-approved
+  // pre-promotion backup and production publication-policy transition.
+  const previouslyStagingButPromoted = expected === staging &&
+    expected === APPROVED_FREE_CMS_PROMOTION_REF &&
+    env.PUBLIC_RESOURCES_APPROVED_FREE_PROMOTION_REF === APPROVED_FREE_CMS_PROMOTION_REF;
+  if (!REF.test(expected || '') || !REF.test(staging || '') ||
+      (expected === staging && !previouslyStagingButPromoted)) {
+    throw new Error('Separate approved Production and Staging CMS project references are required, unless exact owner-approved Free-tier CMS promotion applies');
+  }
+  let actual;
+  try {
+    const uri = new URL(env.PUBLIC_RESOURCES_SUPABASE_URL);
+    if (uri.protocol !== 'https:' || uri.origin !== env.PUBLIC_RESOURCES_SUPABASE_URL ||
+        uri.username || uri.password || uri.port) throw Error('Invalid target');
+    actual = uri.hostname;
+  } catch {
+    throw new Error('A valid exact HTTPS Production CMS Supabase URL is required');
+  }
+  if (actual !== `${expected}.supabase.co`) {
+    throw new Error('Public Resources Production target does not match the owner-approved CMS project');
+  }
+}

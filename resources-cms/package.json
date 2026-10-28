@@ -10,7 +10,7 @@
     "test:integration": "node --test tests/integration-security.test.mjs",
     "start": "node server.mjs",
     "test": "node --test tests/api.test.mjs tests/approved-content.test.mjs tests/editorial-collection.test.mjs",
-    "test:production": "node --test tests/production-adapters.test.mjs tests/serverless-app.test.mjs tests/production-e2e-pglite.test.mjs tests/migration-static.test.mjs",
+    "test:production": "node --test tests/production-adapters.test.mjs tests/serverless-app.test.mjs tests/production-e2e-pglite.test.mjs tests/migration-static.test.mjs tests/publication-reachability.test.mjs",
     "test:browser": "node tests/browser.mjs",
     "bootstrap": "node scripts/bootstrap.mjs",
     "backup": "node scripts/backup.mjs",
