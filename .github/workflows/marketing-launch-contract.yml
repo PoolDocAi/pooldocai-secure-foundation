@@ -29,4 +29,7 @@ jobs:
         run: |
           node --check marketing-launch/check-public-release.mjs
           node --check marketing-launch/finalize-public-static-v3.mjs
+          node --check marketing-launch/finalize-public-search.mjs
+          node --check marketing-launch/public-guide-search.js
+          node --check marketing-launch/scene-autoplay.js
           node --check marketing-launch/browser-acceptance.mjs
