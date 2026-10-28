@@ -61,7 +61,7 @@ export async function verifiedFactors(token,config,options={}){
   }));
 }
 
-const E164=/^\\+[1-9][0-9]{7,14}$/;
+const E164=/^\+[1-9][0-9]{7,14}$/;
 
 const json=(body,status=200,cookies=[])=>{
   const headers=new Headers({'Content-Type':'application/json',...noStore});
