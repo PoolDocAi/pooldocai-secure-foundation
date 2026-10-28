@@ -40,7 +40,7 @@ export function createProductionApp(runtime = productionRuntime()) {
   });
   const logout = logoutRoute({ origin: config.origin, authConfig });
   const refresh = refreshRoute({ origin: config.origin, authConfig, memberRole, requireMfa:config.requireMfa });
-  const mfa=mfaRoute({origin:config.origin,authConfig,memberRole});
+  const mfa=mfaRoute({origin:config.origin,authConfig,memberRole,allowPreEnrollment:config.mfaEnrollmentEnabled&&!config.requireMfa});
   const command = commandRoute({ identity, db, origin: config.origin });
   const upload = mediaUploadRoute({ identity, db, storage, origin: config.origin });
   const media = mediaReadRoute({ identity, db, storage });
@@ -55,7 +55,7 @@ export function createProductionApp(runtime = productionRuntime()) {
     if(platformPath(path)&&!(path==='/resources/'&&!config.features?.discovery))return platform(request);
     if (path.startsWith('/api/recovery/') || path === '/admin/recovery/callback') return recovery(request);
     if (path === "/api/login") return login(request);
-    if (path.startsWith("/api/mfa/")) return config.requireMfa?mfa(request):new Response(null,{status:404});
+    if (path.startsWith("/api/mfa/")) return config.requireMfa||config.mfaEnrollmentEnabled?mfa(request):new Response(null,{status:404});
     if (path === "/api/logout") return logout(request);
     if (path === "/api/refresh") return refresh(request);
     if (path === "/api/cms/command") return command(request);
