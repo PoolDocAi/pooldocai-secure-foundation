@@ -27,11 +27,14 @@ try{
     const errors=[];
     page.on('pageerror',err=>errors.push(err.message));
     await page.goto('http://127.0.0.1:'+server.address().port+'/',{waitUntil:'load',timeout:30000});
+    await page.waitForTimeout(250);
+    console.log('BROWSER STATE '+viewport.width+' '+JSON.stringify({errors,ready:await page.evaluate(()=>document.readyState),script:[...await page.locator('script[src]').evaluateAll(nodes=>nodes.map(n=>n.src))],buttons:await page.locator('[data-step]').count()}));
     const img=await page.evaluate(()=>{const day=document.getElementById('day');return {w:day.naturalWidth,h:day.naturalHeight,sceneZ:getComputedStyle(document.querySelector('.scenery')).zIndex}});
     assert(img.w>0&&img.h>0,'Day image missing/broken: '+JSON.stringify(img));
     assert.equal(img.sceneZ,'0','Scenery behind canvas');
     const night=page.locator('[data-step="2"]');
     await night.click({timeout:10000});
+    console.log('NIGHT CLICK STATE '+JSON.stringify({pressed:await night.getAttribute('aria-pressed'),errors,heading:await page.locator('#headline').innerText()}));
     assert.equal(await night.getAttribute('aria-pressed'),'true','Night selector did not activate');
     await page.waitForFunction(()=>document.getElementById('night').naturalWidth>0,{timeout:15000});
     assert.match(await page.locator('#headline').innerText(),/BETTER POOL DAYS/i,'Night headline did not update');
