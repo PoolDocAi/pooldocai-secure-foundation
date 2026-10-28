@@ -7,7 +7,7 @@ const UUID='00000000-0000-4000-8000-000000000001';
 const FACTOR='00000000-0000-4000-8000-000000000002';
 const CHALLENGE='00000000-0000-4000-8000-000000000003';
 const origin='https://cms.example';
-const config={url:'https://example.supabase.co',publishableKey:'sb_publishable_test'};
+const config={url:'https://example.supabase.co',publishableKey:'sb_publishable_test',fetchImpl:(...args)=>mockFetch(...args)};
 const jwt=aal=>'x.'+Buffer.from(JSON.stringify({sub:UUID,aal,exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.sig';
 const v1=jwt('aal1'),v2=jwt('aal2');
 
