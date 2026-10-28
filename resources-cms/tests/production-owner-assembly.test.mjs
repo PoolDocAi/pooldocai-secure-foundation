@@ -30,6 +30,16 @@ test('Production owner migration assembles every private-import and rights depen
     sql.indexOf('CREATE FUNCTION resources_cms.owner_publish('));
 });
 
+test('Production SQL changes role only at expected ownership boundaries', () => {
+  const sql=ownerProductionProposal();
+  assert.doesNotMatch(sql,/\bRESET ROLE;\s+RESET ROLE;/i);
+  assert.doesNotMatch(sql,/\bSET ROLE resources_cms_command_owner;\s+SET ROLE resources_cms_command_owner;/i);
+  assert.ok(sql.indexOf('CREATE TABLE resources_cms.approved_import_allowlist(') > sql.indexOf('RESET ROLE;'));
+  assert.ok(sql.indexOf('CREATE FUNCTION resources_cms.owner_import(') > sql.indexOf('CREATE TABLE resources_cms.owner_import_sources('));
+  assert.equal((sql.match(/\bBEGIN;/g)||[]).length,1);
+  assert.equal((sql.match(/\bCOMMIT;/g)||[]).length,1);
+});
+
 test('Production owner authorization requires an existing verified active Auth user and empty CMS baseline', () => {
   const sql=ownerProductionProposal();
   assert.match(sql,/JOIN auth\.users u ON u\.id=m\.user_id/);
