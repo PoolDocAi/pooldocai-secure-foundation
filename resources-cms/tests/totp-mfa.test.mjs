@@ -101,3 +101,35 @@ test('missing pending token, origin, or CSRF cannot enroll MFA',async()=>{
   const crossSite=new Request(origin+'/api/mfa/enroll',{method:'POST',headers:{...headers,Origin:'https://attacker.invalid'},body:'{}'});
   assert.equal((await route(crossSite)).status,403);
 });
+
+test('full CMS app blocks AAL1 from admin and privileged command routes',async()=>{
+  const {createProductionApp}=await import('../src/production/app.mjs');
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    if(String(url).includes('/auth/v1/user'))return Response.json({id:UUID,email:'owner@example.test'});
+    throw Error('Unexpected external request');
+  };
+  let commanded=false;
+  const db={
+    transaction:async (_actor,cb)=>cb({query:async()=>({rows:[{role:'owner'}]})}),
+    memberRole:async()=> 'owner',
+    command:async()=>{commanded=true;return {ok:true}},
+    publicIndex:async()=>[],publicArticle:async()=>null,redirect:async()=>null
+  };
+  const app=createProductionApp({
+    config:{...config,origin,requireMfa:true},db
+  });
+  try{
+    const low=await app(new Request(origin+'/admin/',{headers:{Cookie:'__Host-pooldocai-cms-access='+encodeURIComponent(v1)}}));
+    assert.equal(low.status,302);
+    assert.equal(low.headers.get('location'),'/admin/login');
+    const high=await app(new Request(origin+'/admin/',{headers:{Cookie:'__Host-pooldocai-cms-access='+encodeURIComponent(v2)}}));
+    assert.equal(high.status,200);
+    assert.match(await high.text(),/Resources Studio/);
+    const cmd=await app(request('/api/cms/command',{commandId:'test',id:UUID,version:1,action:'update',payload:{}},{
+      Cookie:'__Host-pooldocai-cms-access='+encodeURIComponent(v1)+'; __Host-pooldocai-cms-csrf=ok','X-CSRF-Token':'ok'
+    }));
+    assert.equal(cmd.status,403);
+    assert.equal(commanded,false,'AAL1 must never execute CMS command');
+  }finally{globalThis.fetch=originalFetch}
+});
