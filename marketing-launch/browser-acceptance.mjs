@@ -22,10 +22,12 @@ let browser;
 try{
   const bin=await chromiumBinary.executablePath();
   browser=await chromium.launch({executablePath:bin,args:chromiumBinary.args,headless:true});
+  const page=await browser.newPage({viewport:{width:1440,height:900},reducedMotion:'no-preference'});
+  const errors=[];
+  page.on('pageerror',err=>errors.push(err.message));
   for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
-    const page=await browser.newPage({viewport,reducedMotion:'no-preference'});
-    const errors=[];
-    page.on('pageerror',err=>errors.push(err.message));
+    errors.length=0;
+    await page.setViewportSize(viewport);
     await page.goto('http://127.0.0.1:'+server.address().port+'/',{waitUntil:'load',timeout:30000});
     await page.waitForTimeout(250);
     console.log('BROWSER STATE '+viewport.width+' '+JSON.stringify({errors,ready:await page.evaluate(()=>document.readyState),script:[...await page.locator('script[src]').evaluateAll(nodes=>nodes.map(n=>n.src))],buttons:await page.locator('[data-step]').count()}));
@@ -35,16 +37,16 @@ try{
     const night=page.locator('[data-step="2"]');
     await night.click({timeout:10000});
     console.log('NIGHT CLICK STATE '+JSON.stringify({pressed:await night.getAttribute('aria-pressed'),errors,heading:await page.locator('#headline').innerText()}));
-    assert.equal(await night.getAttribute('aria-pressed'),'true','Night selector did not activate');
-    await page.waitForFunction(()=>document.getElementById('night').naturalWidth>0,{timeout:15000});
+    await page.waitForFunction(()=>document.querySelector('[data-step="2"]')?.getAttribute('aria-pressed')==='true',null,{timeout:15000});
+    await page.waitForFunction(()=>document.getElementById('night').naturalWidth>0,null,{timeout:15000});
     assert.match(await page.locator('#headline').innerText(),/BETTER POOL DAYS/i,'Night headline did not update');
     const care=page.locator('[data-step="1"]');
     await care.click({timeout:10000});
-    assert.equal(await care.getAttribute('aria-pressed'),'true','Pool-care selector did not activate');
+    await page.waitForFunction(()=>document.querySelector('[data-step="1"]')?.getAttribute('aria-pressed')==='true',null,{timeout:10000});
     assert.match(await page.locator('#headline').innerText(),/LESS GUESSWORK/i,'Pool-care headline did not update');
     const day=page.locator('[data-step="0"]');
     await day.click({timeout:10000});
-    assert.equal(await day.getAttribute('aria-pressed'),'true','Day selector did not activate');
+    await page.waitForFunction(()=>document.querySelector('[data-step="0"]')?.getAttribute('aria-pressed')==='true',null,{timeout:10000});
     assert.match(await page.locator('#headline').innerText(),/SMARTER/i,'Day headline did not update');
     assert.equal(await page.locator('a[href="/resources/"]').count(),1,'Duplicate Resources link');
     assert.equal(await page.locator('a[href*="pooldocai-resources-cms-private-owner-review.vercel.app/admin/"]').count(),1,'Admin missing');
@@ -57,6 +59,6 @@ try{
     assert(foot.nav>=foot.brandBottom,'Footer links must be below PoolDocAI');
     assert.deepEqual(errors,[],'Unhandled homepage JavaScript error(s): '+errors.join('; '));
     console.log('BROWSER PASS '+viewport.width+'x'+viewport.height+' backgrounds, scene buttons, footer, links');
-    await page.close();
   }
+  await page.close();
 }finally{if(browser)await browser.close();await new Promise(ok=>server.close(ok))}
