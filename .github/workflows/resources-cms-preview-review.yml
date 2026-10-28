@@ -41,6 +41,9 @@ jobs:
       - name: Test owner authorization and private media boundaries
         working-directory: resources-cms
         run: node --test tests/owner-media-rights.test.mjs tests/owner-publication.test.mjs tests/owner-media.test.mjs tests/login-fix.test.mjs
+      - name: Test audit display attribution without changing historical identity
+        working-directory: resources-cms
+        run: node --test tests/audit-attribution.test.mjs
       - name: Verify held editorial content and Staging API policy baseline
         working-directory: resources-cms
         run: |

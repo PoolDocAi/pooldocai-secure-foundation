@@ -202,6 +202,13 @@ window.addEventListener("beforeunload", (e) => {
     e.returnValue = "";
   }
 });
+function auditActorLabel(event) {
+  if (event.email) return event.email;
+  // Identity is historical evidence; do not infer the actor's current role.
+  if (event.actor_id) return "Recorded user";
+  if (event.action === "scheduled_publish") return "Scheduler";
+  return "Unattributed event";
+}
 async function dashboard() {
   const d = await api("/api/dashboard");
   main.innerHTML =
@@ -231,7 +238,7 @@ async function dashboard() {
             .slice(0, 8)
             .map(
               (a) =>
-                `<div class="activity-item"><span class="activity-icon">↗</span><div><strong>${esc(a.action.replaceAll("_", " "))}</strong><small>${esc(content.find((c) => c.id === a.resource_id)?.data.title || "Workspace activity")}<br>${esc(date(a.created_at))} · ${esc(a.email || "Scheduler")}</small></div></div>`,
+                `<div class="activity-item"><span class="activity-icon">↗</span><div><strong>${esc(a.action.replaceAll("_", " "))}</strong><small>${esc(content.find((c) => c.id === a.resource_id)?.data.title || "Workspace activity")}<br>${esc(date(a.created_at))} · ${esc(auditActorLabel(a))}</small></div></div>`,
             )
             .join("")
         : '<p class="muted">Your first change will appear here.</p>'
