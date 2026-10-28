@@ -6,16 +6,16 @@
   if(!container)return;
   const button=document.createElement('button');
   button.type='button';
-  button.textContent='Add backup authenticator';
+  button.textContent='Add Google Authenticator';
   container.prepend(button);
   const modal=document.createElement('dialog');
   modal.setAttribute('aria-label','Set up backup two-step verification');
   const form=document.createElement('form');
   form.method='dialog';
-  const title=document.createElement('h2');title.textContent='Backup authenticator';
+  const title=document.createElement('h2');title.textContent='Authenticator setup';
   const explain=document.createElement('p');explain.textContent='Use a second device or authenticator app, separate from your primary. Verify it before relying on it for account recovery.';
   const qr=document.createElement('img');
-  qr.alt='Backup authenticator QR code';qr.width=220;qr.hidden=true;
+  qr.alt='Authenticator setup QR code';qr.width=220;qr.hidden=true;
   const label=document.createElement('label');label.textContent='Six-digit code';
   const codeInput=document.createElement('input');codeInput.inputMode='numeric';codeInput.pattern='[0-9]{6}';codeInput.maxLength=6;codeInput.required=true;codeInput.autocomplete='one-time-code';
   label.append(codeInput);
@@ -36,7 +36,7 @@
     status.textContent='Preparing secure enrollment…';qr.hidden=true;verify.disabled=true;codeInput.value='';factorId='';
     modal.showModal();
     try {
-      const result=await send('/api/mfa/enroll',{});
+      const result=await send('/api/mfa/enroll',{friendlyName:'PoolDocAI authenticator'});
       if(!/^data:image\/svg\+xml[;,]/.test(result.qrCode||''))throw Error('Invalid QR response');
       factorId=result.factorId;qr.src=result.qrCode;qr.hidden=false;verify.disabled=false;
       status.textContent='Scan the QR code, then enter the code from your backup app.';
@@ -44,7 +44,7 @@
   });
   form.addEventListener('submit',async event=>{
     event.preventDefault();status.textContent='Verifying…';verify.disabled=true;
-    try {await send('/api/mfa/verify',{factorId,code:codeInput.value.trim()});status.textContent='Backup authenticator verified.';qr.hidden=true;setTimeout(()=>location.reload(),750)}
+    try {await send('/api/mfa/verify',{factorId,code:codeInput.value.trim()});status.textContent='Authenticator setup verified.';qr.hidden=true;setTimeout(()=>location.reload(),750)}
     catch(err){status.textContent=err.message;verify.disabled=false}
   });
   modal.addEventListener('close',()=>{qr.removeAttribute('src');factorId='';codeInput.value=''});
