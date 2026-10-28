@@ -4,7 +4,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { AuthError, parseCookies, CSRF_COOKIE, clearSessionCookies, sessionCookies, verifiedIdentity, requireOrigin, requireCsrf, sessionToken } from './auth.mjs';
 
 export const PENDING_COOKIE='__Host-pooldocai-cms-mfa-pending';
-const UUID=/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const noStore={'Cache-Control':'no-store','Pragma':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'};
 const cookie=(name,value,maxAge,httpOnly=true)=>`${name}=${encodeURIComponent(value)}; Path=/; Secure; SameSite=Strict; Max-Age=${maxAge}${httpOnly?'; HttpOnly':''}`;
 
@@ -59,7 +59,7 @@ async function requestBody(request){
   try{return JSON.parse(text)}catch{throw new AuthError('Invalid MFA request',422)}
 }
 
-export function mfaRoute({origin,authConfig,memberRole,fetchImpl=fetch}){
+export function mfaRoute({origin,authConfig,memberRole,allowPreEnrollment=false,fetchImpl=fetch}){
   return async(request)=>{
     try{
       if(request.method!=='POST')return json({error:'Method not allowed'},405);
@@ -73,7 +73,7 @@ export function mfaRoute({origin,authConfig,memberRole,fetchImpl=fetch}){
       catch{token=sessionToken(request);temporary=false}
       const user=await verifiedIdentity(token,{...authConfig,fetchImpl});
       const role=await memberRole({...user,accessToken:token});
-      if(!temporary){aal2Required(token,user);if(role!=='owner')throw new AuthError('Owner required',403)}
+      if(!temporary){if(role!=='owner')throw new AuthError('Owner required',403);if(!allowPreEnrollment)aal2Required(token,user)}
       const body=await requestBody(request);
       if(pathname==='/api/mfa/enroll'){
         const existing=await verifiedFactors(token,authConfig,{fetchImpl});
