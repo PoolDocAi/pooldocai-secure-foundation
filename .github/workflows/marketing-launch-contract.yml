@@ -1,0 +1,36 @@
+name: PoolDocAI marketing launch contract (review-only)
+
+on:
+  pull_request:
+    branches:
+      - review/owner-publishing-recovery
+    paths:
+      - "marketing-launch/**"
+      - ".github/workflows/marketing-launch-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  marketing-review:
+    name: Static contract syntax and safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout review commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Parse public release checker
+        run: node --check marketing-launch/check-public-release.mjs
+      - name: Assert no production deploy steps exist in review workflow
+        shell: bash
+        run: |
+          if grep -Eiq '(vercel (deploy|promote|--prod)|supabase db push|--target[ =]production)' .github/workflows/marketing-launch-contract.yml; then
+            echo "ERROR: Release contract review workflow must not deploy or mutate Production."
+            exit 1
+          fi
