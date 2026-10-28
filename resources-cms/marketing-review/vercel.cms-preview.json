@@ -80,5 +80,13 @@
   ],
   "buildCommand": "node scripts/build-sanitizer.mjs && node scripts/build-cms-preview.mjs",
   "installCommand": "npm ci",
-  "framework": null
+  "framework": null,
+  "functions": {
+    "api/cms-public.mjs": {
+      "includeFiles": "{review-navigation.json,live-catalog.json,review-pages/**}"
+    },
+    "api/review.mjs": {
+      "includeFiles": "{review-navigation.json,live-catalog.json,config/analytics-events.json}"
+    }
+  }
 }
