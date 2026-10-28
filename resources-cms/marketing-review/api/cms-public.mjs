@@ -9,10 +9,15 @@ import { publicNavigation, addNavigationBreadcrumbs, navigationSelection } from 
 import { addLegalFooter } from '../scripts/footer-navigation.mjs';
 import { esc } from '../src/content.mjs';
 
-const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
-const seededNavigation = JSON.parse(read('review-navigation.json'));
-const formerCatalog = JSON.parse(read('live-catalog.json'));
-const articleTemplate = read('review-pages/pool-pump-wont-start/index.html');
+// These fixtures must have statically traceable paths so Vercel bundles them
+// into the protected serverless runtime; dynamic read() paths caused hosted 500.
+const seededNavigation = JSON.parse(readFileSync(new URL('../review-navigation.json', import.meta.url), 'utf8'));
+const formerCatalog = JSON.parse(readFileSync(new URL('../live-catalog.json', import.meta.url), 'utf8'));
+const legacyTemplates = Object.freeze({
+  'pool-pump-wont-start': readFileSync(new URL('../review-pages/pool-pump-wont-start/index.html', import.meta.url), 'utf8'),
+  'green-pool-first-checks': readFileSync(new URL('../review-pages/green-pool-first-checks/index.html', import.meta.url), 'utf8'),
+});
+const articleTemplate = legacyTemplates['pool-pump-wont-start'];
 const articleStyles = '<link rel="stylesheet" href="/resources/resources.css">';
 const articleHeader = articleTemplate.match(/<header class="resource-header">[\s\S]*?<\/header>/)?.[0];
 if (!articleHeader || !articleStyles) throw new Error('Approved article shell missing');
@@ -89,7 +94,7 @@ export function createMarketingCMSDelivery({ client, preview = true }) {
           // Retain the approved two legacy related-guide links, but recheck each
           // target's current published pointer. Avoid downloading every body on
           // every article view merely to build one existing recommendation.
-          const legacy = read(`review-pages/${record.slug}/index.html`);
+          const legacy = legacyTemplates[record.slug] || '';
           const section = legacy.match(/<section class="article-related"[\s\S]*?<\/section>/)?.[0] || '';
           const slugs = [...new Set([...section.matchAll(/href="\/resources\/([a-z0-9-]+)\/"/g)].map(match => match[1]))].slice(0, 3);
           related = (await Promise.all(slugs.map(slug => source.article(slug)))).filter(Boolean);
