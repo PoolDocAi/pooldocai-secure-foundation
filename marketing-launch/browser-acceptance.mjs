@@ -34,6 +34,13 @@ try{
     const img=await page.evaluate(()=>{const day=document.getElementById('day');return {w:day.naturalWidth,h:day.naturalHeight,sceneZ:getComputedStyle(document.querySelector('.scenery')).zIndex}});
     assert(img.w>0&&img.h>0,'Day image missing/broken: '+JSON.stringify(img));
     assert.equal(img.sceneZ,'0','Scenery behind canvas');
+    // Autoplay must advance without user input; the original app's timer is 16s.
+    // Keeping this deadline below 16s demonstrates the new 10s autoplay.
+    if (viewport.width === 1440) {
+      await page.waitForFunction(() => document.querySelector('[data-step="1"]')?.getAttribute('aria-pressed') === 'true', null, {timeout:14500});
+      assert.match(await page.locator('#headline').innerText(),/LESS GUESSWORK/i,'Automatic rotation failed');
+      console.log('AUTOPLAY PASS: first scene advanced to Pool care without a click');
+    }
     const night=page.locator('[data-step="2"]');
     await night.click({timeout:10000});
     console.log('NIGHT CLICK STATE '+JSON.stringify({pressed:await night.getAttribute('aria-pressed'),errors,heading:await page.locator('#headline').innerText()}));
@@ -57,6 +64,14 @@ try{
     });
     assert(Math.abs(foot.center-foot.brand)<2,'Footer brand is not centered');
     assert(foot.nav>=foot.brandBottom,'Footer links must be below PoolDocAI');
+    const brand=await page.locator('.launch-footer-brand').evaluate(el=>({
+      wordmark:el.textContent.trim(),
+      ai:window.getComputedStyle(el.querySelector('.brand-ai')).color,
+      headerAI:window.getComputedStyle(document.querySelector('header .brand-ai')).color
+    }));
+    assert.equal(brand.wordmark,'PoolDocAI');
+    assert.equal(brand.ai,brand.headerAI,'Footer AI color must match the standard header AI accent');
+
     assert.deepEqual(errors,[],'Unhandled homepage JavaScript error(s): '+errors.join('; '));
     for(const dot of await page.locator('[data-step]').all()){
       assert.equal((await dot.textContent()).trim(),'','Scene control must be visibly unlabeled');
