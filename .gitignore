@@ -6,3 +6,6 @@ node_modules/
 .vercel/
 coverage/
 *.log
+
+# Approved private browser input is provisioned locally, never published.
+/resources-cms/examples/existing-resources.json

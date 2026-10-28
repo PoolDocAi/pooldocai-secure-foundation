@@ -44,6 +44,9 @@ jobs:
       - name: Test audit display attribution without changing historical identity
         working-directory: resources-cms
         run: node --test tests/audit-attribution.test.mjs
+      - name: Test private fixture installer with disposable synthetic input only
+        working-directory: resources-cms
+        run: node --test tests/private-fixture-installer.test.mjs
       - name: Verify held editorial content and Staging API policy baseline
         working-directory: resources-cms
         run: |
