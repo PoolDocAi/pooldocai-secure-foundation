@@ -5,6 +5,7 @@ on:
       - 'resources-cms/src/production/**'
       - 'resources-cms/public/**'
       - 'resources-cms/tests/totp-mfa.test.mjs'
+      - 'resources-cms/tests/sms-mfa.test.mjs'
       - '.github/workflows/cms-mfa-security.yml'
   workflow_dispatch:
 
@@ -28,7 +29,7 @@ jobs:
         run: npm ci
       - name: Test TOTP password-only denial and verified sessions
         working-directory: resources-cms
-        run: node --test tests/totp-mfa.test.mjs tests/serverless-app.test.mjs tests/login-fix.test.mjs
+        run: node --test tests/totp-mfa.test.mjs tests/sms-mfa.test.mjs tests/serverless-app.test.mjs tests/login-fix.test.mjs
       - name: Check server and browser syntax
         working-directory: resources-cms
         run: |
