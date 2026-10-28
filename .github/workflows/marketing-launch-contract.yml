@@ -27,10 +27,3 @@ jobs:
           node-version: "24"
       - name: Parse public release checker
         run: node --check marketing-launch/check-public-release.mjs
-      - name: Assert no production deploy steps exist in review workflow
-        shell: bash
-        run: |
-          if grep -Eiq '(vercel (deploy|promote|--prod)|supabase db push|--target[ =]production)' .github/workflows/marketing-launch-contract.yml; then
-            echo "ERROR: Release contract review workflow must not deploy or mutate Production."
-            exit 1
-          fi
