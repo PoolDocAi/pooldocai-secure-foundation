@@ -1,5 +1,18 @@
 # CMS published-revision integration
 
+## Recovered approved protected marketing package — independently checked
+
+The owner supplied `PoolDocAI_Collections_Trailing_Slash_Protected_Preview_Fix_2026-10-27(1).zip` directly for review on October 27/28. This **complete, protected Preview source** is distinct from the earlier marketing source checksum below and from the deliberately partial public GitHub mirror.
+
+- ZIP SHA-256: `022c53062ef305df8a78a600603f3d1209ca4376d7c3d6e76a81c0790ff71634`; 690,102 compressed bytes; 79 archive entries; archive CRC test PASS.
+- Homepage source `index.html` SHA-256: `36268fd6dba19649c5cc255d2ae52ed4bf0de2e6bb9a33eb8426375bf9f10110`. Both historical article snapshots and original day/night image sources are included.
+- `node --test tests/collection-routing.test.mjs`: **4/4 pass**. `node owner-regression-check.mjs`: **PASS**. `node scripts/build-review.mjs`: **PASS**; preserved homepage and two historic guide outputs.
+- All four `assets/*.webp` files in this ZIP are **base64-encoded WebP byte representations**, not directly usable image binaries. Decode without image recompression for deployable output; the separate `build-cms-preview.mjs` / `build-cms-production.mjs` conversion already handles this. Each decoded image passed RIFF/WEBP magic inspection.
+- This source intentionally **does not contain** `privacy.html` / `terms.html` or the dynamic `api/cms-public.mjs`; overlay the owner-approved PR #25 legal texts and PR #26 CMS bridge without overwriting the newer owner-approved homepage, collection routing or image assets.
+- The original `vercel.json` is protected-Preview-only and routes to snapshot `/api/review`. It must **not** replace the separately tested dynamic `vercel.cms-preview.json` when performing the published-revision integration test.
+- No Vercel hosted integration, authenticated editorial browser, live article withdrawal, standalone Node 24 dependency install, Production migration or release was proved by these package-only checks. The ZIP and any private source should remain out of the public GitHub mirror.
+
+
 This is an additive, disabled-by-default candidate on the full owner-approved marketing/legal source, not a replacement with an older GitHub subtree. No deployment, Supabase mutation, publication, domain, or security change was executed.
 
 - Marketing package SHA-256: `a9c46f12e0d5832d840c330f85e462c3a8896e0ad9adad96873888b1b00d43e9`.
