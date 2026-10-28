@@ -11,8 +11,5 @@ export function ownerProductionProposal(){
  const livePointers=patch('command','dispatch')+patch('taxonomy_command','media_command')+patch('media_command','settings_command');
  const output=publication.replace('SET ROLE resources_cms_command_owner;',()=> rights+'\nSET ROLE resources_cms_command_owner;\n'+imports+'\n'+livePointers+'\n');
  if (!output.includes("VALUES(true,'production',false)") || output.includes("VALUES(true,'staging',true)") || output.includes('4ab7d56e-57f4-4aed-9244-26ee801afab2') || output.includes('schema_migrations)<>46') || !output.includes('CREATE FUNCTION resources_cms.safe_public_html(') || !output.includes('CREATE FUNCTION resources_cms.media_release_ready(') || !output.includes('CREATE FUNCTION resources_cms.owner_import(')) throw Error('Production CMS assembly missing safety prerequisite or contains Staging state');
- if (/\\bRESET ROLE;\\s+RESET ROLE;/i.test(output) || /\\bSET ROLE resources_cms_command_owner;\\s+SET ROLE resources_cms_command_owner;/i.test(output)) throw Error('Redundant role switching detected');
- if (!/^-- PRODUCTION REVIEW CANDIDATE/.test(output) || !/COMMIT;\\s*$/.test(output)) throw Error('Production migration transaction malformed');
- return output;
-}
-if(process.argv[1]&&new URL(import.meta.url).pathname===process.argv[1]){const output=process.argv[2];if(!output)throw Error('Output SQL path required');writeFileSync(output,ownerProductionProposal());}
+ if (/\bRESET ROLE;\s+RESET ROLE;/i.test(output) || /\bSET ROLE resources_cms_command_owner;\s+SET ROLE resources_cms_command_owner;/i.test(output)) throw Error('Redundant role switching detected');
+ if (!/^-- PRODUCTION REVIEW CANDIDATE/.test(output) || !/COMMIT;\s*$/.test(output)) throw Error('Production migration transaction malformed');}
