@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 const admin = readFileSync(new URL('../public/admin.html',import.meta.url),'utf8');
 
 test('private owner Studio View Resources Hub opens the actual live public Hub',()=>{
-  const links=[...admin.matchAll(/<a\b([^>]*?)>\s*View Resources Hub\s*↗?\s*<\/a>/g)];
+  const links=[...admin.matchAll(/<a\b([^>]*?)>\s*View Resources Hub[^<]*<\/a\s*>/g)];
   assert.equal(links.length,1,'Exactly one View Resources Hub navigation link is required');
   assert.match(links[0][1],/href="https:\/\/pooldocai\.com\/resources\/"/);
   assert.match(links[0][1],/target="_blank"/);
