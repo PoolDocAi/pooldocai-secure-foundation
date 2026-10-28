@@ -24,7 +24,8 @@ function addMfaForm(setup,factors=[]){
   instructions.textContent=setup
     ?'Scan the QR code with your authenticator app, then enter its six-digit code. Keep a backup authenticator on a different device.'
     :'Enter the six-digit code from your authenticator app.';
-  form.append(title,instructions);
+  const mfaError=document.createElement('p');mfaError.setAttribute('role','alert');
+  form.append(title,instructions,mfaError);
   const qr=document.createElement('img');
   qr.alt='Authenticator setup QR code';
   qr.style.maxWidth='240px';
@@ -52,11 +53,11 @@ function addMfaForm(setup,factors=[]){
   login.after(form);
   form.addEventListener('submit',async e=>{
     e.preventDefault();
-    submit.disabled=true;errorNode.textContent='';
+    submit.disabled=true;mfaError.textContent='';
     try{
       await postMfa('/api/mfa/verify',{factorId,code:input.value.trim()});
       location.assign('/admin/');
-    }catch(err){errorNode.textContent=err.message;input.select()}
+    }catch(err){mfaError.textContent=err.message;input.select()}
     finally{submit.disabled=false}
   });
   if(setup){
@@ -65,7 +66,7 @@ function addMfaForm(setup,factors=[]){
       factorId=data.factorId;
       if(!/^data:image\/svg\+xml[;,]/i.test(data.qrCode||''))throw Error('Invalid enrollment QR code');
       qr.src=data.qrCode;qr.hidden=false;submit.disabled=false;input.focus();
-    }).catch(err=>{errorNode.textContent=err.message+' Return to sign in and try again.'});
+    }).catch(err=>{mfaError.textContent=err.message+' Return to sign in and try again.'});
   }else input.focus();
 }
 login.addEventListener('submit',async e=>{
