@@ -78,12 +78,12 @@ function makeMfaForm(setup,factors=[]){
       const kind=selectedType();
       if(setup&&!factorId){
         const payload=kind==='phone'
-          ?{type:'phone',phone:phone.value.replace(/\\s+/g,'')}
+          ?{type:'phone',phone:phone.value.replace(/\s+/g,'')}
           :{type:'totp'};
         const enrolled=await postMfa('/api/mfa/enroll',payload);
         factorId=enrolled.factorId;
         if(kind==='totp'){
-          if(!/^data:image\\/svg\\+xml[;,]/i.test(enrolled.qrCode||''))
+          if(!String(enrolled.qrCode||'').startsWith('data:image/svg+xml'))
             throw Error('Invalid authenticator setup response');
           qr.src=enrolled.qrCode;qr.hidden=false;
           verify.disabled=false;
@@ -127,7 +127,7 @@ login.addEventListener('submit',async event=>{
     const response=await fetch('/api/login',{method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(Object.fromEntries(new FormData(event.target)))});
-    if(!/\\bapplication\\/(?:[\\w.-]+\\+)?json\\b/i.test(response.headers.get('content-type')||''))
+    if(!String(response.headers.get('content-type')||'').toLowerCase().includes('json'))
       throw Error('Sign-in service unavailable');
     const result=await response.json();
     if(!response.ok)throw Error('Sign-in rejected. Check your credentials.');
