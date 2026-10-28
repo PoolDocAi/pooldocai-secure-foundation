@@ -79,7 +79,7 @@ export function mfaRoute({origin,authConfig,memberRole,allowPreEnrollment=false,
         const existing=await verifiedFactors(token,authConfig,{fetchImpl});
         if(temporary&&existing.length)throw new AuthError('Use existing verified factor',403);
         const result=await gotrue('/auth/v1/factors',token,authConfig,{
-          method:'POST',body:{factor_type:'totp',friendly_name:temporary?'PoolDocAI Studio':'PoolDocAI Studio backup'},fetchImpl
+          method:'POST',body:{factor_type:'totp',friendly_name:body.device==='backup'?'PoolDocAI backup authenticator':'PoolDocAI primary authenticator'},fetchImpl
         });
         if(!UUID.test(String(result.id||''))||!result.totp?.qr_code) throw new AuthError('Enrollment unavailable',503);
         // QR/secret are returned only over HTTPS to the authenticated owner with no-store.
