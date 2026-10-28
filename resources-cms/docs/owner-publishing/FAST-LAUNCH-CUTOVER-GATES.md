@@ -64,9 +64,16 @@ Observe logs for HTTP 5xx/404, API usage and security events. Add scheduled publ
 ## Current blockers (not to paper over)
 
 1. No Production CMS schema/project is configured, and the owner-reported backup has not yet been test-restored.
-2. The full approved marketing package and CMS integration are not yet verified together in a hosted marketing Preview.
-3. PR #25/26 and code-only new URL verification still require test review. Preview branch is not Production. Review-branch CI and independent hosted dry-run have not been confirmed green.
+2. **Resolved for protected Preview:** the owner-approved complete marketing package and CMS public-delivery bridge were verified together on hosted Preview `dpl_DLZEZ7uJsXo91sfEYfqv2BizYLsh`; subsequent waitlist-accepted Preview `dpl_661mMspSnH7tPFWdHF2meTqe5yqd` also served both articles, Hub, a collection path, legal pages, sitemap, and assets with correct HTTP responses. This does not verify Production CMS data or authenticated owner editing/import.
+3. **Partially resolved:** protected Preview hosted HTTP checks and current PR #26 CMS/security and marketing-isolation GitHub checks were green as of October 27; owner accepted marketing UI. Final Production-safe code review, authenticated owner editor/import flow, archive/restore live regression, public domain acceptance and explicit cutover authorization are still required. Neither PR is merged.
 4. Production Auth/owner migration, Data API schema exposure, static-shadow removal, and real public domain smoke/regression checks are not complete.
 5. Automated *external* reachability monitoring is not yet installed; the CMS owner-editor check catches same-origin HTTP/HTML failure after release but is not a substitute for testing `pooldocai.com`.
 
 **No folder migration is required for the initial Resources release. Do not relax editorial holds or diagnostic-knowledge safeguards to accelerate release.**
+
+## October 27 late-stage progress — evidence, not Production clearance
+
+- The owner approved the short waitlist privacy notice, optional unchecked email updates opt-in and removal of the redundant header CTA after reviewing the hosted protected Preview. The complete private source remains outside this public repository; this branch contains a review mirror only.
+- The owner separately confirmed Formspree endpoint `mrpppgkw` and support inbox `support@pooldocai.com`. Two labeled synthetic requests (opt-in `no`, then `yes`) both returned `Accepted: True`; the owner confirmed that **both notifications arrived**. The actual consent-field storage/export was not inspected in the Formspree dashboard, and no live Preview browser submission was made.
+- Production remains on the existing landing page and still lacks the isolated `resources_cms` schema; its local backup passed checksum and decompression verification but **not** an isolated full restore. No Production migration, PR merge or public domain deployment occurred.
+- Remaining launch-critical gates: (1) disposable isolated Production-backup restore rehearsal; (2) security-reviewed isolated Production CMS migration and owner bootstrap; (3) authenticated owner edit/release/import on the Production target, and 404 on withdrawal; (4) source/legal copy review for the additional newsletter opt-in; (5) explicit approved Production build/cutover and post-release smoke tests.
