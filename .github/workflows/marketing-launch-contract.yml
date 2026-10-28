@@ -26,4 +26,7 @@ jobs:
         with:
           node-version: "24"
       - name: Parse public release checker
-        run: node --check marketing-launch/check-public-release.mjs
+        run: |
+          node --check marketing-launch/check-public-release.mjs
+          node --check marketing-launch/finalize-public-static-v3.mjs
+          node --check marketing-launch/browser-acceptance.mjs
