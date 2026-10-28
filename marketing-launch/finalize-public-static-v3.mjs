@@ -16,7 +16,7 @@ css=css.replace(old,'.scenery{position:fixed;inset:0;z-index:0;pointer-events:no
 const shell='.shell{max-width:1540px;';
 if(!css.includes(shell))throw Error('Shell CSS baseline changed');
 css=css.replace(shell,'.shell{position:relative;z-index:1;max-width:1540px;');
-css+='\\n'+[
+css+='\n'+[
 '/* Owner-approved: visibly selectable scene/tagline controls */',
 '.coming{display:none!important}',
 '.scene-controls{position:relative;z-index:3;pointer-events:auto}',
