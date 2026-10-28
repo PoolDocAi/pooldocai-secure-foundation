@@ -34,4 +34,21 @@ write('public/style.css',read('public/style.css','utf8')+`\n/* Subtle original s
 .scene-controls .steps button:after{content:"";position:absolute;left:18px;right:auto;top:18px;width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.3}
 .scene-controls .steps button[aria-pressed="true"]:after{opacity:1}
 `);
+// Preserve the standard PoolDocAI wordmark colors, including the blue AI accent.
+home=read('public/index.html','utf8');
+const unbranded='<strong class="launch-footer-brand">PoolDocAI</strong>';
+assert(home.includes(unbranded),'Footer branding markup changed; verify before altering');
+home=home.replace(unbranded,'<strong class="launch-footer-brand">PoolDoc<span class="brand-ai">AI</span></strong>');
+
+// Autoplay is a progressive enhancement: scene dots remain manually operable.
+// Defer after app.js, and preserve existing reduced-motion support.
+const appScript='<script src="/app.js" defer></script>';
+assert.equal(home.split(appScript).length,2,'Expected a single app.js script');
+assert(!home.includes('/scene-autoplay.js'),'Autoplay already registered');
+home=home.replace(appScript,appScript+'\\n<script src="/scene-autoplay.js" defer></script>');
+write('public/index.html',home);
+write('public/scene-autoplay.js',read('scripts/scene-autoplay.js','utf8'));
+assert(home.includes('<span class="brand-ai">AI</span>'));
+
 console.log('PASS: unlabeled accessible dots; static search catalog contains exactly two approved published guides');
+console.log('PASS: branded footer accent and reduced-motion-aware automatic scene cycling');
