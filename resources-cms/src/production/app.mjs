@@ -1,3 +1,4 @@
+import {aal2Required,mfaRoute} from './mfa.mjs';
 import {publicNavigation,addNavigationBreadcrumbs} from '../platform/navigation.mjs';
 import { membership, sessionToken, signInWithPassword, verifiedIdentity } from "./auth.mjs";
 import { compatibilityRoute } from "./compat-api.mjs";
@@ -26,17 +27,20 @@ export function createProductionApp(runtime = productionRuntime()) {
   const authConfig = { url: config.supabaseUrl, publishableKey: config.publishableKey };
   const identity = async (request) => {
     const accessToken = sessionToken(request);
-    return { ...(await verifiedIdentity(accessToken, authConfig)), accessToken };
+    const user=await verifiedIdentity(accessToken,authConfig);
+    if(config.requireMfa)aal2Required(accessToken,user);
+    return {...user,accessToken};
   };
   const memberRole = (user) => membership(db, user);
   const storage = new PrivateStorage({ url: config.supabaseUrl, publishableKey: config.publishableKey });
-  const login = loginRoute({ origin: config.origin, signIn: (email, password) => signInWithPassword(email, password, authConfig), memberRole,
+  const login = loginRoute({ origin: config.origin, authConfig, requireMfa:config.requireMfa, signIn: (email, password) => signInWithPassword(email, password, authConfig), memberRole,
     onIdentityVerified: ({ id }) => {
       if (id === config.recoveryOwnerId) console.info('cms_owner_identity_verified', { id });
     },
   });
   const logout = logoutRoute({ origin: config.origin, authConfig });
-  const refresh = refreshRoute({ origin: config.origin, authConfig, memberRole });
+  const refresh = refreshRoute({ origin: config.origin, authConfig, memberRole, requireMfa:config.requireMfa });
+  const mfa=mfaRoute({origin:config.origin,authConfig,memberRole});
   const command = commandRoute({ identity, db, origin: config.origin });
   const upload = mediaUploadRoute({ identity, db, storage, origin: config.origin });
   const media = mediaReadRoute({ identity, db, storage });
@@ -51,6 +55,7 @@ export function createProductionApp(runtime = productionRuntime()) {
     if(platformPath(path)&&!(path==='/resources/'&&!config.features?.discovery))return platform(request);
     if (path.startsWith('/api/recovery/') || path === '/admin/recovery/callback') return recovery(request);
     if (path === "/api/login") return login(request);
+    if (path.startsWith("/api/mfa/")) return config.requireMfa?mfa(request):new Response(null,{status:404});
     if (path === "/api/logout") return logout(request);
     if (path === "/api/refresh") return refresh(request);
     if (path === "/api/cms/command") return command(request);
