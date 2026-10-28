@@ -46,6 +46,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/cms-private-staging-media": false,
       "review/resources-platform-v060": false,
       "review/resources-folders-design-v061": false,
       "review/owner-publishing-recovery": false
