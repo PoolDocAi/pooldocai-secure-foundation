@@ -45,6 +45,7 @@ jobs:
         working-directory: resources-cms
         run: |
           node --test tests/staging-content-gates.test.mjs
+          node --test tests/public-hub-navigation.test.mjs
           node scripts/verify-staging-release-gates.mjs evidence/staging-content-gate-20261028.json
       - name: Test disabled folder gate
         working-directory: resources-cms
