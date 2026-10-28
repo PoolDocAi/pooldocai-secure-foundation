@@ -36,7 +36,7 @@
     status.textContent='Preparing secure enrollment…';qr.hidden=true;verify.disabled=true;codeInput.value='';factorId='';
     modal.showModal();
     try {
-      const result=await send('/api/mfa/enroll',{});
+      const result=await send('/api/mfa/enroll',{type:'totp'});
       if(!/^data:image\/svg\+xml[;,]/.test(result.qrCode||''))throw Error('Invalid QR response');
       factorId=result.factorId;qr.src=result.qrCode;qr.hidden=false;verify.disabled=false;
       status.textContent='Scan the QR code, then enter the code from your backup app.';
