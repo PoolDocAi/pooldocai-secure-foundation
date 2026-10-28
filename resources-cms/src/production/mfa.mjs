@@ -93,7 +93,7 @@ export function mfaRoute({origin,authConfig,memberRole,allowPreEnrollment=false,
       if(pathname==='/api/mfa/enroll'){
         const existing=await verifiedFactors(token,authConfig,{fetchImpl});
         if(temporary&&existing.length)throw new AuthError('Use existing verified factor',403);
-        const type=body.type==='phone'?'phone':body.type==='totp'?'totp':null;
+        const type=body.type==='phone'?'phone':(body.type==='totp'||body.type===undefined)?'totp':null;
         if(!type)throw new AuthError('Invalid factor type',422);
         const phone=String(body.phone||'').trim();
         if(type==='phone'&&!E164.test(phone))throw new AuthError('Invalid phone format',422);
