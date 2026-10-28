@@ -11,6 +11,7 @@ const jwt=aal=>'x.'+Buffer.from(JSON.stringify({sub:user,aal,exp:Math.floor(Date
 const aal1=jwt('aal1'),aal2=jwt('aal2');
 const log=[];
 let enrolled=false;
+let verifiedPhone=true;
 const config={url:'https://example.supabase.co',publishableKey:'sb_publishable_test'};
 async function mockFetch(url,options={}){
   const path=new URL(url).pathname;
@@ -26,7 +27,7 @@ async function mockFetch(url,options={}){
   if(path==='/auth/v1/factors'){
     return Response.json({totp:[],phone:enrolled
       ?[{id:factor,type:'phone',status:'unverified',phone:'+15555550123'}]
-      :[{id:factor,type:'phone',status:'verified',phone:'+15555550123',friendly_name:'PoolDocAI Studio SMS'}]});
+      :verifiedPhone?[{id:factor,type:'phone',status:'verified',phone:'+15555550123',friendly_name:'PoolDocAI Studio SMS'}]:[]});
   }
   if(path==='/auth/v1/factors/'+factor+'/challenge')return Response.json({id:challenge});
   if(path==='/auth/v1/factors/'+factor+'/verify'){
@@ -69,7 +70,7 @@ test('password sign-in returns an MFA-only pending cookie for an SMS-enrolled ow
 });
 
 test('SMS enrollment requires valid E.164, and challenge explicitly sends before verify',async()=>{
-  enrolled=false;log.length=0;
+  verifiedPhone=false;enrolled=false;log.length=0;
   const login=loginRoute({origin,signIn:async()=>({
     access_token:aal1,refresh_token:'refresh1',expires_in:3600,identity:{id:user,email:'owner@example.test'}
   }),memberRole:role,requireMfa:true,authConfig:settings});
@@ -101,7 +102,7 @@ test('SMS enrollment requires valid E.164, and challenge explicitly sends before
 });
 
 test('SMS factor cannot skip challenge or bypass CSRF',async()=>{
-  enrolled=false;
+  verifiedPhone=true;enrolled=false;
   const route=mfaRoute({origin,authConfig:config,memberRole:role,fetchImpl:mockFetch});
   const {pendingCookies}=await import('../src/production/mfa.mjs');
   const pending=pendingCookies(aal1);
