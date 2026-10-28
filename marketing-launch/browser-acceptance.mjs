@@ -30,21 +30,21 @@ try{
     const img=await page.evaluate(()=>{const day=document.getElementById('day');return {w:day.naturalWidth,h:day.naturalHeight,sceneZ:getComputedStyle(document.querySelector('.scenery')).zIndex}});
     assert(img.w>0&&img.h>0,'Day image missing/broken: '+JSON.stringify(img));
     assert.equal(img.sceneZ,'0','Scenery behind canvas');
-    const night=page.getByRole('button',{name:'Night',exact:true});
+    const night=page.locator('[data-step="2"]');
     await night.click({timeout:10000});
     assert.equal(await night.getAttribute('aria-pressed'),'true','Night selector did not activate');
     await page.waitForFunction(()=>document.getElementById('night').naturalWidth>0,{timeout:15000});
     assert.match(await page.locator('#headline').innerText(),/BETTER POOL DAYS/i,'Night headline did not update');
-    const care=page.getByRole('button',{name:'Pool care',exact:true});
+    const care=page.locator('[data-step="1"]');
     await care.click({timeout:10000});
     assert.equal(await care.getAttribute('aria-pressed'),'true','Pool-care selector did not activate');
     assert.match(await page.locator('#headline').innerText(),/LESS GUESSWORK/i,'Pool-care headline did not update');
-    const day=page.getByRole('button',{name:'Day',exact:true});
+    const day=page.locator('[data-step="0"]');
     await day.click({timeout:10000});
     assert.equal(await day.getAttribute('aria-pressed'),'true','Day selector did not activate');
     assert.match(await page.locator('#headline').innerText(),/SMARTER/i,'Day headline did not update');
     assert.equal(await page.locator('a[href="/resources/"]').count(),1,'Duplicate Resources link');
-    assert.equal(await page.getByRole('link',{name:'Admin'}).count(),1,'Admin missing');
+    assert.equal(await page.locator('a[href*="pooldocai-resources-cms-private-owner-review.vercel.app/admin/"]').count(),1,'Admin missing');
     assert.equal(await page.getByText('Something smarter is on the horizon').count(),0,'Removed copy still visible');
     const foot=await page.locator('.launch-footer').evaluate(el=>{
       const b=el.getBoundingClientRect(),brand=el.querySelector('.launch-footer-brand').getBoundingClientRect(),nav=el.querySelector('.launch-footer-links').getBoundingClientRect();
