@@ -42,9 +42,9 @@ async function gotrue(path,token,config,{method='GET',body,fetchImpl=fetch}={}){
   return response.json();
 }
 export async function verifiedFactors(token,config,options={}){
-  const data=await gotrue('/auth/v1/factors',token,config,options);
+  const data=await gotrue('/auth/v1/factors',token,config,{fetchImpl:config.fetchImpl||fetch,...options});
   const rows=Array.isArray(data)?data:(data.totp||data.factors||[]);
-  return rows.filter(x=>x.factor_type==='totp'&&x.status==='verified')
+  return rows.filter(x=>(x.factor_type||x.type)==='totp'&&x.status==='verified')
     .map(x=>({id:x.id,name:x.friendly_name||'Authenticator'}));
 }
 
