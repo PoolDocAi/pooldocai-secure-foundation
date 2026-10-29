@@ -49,7 +49,7 @@ jobs:
         run: npm run test:article-intake
       - name: Test read-only review and explicit owner-approved revision persistence
         working-directory: resources-cms
-        run: node --test tests/seo-description.test.mjs tests/seo-description-postgres.test.mjs
+        run: node --test tests/seo-description.test.mjs tests/seo-description-postgres.test.mjs tests/typo-approval.test.mjs
       - name: Test encrypted recovery packaging with synthetic database and Storage bytes
         working-directory: resources-cms
         run: node --test tests/recovery-bundle.test.mjs
