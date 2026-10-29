@@ -44,6 +44,9 @@ jobs:
       - name: Test audit display attribution without changing historical identity
         working-directory: resources-cms
         run: node --test tests/audit-attribution.test.mjs
+      - name: Verify selected Vercel preview suppression and Production invariants
+        working-directory: resources-cms
+        run: node --test tests/vercel-branch-policy.test.mjs
       - name: Test private article intake and automated review boundaries
         working-directory: resources-cms
         run: npm run test:article-intake
