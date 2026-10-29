@@ -84,3 +84,18 @@ test('review is private, version bound, not found fails closed, oversized reques
   const f=fixture();assert.equal((await f.request(`/api/content/${id}/automated-review`,{version:1})).status,404);
   const response=await f.request('/api/article-upload',' '.repeat(1_450_001));assert.equal(response.status,413);assert.deepEqual(f.commands,[]);
 });
+
+
+test('review detects malformed chemical unit, without changing or approving content', () => {
+  const body = '<table><tr><td>Free chlorine</td><td>1.0m</td></tr><tr><td>Total chlorine</td><td>1.5 ppm</td></tr></table>';
+  const draft = { id, version: 3, state: 'draft', editable: { ...article, body } };
+  const before = structuredClone(draft);
+  const report = reviewArticle(draft, []);
+  assert.ok(report.findings.some(f => f.area === 'technical' && f.evidence.includes('Free chlorine 1.0m') && /concentration-unit error/i.test(f.suggestion)));
+  assert.deepEqual(draft, before);
+  assert.equal(report.approvalGranted, false);
+  assert.equal(report.publicationGranted, false);
+  assert.equal(report.diagnosticKnowledgeGranted, false);
+  const normal = reviewArticle({...draft, editable: {...draft.editable, body: '<p>Free chlorine 1.0 ppm</p>'}}, []);
+  assert.ok(!normal.findings.some(f => /concentration-unit error/i.test(f.suggestion)));
+});

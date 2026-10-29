@@ -20,6 +20,13 @@ export function reviewArticle(row, peers = []) {
   for (const [pattern,suggestion] of hazards) { const match = text.match(pattern); if (match) add('safety','blocker',match[0],suggestion); }
   const technical = /\b(?:psi|ppm|volts?|amps?|dosage|dose|torque|rewire|repair|replace|backwash)\b/i.exec(text);
   if (technical) add('technical','needs-human-review',technical[0],'Verify each value and procedure against the current manufacturer manual for the stated model; record the supporting passage.');
+  // Narrow syntactic linter only: suspect chemical units are NOT corrected automatically.
+  const concentrationUnit = /\b((?:(?:free|total|combined)\s+)?chlorine|bromine|calcium\s+hardness|total\s+alkalinity|cyanuric\s+acid|stabilizer)\s*[:=\-]?\s*(\d+(?:\.\d+)?)\s*(m)\b/gi;
+  for (const issue of text.matchAll(concentrationUnit)) {
+    add('technical','needs-human-review',issue[0],
+      'Possible concentration-unit error: standalone "m" is not a normal pool-water concentration unit. Check the original measurement; ppm or mg/L may be appropriate if verified. No automatic replacement is performed.');
+  }
+
   if (!article.sources?.length) add('sources','warning','No source references are recorded.','Add primary manufacturer or recognized technical/safety sources and link each material claim to its supporting passage.');
   else for (const source of article.sources) add('sources','needs-human-review',`${source.label}: ${source.url}`,'Source URL is recorded, but its contents, authority, freshness and support for claims have not been fetched or verified. Check and record the exact supporting passage.');
   const title = article.seo?.title || '', description = article.seo?.description || '';

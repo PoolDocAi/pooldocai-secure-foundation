@@ -498,8 +498,13 @@ async function openEditor(id) {
   $("#revisions").onclick = showRevisions;
   const reviewButton = document.createElement('button');
   reviewButton.id = 'automated-review';
-  reviewButton.textContent = 'Run automated article review';
+  reviewButton.textContent = 'Save & screen draft (suggestions only)';
+  reviewButton.title = 'Saves unsaved draft edits first. Technical and editorial suggestions are not applied automatically.';
   $('#revisions').before(reviewButton);
+  const reviewHelp = document.createElement('p');
+  reviewHelp.className = 'muted';
+  reviewHelp.textContent = 'Checks saved text and suggests fixes; it does not automatically correct technical content. Unsaved edits are saved first. A missing SEO description may be generated as a held draft revision.';
+  reviewButton.after(reviewHelp);
   reviewButton.onclick = async () => {
     reviewButton.disabled = true;
     try {
@@ -641,7 +646,11 @@ async function openEditor(id) {
   main.focus();
 }
 function showAutomatedReview(report, source, notices = []) {
-  modal(`<h2>Automated article review</h2><p>Saved version ${esc(report.version)} · ${esc(report.engine)}</p><p>Checksum: <code>${esc(report.checksum)}</code></p><p>This report applies only to this saved version. Any edit requires a new review. No approval, publication, diagnostic knowledge access or image permission is granted.</p>${source?`<p>Uploaded ${esc(source.type)} · SHA-256: <code>${esc(source.sha256)}</code></p>`:''}${notices.map(n=>`<p class="notice">${esc(n)}</p>`).join('')}<h3>Coverage and limits</h3><ul>${Object.entries(report.coverage).map(([area,coverage])=>`<li>${esc(area)}: ${esc(coverage)}</li>`).join('')}</ul><h3>Findings and suggested fixes</h3>${report.findings.map(f=>`<section class="panel"><h4>${esc(f.area)} · ${esc(f.severity)}</h4><p><strong>Evidence:</strong> ${esc(f.evidence)}</p><p><strong>Suggested fix:</strong> ${esc(f.suggestion)}</p></section>`).join('')||'<p>No rule triggered. Human technical, safety and source review is still required.</p>'}<button id="download-article-review">Download this report</button>`,()=>{
+  const savedSummary = report.savedArticle
+    ? 'An absent SEO description was generated and saved as a new protected draft revision. Article-body corrections were not applied.'
+    : 'No automatic corrections were applied by this review.';
+  modal(`<h2>Automated article review</h2><p>Saved version ${esc(report.version)} · ${esc(report.engine)}</p><p>Checksum: <code>${esc(report.checksum)}</code></p><p>This report applies only to this saved version. Any edit requires a new review. No approval, publication, diagnostic knowledge access or image permission is granted.</p><p role="status"><strong>${esc(savedSummary)}</strong></p><p>Other findings are suggestions for manual editorial review. This checker does not verify measurements or equipment instructions and does not silently change units.</p>${source?`<p>Uploaded ${esc(source.type)} · SHA-256: <code>${esc(source.sha256)}</code></p>`:''}${notices.map(n=>`<p class="notice">${esc(n)}</p>`).join('')}<h3>Coverage and limits</h3><ul>${Object.entries(report.coverage).map(([area,coverage])=>`<li>${esc(area)}: ${esc(coverage)}</li>`).join('')}</ul><h3>Findings and suggested fixes</h3>${report.findings.map(f=>`<section class="panel"><h4>${esc(f.area)} · ${esc(f.severity)}</h4><p><strong>Evidence:</strong> ${esc(f.evidence)}</p><p><strong>Suggested fix:</strong> ${esc(f.suggestion)}</p></section>`).join('')||'<p>No rule triggered. Human technical, safety and source review is still required.</p>'}<button id="return-to-editor">Return to editor</button> <button id="download-article-review">Download this report</button>`,()=>{
+    $('#return-to-editor').onclick=()=>{dialog.close();$('#body')?.focus();};
     $('#download-article-review').onclick=()=>{const blob=new Blob([JSON.stringify({...report,...(source?{uploadSource:source,notices}:{})},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='article-review-'+report.articleId+'-v'+report.version+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   });
 }
