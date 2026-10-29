@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {PostgresCMS} from '../src/production/postgres.mjs';
 import {normalizeArticleCommand} from '../src/production/validation.mjs';
+import {reviewProposals,applyApprovedProposals} from '../src/production/review-proposals.mjs';
 const owner='00000000-0000-4000-8000-000000000001',category='00000000-0000-4000-8000-000000000002',id='00000000-0000-4000-8000-000000000003';
 test('generated metadata persists through immutable PostgreSQL save revisions without public reachability',async()=>{
   const pg=new PGlite();
@@ -21,7 +22,10 @@ test('generated metadata persists through immutable PostgreSQL save revisions wi
     const db=new PostgresCMS({connect:async()=>({query:(...args)=>pg.query(...args),release(){}})});
     const original={title:'Pool circulation observations',slug:'pool-circulation-observations',categoryId:category,tagIds:[],sources:[],audience:'homeowners',seo:{},body:'<p>This article describes pool circulation observations and the notes to record when comparing water movement during routine inspections.</p>'};
     await db.command(owner,id,0,'create',original);
-    const saved=normalizeArticleCommand('save',original);
+    const proposal=reviewProposals(original).find(p=>p.id==='seo-description');
+    assert.ok(proposal);
+    const approved=applyApprovedProposals(original,[{id:proposal.id}]);
+    const saved=normalizeArticleCommand('save',approved.changed);
     await db.command(owner,id,1,'save',saved);
     const row=await db.read(owner,id);
     assert.equal(row.editable.seo.description,saved.seo.description);assert.ok(row.editable.seo.description.length>=90);

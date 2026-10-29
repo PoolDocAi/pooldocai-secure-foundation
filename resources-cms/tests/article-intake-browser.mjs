@@ -46,11 +46,15 @@ try {
     await page.locator('#import-submit').click();
     await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
     const report=await page.locator('#dialog-content').innerText();
-    assert.match(report,/safety · blocker/);assert.match(report,/Suggested fix:/);assert.match(report,/No approval, publication/);
+    assert.match(report,/safety · blocker/);assert.match(report,/Suggested next step:/);assert.match(report,/Read-only screening/);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     const download=page.waitForEvent('download');await page.locator('#download-article-review').click();assert.match((await download).suggestedFilename(),/^article-review-/);
     await page.locator('.dialog-close').click();
     await page.locator('#title').fill('Updated synthetic article');
+    await page.waitForTimeout(1500);
+    assert.equal(commands.filter(x=>x==='save').length,0,'Text edit must not autosave');
+    page.once('dialog',d=>d.accept());
+    await page.locator('#save').click();
     await page.locator('#automated-review').click();
     await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
     assert.match(await page.locator('#dialog-content').innerText(),/Saved version 2/);
