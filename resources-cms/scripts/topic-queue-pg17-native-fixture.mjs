@@ -75,6 +75,25 @@ try{
  const ownerUuid='00000000-0000-4000-8000-000000000001';
  const result=psql('authenticator',auth(ownerUuid));
  assert.equal(JSON.parse(result.split('\n').at(-1)).length,8);
+ // Exercise real PG17 security-definer writes, then roll back this synthetic
+ // owner request so the original eight seeded topics and attempt counts remain.
+ const syntheticId='00000000-0000-4000-8000-000000000099';
+ const ownerActionSql=[
+   'BEGIN;',
+   'SET ROLE authenticated;',
+   "SELECT set_config('request.jwt.claims',",
+   "'{\"role\":\"authenticated\",\"sub\":\""+ownerUuid+"\"}',false);",
+   "SELECT resources_cms.topic_queue_command('add','"+syntheticId+"'::uuid,0,",
+   "'{\"topic\":\"Synthetic native PG17 equipment maintenance\"}'::jsonb);",
+   "SELECT resources_cms.topic_queue_command('claim','"+syntheticId+"'::uuid,1,'{}'::jsonb);",
+   "SELECT resources_cms.topic_queue_command('release','"+syntheticId+"'::uuid,2,'{}'::jsonb);",
+   'ROLLBACK;'
+ ].join('\n');
+ const actions=psql('authenticator',ownerActionSql);
+ assert.match(actions,/"status":"queued"/);
+ assert.match(actions,/"status":"generating"/);
+ assert.equal(psql('bootstrap',"SELECT count(*) FROM resources_cms.topic_queue"),'8');
+ assert.equal(psql('bootstrap',"SELECT count(*) FROM resources_cms.topic_generation_attempts"),'0');
  for(const id of ['00000000-0000-4000-8000-000000000002',
                    '00000000-0000-4000-8000-000000000003'])
    psql('authenticator',auth(id),{expectFailure:true});
