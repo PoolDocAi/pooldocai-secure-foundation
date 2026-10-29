@@ -461,7 +461,7 @@ async function openEditor(id) {
       )
       .join(
         "",
-      )}<button type="button" id="add-link">Link</button><button type="button" id="add-internal">Resource link</button><button type="button" id="add-image">Image</button><button type="button" id="add-download">Download</button><button type="button" id="add-table">Table</button><button type="button" id="add-callout">Callout</button><button type="button" id="add-warning">Safety warning</button></div><div id="body" class="rich-editor" contenteditable="${canWrite()}" role="textbox" aria-label="Article content" aria-multiline="true">${d.body}</div><details><summary>Sources & citations</summary><div><label>Source references<textarea id="sources" rows="5">${esc(d.sources.map((s) => `${s.label} | ${s.url}`).join("\n"))}</textarea><small>One source per line: Source title | https://original-source-url. Use Link in the toolbar for inline citations.</small></label></div></details></section><aside><section class="panel"><h2>Organization</h2><label>Primary category<select id="categoryId">${opt(
+      )}<button type="button" id="add-link">Link</button><button type="button" id="add-internal">Resource link</button><button type="button" id="add-image">Image</button><button type="button" id="add-download">Download</button><button type="button" id="add-table">Table</button><button type="button" id="add-callout">Callout</button><button type="button" id="add-warning">Safety warning</button></div><div id="body" class="rich-editor" contenteditable="${canWrite()}" spellcheck="true" role="textbox" aria-label="Article content" aria-multiline="true">${d.body}</div><details><summary>Sources & citations</summary><div><label>Source references<textarea id="sources" rows="5">${esc(d.sources.map((s) => `${s.label} | ${s.url}`).join("\n"))}</textarea><small>One source per line: Source title | https://original-source-url. Use Link in the toolbar for inline citations.</small></label></div></details></section><aside><section class="panel"><h2>Organization</h2><label>Primary category<select id="categoryId">${opt(
       taxonomy.filter((t) => t.kind === "category" && !t.archived),
       d.categoryId,
     )}</select></label><label>Topic tags<select id="tagIds" multiple size="6">${taxonomy
@@ -496,7 +496,8 @@ async function openEditor(id) {
   reviewButton.id = 'automated-review';
   reviewButton.textContent = 'Screen saved draft — no changes';
   reviewButton.title = 'Read-only suggestions; you choose and approve any proposed corrections.';
-  $('#revisions').before(reviewButton);
+  if($('#save')) $('#save').after(reviewButton);
+  else $('#revisions').before(reviewButton);
   const reviewHelp = document.createElement('p');
   reviewHelp.className = 'muted';
   reviewHelp.textContent = 'Read-only scan. Review highlighted passages, approve each desired correction, then save only approved changes. Unapproved changes stay untouched.';

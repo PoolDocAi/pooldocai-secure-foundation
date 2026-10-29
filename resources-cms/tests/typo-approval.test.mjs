@@ -98,3 +98,16 @@ test('reviewers are not authorized to apply even accurate spelling proposals',as
   const denied=await post(route,'apply-review',{version:1,checksum:report.checksum,approvals:[{id:typo.id}]});
   assert.equal(denied.status,403);assert.equal(writes,0);
 });
+
+test('conservative one-edit suggestions catch uncatalogued pool typos without altering valid terms',()=>{
+  const source={...article,
+    body:'<p>Check equpment and fiilter before using the Pentair IntelliChlor system.</p>'};
+  const suggestions=spellingSuggestions(source);
+  assert.ok(suggestions.some(x=>x.before==='equpment'&&x.after==='equipment'),'missing-letter equipment typo');
+  assert.ok(suggestions.some(x=>x.before==='fiilter'&&x.after==='filter'),'repeated-letter filter typo');
+  assert.ok(!suggestions.some(x=>x.before==='Pentair'||x.before==='IntelliChlor'));
+  const selected=suggestions.find(x=>x.before==='equpment');
+  const approved=applyApprovedProposals(source,[{id:selected.id}]);
+  assert.equal(approved.changed.body,'<p>Check equipment and fiilter before using the Pentair IntelliChlor system.</p>');
+  assert.equal(source.body,'<p>Check equpment and fiilter before using the Pentair IntelliChlor system.</p>');
+});
