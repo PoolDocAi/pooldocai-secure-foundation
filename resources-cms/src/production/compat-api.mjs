@@ -118,8 +118,11 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
           if(!Number.isInteger(incoming.version)||incoming.version!==row.version||incoming.checksum!==articleChecksum(row.editable))return json({error:'Draft changed since review; run the screener again'},409);
           const proposals=reviewProposals(row.editable);
           const {changed,applied}=applyApprovedProposals(row.editable,incoming.approvals,proposals);
-          const payload=normalizeArticleCommand('save',changed,row.editable);
-          await db.command(user,id,row.version,'save',payload,randomUUID());
+          // Existing stored content is authoritative. Re-running the generic
+          // article normalizer here would silently remove valid historical
+          // markup/metadata that was NOT in the owner's approved diff.
+          // applyApprovedProposals only alters re-derived, allowlisted fields.
+          await db.command(user,id,row.version,'save',changed,randomUUID());
           return json({article:formatted(await db.read(user,id)),applied});
         }
         if (!action && request.method === "GET") return json(formatted(await db.read(user, id)));
