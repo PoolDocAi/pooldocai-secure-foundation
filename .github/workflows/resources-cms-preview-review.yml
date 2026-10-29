@@ -121,6 +121,13 @@ jobs:
       # The complete approved marketing source is privately held; the public
       # review mirror does not include its renderer/sanitizer or original assets.
       # Full delivery E2E must be executed against the protected complete package.
+      - name: Export public CMS overlay for private owner-source assembly
+        uses: actions/upload-artifact@v4
+        with:
+          name: cms-marketing-reviewed-overlay
+          path: resources-cms/marketing-review/
+          retention-days: 2
+          if-no-files-found: error
       - name: Record required private-package delivery gate
         run: echo "::notice::Dynamic marketing-site delivery E2E remains unverified; complete approved marketing source and private renderer required before production release."
 
