@@ -10,6 +10,7 @@ import {reviewProposals,applyApprovedProposals} from './review-proposals.mjs';
 import {articleChecksum} from './article-intake.mjs';
 import {handleTopicApi} from './topic-queue-api.mjs';
 
+const UUID_FOR_PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function body(request, maximum = 250_000) {
   const chunks = []; let size = 0;
@@ -192,8 +193,17 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
       if (path === "/api/settings" && request.method === "PUT") return json(await db.settingsCommand(user, await body(request)));
       if (path === "/api/dashboard" && request.method === "GET") {
         const rows = await db.list(user, { limit: 200 }), counts = {};
-        for (const state of ["published", "draft", "scheduled", "archived", "review", "approved", "deleted"]) counts[state] = rows.filter((row) => row.state === state).length;
-        return json({ counts, warnings: rows.flatMap((row) => warningList(row.editable).map((message) => ({ id: row.id, title: row.editable.title, message }))), recent: await db.recentAudit(user) });
+        for (const state of ["draft", "scheduled", "archived", "review", "approved", "deleted"]) counts[state] = rows.filter((row) => row.state === state).length;
+        // A published revision remains live while the owner edits a newer
+        // working draft. Counting a.state='published' incorrectly displays 0.
+        // Read the exact public projection instead of inferring from draft state
+        // or the pointer alone (which might be blocked by editorial holds).
+        const publicRows = await db.publicIndex();
+        if (!Array.isArray(publicRows)) throw new Error('CMS public projection unavailable');
+        const publicArticleIds = [...new Set(publicRows.map(row => row.article_id ?? row.id))];
+        if (publicArticleIds.some(id => !UUID_FOR_PUBLIC_ID.test(String(id)))) throw new Error('Invalid public projection');
+        counts.published = publicArticleIds.length;
+        return json({ counts, publicArticleIds, warnings: rows.flatMap((row) => warningList(row.editable).map((message) => ({ id: row.id, title: row.editable.title, message }))), recent: await db.recentAudit(user) });
       }
       if (path === "/api/bulk/archive" && request.method === "POST") return json(await db.bulkArchive(user, (await body(request)).items));
       if (path === "/api/export" && request.method === "GET") return json(await db.exportAll(user), 200, { "Content-Disposition": 'attachment; filename="pooldocai-resources-backup.json"' });
