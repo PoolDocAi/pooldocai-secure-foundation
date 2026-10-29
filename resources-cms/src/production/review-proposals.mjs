@@ -59,7 +59,7 @@ function replaceUniqueTextNode(html, token, replacement) {
 export function applyApprovedProposals(article, approvals, proposals = reviewProposals(article)) {
   if(!Array.isArray(approvals)||approvals.length===0||approvals.length>20)reject('Select at least one change to approve');
   if(!approvals.every(a=>a && typeof a==='object' && typeof a.id==='string'))reject('Invalid approval');
-  const ids=new Set(), allowed=new Map(proposals.map(p=>[p.id,p])), changed=structuredClone(article), applied=[], spelling=[];
+  const ids=new Set(), allowed=new Map(proposals.map(p=>[p.id,p])), changed=structuredClone(article), applied=[], spelling=[], units=[];
   for(const approval of approvals) {
     if(ids.has(approval.id))reject('Duplicate proposal approval');ids.add(approval.id);
     const proposal=allowed.get(approval.id);
@@ -74,7 +74,7 @@ export function applyApprovedProposals(article, approvals, proposals = reviewPro
       const number=proposal.before.match(/^\d+(?:\.\d+)?/)?.[0];
       if(!number)reject('Unit suggestion changed',409);
       const replacement=number+' '+approval.verifiedUnit;
-      changed.body=replaceUniqueTextNode(changed.body,proposal.before,replacement);
+      units.push({before:proposal.before,replacement});
       applied.push({id:proposal.id,before:proposal.before,after:replacement,field:proposal.field});
     } else if(proposal.kind==='spelling') {
       if(Object.keys(approval).some(k=>k!=='id'))reject('Unsupported spelling approval');
@@ -86,5 +86,8 @@ export function applyApprovedProposals(article, approvals, proposals = reviewPro
   // Position-specific spelling edits are applied in descending offsets so
   // approving one occurrence never alters another occurrence of the same word.
   const finalArticle = spelling.length ? applySpellingEdits(changed,spelling) : changed;
+  // Apply units after position-bound spelling replacements so both can safely be
+  // approved in one batch without invalidating spelling offsets.
+  for(const unit of units)finalArticle.body=replaceUniqueTextNode(finalArticle.body,unit.before,unit.replacement);
   return {changed:finalArticle,applied};
 }
