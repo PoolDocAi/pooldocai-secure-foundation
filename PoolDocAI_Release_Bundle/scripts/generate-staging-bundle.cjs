@@ -67,8 +67,8 @@ if (isCheck) {
     process.exit(1);
   }
   const existing = fs.readFileSync(outputFile, 'utf8');
-  // Normalize line endings for comparison
-  const normalize = str => str.replace(/\r\n/g, '\n');
+  // Normalize line endings and date header for comparison
+  const normalize = str => str.replace(/\r\n/g, '\n').replace(/^-- Generated: \d{4}-\d{2}-\d{2}$/m, '-- Generated: DATE');
   if (normalize(existing) !== normalize(output)) {
     console.error(`Check failed: ${outputFile} is out of sync with supabase/migrations/. Run 'node scripts/generate-staging-bundle.cjs' to update.`);
     process.exit(1);
