@@ -103,12 +103,12 @@ export function createMarketingCMSDelivery({ client, preview = true }) {
       const catalog = [{ id: record.id, slug: record.slug, title: record.content.title, url: record.canonical }];
       return addNavigationBreadcrumbs(approvedArticle(record, preview, related), liveNavigation(catalog), { id: record.id, title: record.content.title, url: record.canonical });
     },
-    renderHub: (rows, params) => previewLinks(renderDiscovery(query(datedCatalog(rows), params), params, { assistant: true, analytics: false }), preview),
+    renderHub: (rows, params) => previewLinks(addLegalFooter(renderDiscovery(query(datedCatalog(rows), params), params, { assistant: true, analytics: false })), preview),
     renderCollection: (rows, params, path) => {
       const catalog = datedCatalog(rows), nav = liveNavigation(catalog), folder = nav.folders.find(item => item.url === path);
       if (!folder) return null;
       const selection = new URLSearchParams(params); selection.set('folder', folder.id); selection.set('path', folder.pathId);
-      return previewLinks(renderDiscovery(query(catalog, selection), selection, { assistant: true, analytics: false }), preview);
+      return previewLinks(addLegalFooter(renderDiscovery(query(catalog, selection), selection, { assistant: true, analytics: false })), preview);
     },
     discover: (rows, params) => {
       const surface = ['assistant', 'header'].includes(params.get('surface')) ? params.get('surface') : 'hub';

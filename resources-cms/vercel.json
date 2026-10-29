@@ -4,6 +4,9 @@
   "functions": {
     "api/resources.mjs": {
       "maxDuration": 30
+    },
+    "api/topic-generate.mjs": {
+      "maxDuration": 120
     }
   },
   "rewrites": [
@@ -38,6 +41,10 @@
     {
       "source": "/admin/",
       "destination": "/api/resources?__cms_path=/admin/"
+    },
+    {
+      "source": "/api/topics/:id/create-article",
+      "destination": "/api/topic-generate?__cms_path=/api/topics/:id/create-article"
     },
     {
       "source": "/api/:path*",
@@ -115,5 +122,15 @@
         }
       ]
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "fix/cms-private-staging-media": false,
+      "security/cms-totp-owner-2fa-stage": false,
+      "fix/marketing-public-launch-gates-20261028": false,
+      "security/cms-sms-2fa-staging-20261028": false,
+      "fix/restricted-resource-checklists": false,
+      "review/cms-launch-readiness-20261028": false
+    }
+  }
 }

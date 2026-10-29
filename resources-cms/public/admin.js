@@ -19,6 +19,7 @@ let me,
   saveTimer,
   saving = null,
   editGeneration = 0;
+let publishedCmsIds = new Set();
 const isOwner = () => me?.role === "owner",
   canWrite = () => ["owner", "editor"].includes(me?.role),
   canReview = () => ["owner", "reviewer"].includes(me?.role);
@@ -131,7 +132,7 @@ document.addEventListener("keydown", (event) => {
 });
 mobileViewport.addEventListener("change", () => closeMobileNavigation());
 closeMobileNavigation();
-const cmsPages = new Set(["dashboard", "library", "taxonomy", "media", "seo", "knowledge", "settings"]);
+const cmsPages = new Set(["dashboard", "library", "topics", "taxonomy", "media", "seo", "knowledge", "settings"]);
 let historyPosition = 0, undoingHistory = false;
 history.replaceState({ cmsPage: page, cmsPosition: historyPosition }, "", location.href);
 let navigationQueue = Promise.resolve();
@@ -165,7 +166,8 @@ async function changePage(next, { fromHistory = false, position = historyPositio
   });
   await refresh();
   if (page === "dashboard") await dashboard();
-  if (page === "library") library();
+  if (page === "library") await library();
+  if (page === "topics") await topicQueuePage();
   if (page === "taxonomy") taxonomies();
   if (page === "media") await mediaLibrary();
   if (page === "seo") seoManager();
@@ -202,8 +204,16 @@ window.addEventListener("beforeunload", (e) => {
     e.returnValue = "";
   }
 });
+function auditActorLabel(event) {
+  if (event.email) return event.email;
+  // Identity is historical evidence; do not infer the actor's current role.
+  if (event.actor_id) return "Recorded user";
+  if (event.action === "scheduled_publish") return "Scheduler";
+  return "Unattributed event";
+}
 async function dashboard() {
   const d = await api("/api/dashboard");
+  publishedCmsIds = new Set(d.publicArticleIds || []);
   main.innerHTML =
     title(
       "A little knowledge. A lot of clarity.",
@@ -213,7 +223,7 @@ async function dashboard() {
         : "",
     ) +
     `<div class="hero-note"><div><p class="eyebrow">THOUGHTFULLY PUBLISHED</p><h2>Help people take the right next step.</h2><p>Build a useful resource library. Every draft stays private until you choose to publish it.</p></div><button id="browse">Open content library →</button></div><div class="stats">${[
-      ["published", "Published resources"],
+      ["published", "Published through CMS"],
       ["draft", "Drafts in progress"],
       ["scheduled", "Scheduled"],
       ["review", "Awaiting review"],
@@ -231,7 +241,7 @@ async function dashboard() {
             .slice(0, 8)
             .map(
               (a) =>
-                `<div class="activity-item"><span class="activity-icon">↗</span><div><strong>${esc(a.action.replaceAll("_", " "))}</strong><small>${esc(content.find((c) => c.id === a.resource_id)?.data.title || "Workspace activity")}<br>${esc(date(a.created_at))} · ${esc(a.email || "Scheduler")}</small></div></div>`,
+                `<div class="activity-item"><span class="activity-icon">↗</span><div><strong>${esc(a.action.replaceAll("_", " "))}</strong><small>${esc(content.find((c) => c.id === a.resource_id)?.data.title || "Workspace activity")}<br>${esc(date(a.created_at))} · ${esc(auditActorLabel(a))}</small></div></div>`,
             )
             .join("")
         : '<p class="muted">Your first change will appear here.</p>'
@@ -266,7 +276,9 @@ function bindEdits() {
         openEditor(b.dataset.edit).catch((e) => toast(e.message, true))),
   );
 }
-function library() {
+async function library() {
+  const status = await api("/api/dashboard");
+  publishedCmsIds = new Set(status.publicArticleIds || []);
   main.innerHTML =
     title(
       "Content library",
@@ -292,7 +304,7 @@ function drawTable() {
         r.data.categoryId === $("#category-filter").value) &&
       (!$("#tag-filter").value ||
         r.data.tagIds.includes($("#tag-filter").value)) &&
-      (!$("#status-filter").value || r.status === $("#status-filter").value),
+      (!$("#status-filter").value || ($("#status-filter").value === "published" ? publishedCmsIds.has(r.id) : r.status === $("#status-filter").value)),
   );
   if ($("#sort").value === "title")
     rows.sort((a, b) => a.data.title.localeCompare(b.data.title));
@@ -300,7 +312,7 @@ function drawTable() {
   $("#result-count").textContent =
     `${rows.length} resource${rows.length === 1 ? "" : "s"}`;
   $("#article-table").innerHTML = rows.length
-    ? `<div class="table-wrap"><table class="library"><thead><tr><th>Resource</th><th>Status</th><th>Category</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="title-cell">${isOwner() && !["archived", "deleted"].includes(r.status) ? `<label class="check-label"><input type="checkbox" data-select-row="${r.id}" aria-label="Select ${esc(r.data.title)}"> Select</label>` : ""}<strong>${esc(r.data.title)}</strong><small>/resources/${esc(r.data.slug)}/</small>${r.data.tagIds.map((id) => `<span class="badge">${esc(cat(id))}</span>`).join("")}</td><td>${badge(r.status)}<small>Knowledge: ${esc(r.knowledge.status)}</small>${r.published && r.status !== "published" ? "<small>Earlier version is live</small>" : ""}</td><td>${esc(cat(r.data.categoryId))}</td><td>${esc(date(r.updated_at))}</td><td><div class="row-actions"><button data-edit="${r.id}">${canWrite() ? "Edit" : "View"}</button><button data-preview="${r.id}">Preview</button>${canWrite() ? `<button data-row-action="duplicate" data-id="${r.id}">Duplicate</button>` : ""}${isOwner() ? (["archived", "deleted"].includes(r.status) ? `<button data-row-action="restore" data-id="${r.id}">Restore</button>${r.status === "archived" ? `<button class="danger" data-row-action="delete" data-id="${r.id}">Move to trash</button>` : ""}` : `<button data-row-action="archive" data-id="${r.id}">Archive</button>`) : ""}</div></td></tr>`).join("")}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="library"><thead><tr><th>Resource</th><th>Status</th><th>Category</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="title-cell">${isOwner() && !["archived", "deleted"].includes(r.status) ? `<label class="check-label"><input type="checkbox" data-select-row="${r.id}" aria-label="Select ${esc(r.data.title)}"> Select</label>` : ""}<strong>${esc(r.data.title)}</strong><small>/resources/${esc(r.data.slug)}/</small>${r.data.tagIds.map((id) => `<span class="badge">${esc(cat(id))}</span>`).join("")}</td><td>${badge(r.status)}<small>Knowledge: ${esc(r.knowledge.status)}</small>${publishedCmsIds.has(r.id) && r.status !== "published" ? "<small>Earlier approved CMS revision remains publicly accessible</small>" : ""}</td><td>${esc(cat(r.data.categoryId))}</td><td>${esc(date(r.updated_at))}</td><td><div class="row-actions"><button data-edit="${r.id}">${canWrite() ? "Edit" : "View"}</button><button data-preview="${r.id}">Preview</button>${canWrite() ? `<button data-row-action="duplicate" data-id="${r.id}">Duplicate</button>` : ""}${isOwner() ? (["archived", "deleted"].includes(r.status) ? `<button data-row-action="restore" data-id="${r.id}">Restore</button>${r.status === "archived" ? `<button class="danger" data-row-action="delete" data-id="${r.id}">Move to trash</button>` : ""}` : `<button data-row-action="archive" data-id="${r.id}">Archive</button>`) : ""}</div></td></tr>`).join("")}</tbody></table></div>`
     : '<div class="empty">No resources match these filters.</div>';
   $$("[data-select-row]").forEach(
     (c) =>
@@ -363,6 +375,91 @@ function drawTable() {
       }),
   );
 }
+async function topicQueuePage() {
+  if(!isOwner()){
+    main.innerHTML=title('Article topics','Only the studio owner can manage the editorial topic queue.');
+    return;
+  }
+  if(!me.topicQueueEnabled){
+    main.innerHTML=title('Article topics','Topic queue is not enabled in this protected environment.')+
+      '<section class="panel"><h2>Coming to this Studio</h2><p>The private database migration and feature flag must pass Staging review before topics can be saved. No article has been generated or published.</p></section>';
+    return;
+  }
+  const rows=await api('/api/topics');
+  main.innerHTML=title('Article topics',
+    'Add topics, select one, then generate a complete private article for editorial review.',
+    '<button class="primary" id="topic-add">+ Add topic</button>')+
+    '<section class="panel"><h2>Choose a topic</h2>'+
+    '<label for="topic-choice">Saved topics</label><select id="topic-choice" style="max-width:100%;width:100%">'+
+    '<option value="">Select a topic</option>'+
+    rows.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.topic)+' ('+esc(r.status)+')</option>').join('')+
+    '</select><p id="topic-notes" class="muted">Select a queued topic. The generated article opens in the existing editor.</p>'+
+    '<button id="topic-create" class="primary" disabled>Create article</button>'+
+    (!me.topicGenerationEnabled?'<p class="muted">Generation is disabled until the server-only AI key, cost budget and protected Staging preview have been configured.</p>':'')+
+    '</section><section class="panel"><h2>Topic queue</h2><div class="table-wrap"><table class="library"><thead><tr><th>Topic</th><th>Status</th><th>Actions</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><strong>'+esc(r.topic)+'</strong><small>'+esc(r.brief||'')+'</small></td><td>'+
+      badge(r.status)+'</td><td><div class="row-actions">'+
+      (r.status==='drafted'?'<button type="button" data-topic-open="'+esc(r.articleId)+'">Open draft</button>':'')+
+      (r.status==='queued'?'<button type="button" data-topic-pick="'+esc(r.id)+'">Select</button><button type="button" data-topic-archive="'+esc(r.id)+'">Archive</button>':'')+
+      (r.status==='generating'?'<button type="button" data-topic-recover="'+esc(r.id)+'">Recover stalled job</button>':'')+
+      '</div></td></tr>').join('')+
+    '</tbody></table></div></section>';
+  const selected=()=>rows.find(r=>r.id===$('#topic-choice').value);
+  const update=()=>{
+    const r=selected();
+    $('#topic-create').disabled=!r||r.status!=='queued'||!me.topicGenerationEnabled;
+    $('#topic-notes').textContent=r?r.brief||'No additional topic notes.':'Select a saved topic to begin.';
+  };
+  $('#topic-choice').onchange=update;
+  $('#topic-add').onclick=()=>modal(
+    '<h2>Add article topic</h2><form id="topic-add-form"><input type="hidden" name="id" value="'+crypto.randomUUID()+'">'+
+    '<label>Topic<input name="topic" required minlength="6" maxlength="180" autofocus></label>'+
+    '<label>Editorial notes (optional)<textarea name="brief" maxlength="1200" rows="4" placeholder="Questions to cover, equipment context or safety concerns"></textarea></label>'+
+    '<label>Audience<select name="audience"><option value="both">Homeowners and professionals</option><option value="homeowners">Homeowners</option><option value="professionals">Technicians</option></select></label>'+
+    '<button class="primary" type="submit">Add to topic queue</button></form>',()=>{
+      $('#topic-add-form').onsubmit=async event=>{
+        event.preventDefault();
+        const button=event.target.querySelector('button[type=submit]');button.disabled=true;
+        try{
+          await api('/api/topics',{method:'POST',body:Object.fromEntries(new FormData(event.target))});
+          dialog.close();await topicQueuePage();toast('Topic added to the queue');
+        }catch(error){toast(error.message,true);button.disabled=false;}
+      };
+    });
+
+  $$('[data-topic-pick]').forEach(b=>b.onclick=()=>{
+    $('#topic-choice').value=b.dataset.topicPick;update();$('#topic-choice').focus();
+  });
+  $$('[data-topic-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.topicOpen).catch(e=>toast(e.message,true)));
+  $$('[data-topic-archive]').forEach(b=>b.onclick=async()=>{
+    const r=rows.find(x=>x.id===b.dataset.topicArchive);
+    if(!r||!confirm('Archive this topic without deleting any article?'))return;
+    b.disabled=true;
+    try{await api('/api/topics/'+r.id+'/archive',{method:'POST',body:{version:r.version}});
+      await topicQueuePage();toast('Topic archived');}
+    catch(error){toast(error.message,true);b.disabled=false;}
+  });
+  $$('[data-topic-recover]').forEach(b=>b.onclick=async()=>{
+    const r=rows.find(x=>x.id===b.dataset.topicRecover);
+    if(!r||!confirm('Recover this stalled generation? Only attempts older than three minutes can be recovered.'))return;
+    b.disabled=true;
+    try{await api('/api/topics/'+r.id+'/recover',{method:'POST',body:{version:r.version}});
+      await topicQueuePage();toast('Stalled topic released');}
+    catch(error){toast(error.message,true);b.disabled=false;}
+  });
+  $('#topic-create').onclick=async()=>{
+    const r=selected();if(!r||r.status!=='queued')return;
+    const button=$('#topic-create');button.disabled=true;button.textContent='Researching and writing...';
+    $('#topic-notes').textContent='Creating a complete sourced draft. Please keep this page open.';
+    try{
+      const result=await api('/api/topics/'+r.id+'/create-article',{method:'POST',body:{version:r.version}});
+      await refresh();await openEditor(result.articleId);
+      toast('Complete private draft created. Review all technical claims and sources before approving.');
+    }catch(error){toast(error.message,true);await topicQueuePage();}
+  };
+  update();
+}
+
 function newArticle() {
   modal(
     `<h2>Start a new resource</h2><form id="new-form"><label>Article title<input name="title" required maxlength="180" autofocus></label><label>URL slug<input name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*"><small>Lowercase words with hyphens. Categories never change this URL.</small></label><label>Primary category<select name="categoryId">${opt(taxonomy.filter((t) => t.kind === "category" && !t.archived))}</select></label><button class="primary">Create private draft</button></form>`,
@@ -397,26 +494,30 @@ function newArticle() {
 }
 function importDraft() {
   modal(
-    `<h2>Import a resource</h2><p>Imports stay private. Select one owner-approved resource or upload compatible draft JSON.</p><button type="button" id="approved-library">Choose from approved collection</button><label>JSON file<input type="file" id="import-file" accept="application/json,.json"></label><label>Or paste compatible JSON<textarea id="import-json" rows="12" placeholder='{"format":"pooldocai-resource-v1","article":{…}}'></textarea></label><button class="primary" id="import-submit">Validate and create draft</button>`,
+    `<h2>Import a resource</h2><p>Uploads create private, unapproved drafts. Automated screening does not verify facts or authorize publication. Maximum 1 MB; PDFs are disabled. DOCX imports paragraph text; check layout and citations against the original.</p><button type="button" id="approved-library">Choose from approved collection</button><label>Article file<input type="file" id="import-file" accept=".docx,.md,.txt,.json"></label><label>Category for DOCX, MD or TXT<select id="import-category">${opt(taxonomy.filter(t=>t.kind==='category'&&!t.archived))}</select></label><label>Or paste approved article JSON<textarea id="import-json" rows="8" placeholder='{"format":"pooldocai-resource-v1","article":{…}}'></textarea></label><button class="primary" id="import-submit">Validate and create draft</button>`,
     () => {
       $("#approved-library").onclick = () => approvedLibrary().catch(e=>toast(e.message,true));
-      $("#import-file").onchange = async (e) => {
-        if (e.target.files[0])
-          $("#import-json").value = await e.target.files[0].text();
-      };
       $("#import-submit").onclick = async () => {
+        const button = $('#import-submit');
+        button.disabled = true;
         try {
-          const r = await api("/api/import", {
-            method: "POST",
-            body: JSON.parse($("#import-json").value),
-          });
+          const file = $('#import-file').files[0];
+          let result;
+          if (file) {
+            if (file.size > 1024*1024) throw new Error('Article file must be 1 MB or smaller');
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
+            result = await api('/api/article-upload',{method:'POST',body:{name:file.name,base64:btoa(binary),categoryId:$('#import-category').value}});
+          } else result = {article:await api('/api/import',{method:'POST',body:JSON.parse($('#import-json').value)})};
+          const r = result.article;
           dialog.close();
           await refresh();
           await openEditor(r.id);
           toast("Imported as an unapproved draft");
+          if (result.review) showAutomatedReview(result.review,result.source,result.notices);
         } catch (e) {
           toast(e.message, true);
-        }
+        } finally { button.disabled = false; }
       };
     },
   );
@@ -433,7 +534,7 @@ async function openEditor(id) {
     title(
       "Make knowledge useful.",
       `Revision ${current.version} · ${current.published ? "A published version is live" : "Private working copy"}`,
-      `<button id="back">← Library</button><button id="preview">Preview</button>${canWrite() ? '<button id="save" class="primary">Save Draft</button>' : ""}`,
+      `<button id="back">← Library</button><button id="preview">Preview</button>`,
     ) +
     `<div class="save-bar">${badge(current.status)}<span id="save-status">All changes saved</span><span class="badge">Knowledge: ${esc(current.knowledge.status)}</span></div><div class="editor-layout"><section class="panel"><label>Article title<input id="title" class="editor-title" maxlength="180" value="${esc(d.title)}"></label><label>Summary<textarea id="summary" maxlength="500">${esc(d.summary)}</textarea></label><label for="body">Article content</label><div class="toolbar" role="toolbar" aria-label="Rich text formatting">${[
       ["formatBlock", "h2", "Heading 2"],
@@ -450,7 +551,7 @@ async function openEditor(id) {
       )
       .join(
         "",
-      )}<button type="button" id="add-link">Link</button><button type="button" id="add-internal">Resource link</button><button type="button" id="add-image">Image</button><button type="button" id="add-download">Download</button><button type="button" id="add-table">Table</button><button type="button" id="add-callout">Callout</button><button type="button" id="add-warning">Safety warning</button></div><div id="body" class="rich-editor" contenteditable="${canWrite()}" role="textbox" aria-label="Article content" aria-multiline="true">${d.body}</div><details><summary>Sources & citations</summary><div><label>Source references<textarea id="sources" rows="5">${esc(d.sources.map((s) => `${s.label} | ${s.url}`).join("\n"))}</textarea><small>One source per line: Source title | https://original-source-url. Use Link in the toolbar for inline citations.</small></label></div></details></section><aside><section class="panel"><h2>Editorial workflow</h2><p class="muted">Publishing and knowledge eligibility are separate permissions.</p><div class="actions">${canWrite() ? '<button data-action="review">Submit for Editorial Review</button>' : ""}${canReview() ? '<button data-action="approve">Approve for Publication</button>' : ""}${isOwner() ? `<button class="primary" data-action="publish">Publish</button><button data-action="unpublish">Unpublish</button><button id="schedule">Schedule publication</button>${current.status === "scheduled" ? '<button data-action="cancel-schedule">Cancel schedule</button>' : ""}` : ""}<button id="revisions">View Revision History</button></div><hr><h3>Diagnostic knowledge</h3><p class="muted">${esc(current.knowledge.classification?.replaceAll("_", " "))}<br>${esc(current.knowledge.verification_status || "Unverified")} ${current.knowledge.reviewed_at ? " · " + esc(date(current.knowledge.reviewed_at)) : ""}</p><div class="actions">${canWrite() ? '<button data-action="knowledge-submit">Submit for Knowledge Review</button>' : ""}${canReview() ? '<button id="knowledge-approve">Approve for Knowledge Base</button><button class="danger" data-action="knowledge-revoke">Revoke Knowledge Approval</button>' : ""}</div></section><section class="panel"><h2>Organization</h2><label>Primary category<select id="categoryId">${opt(
+      )}<button type="button" id="add-link">Link</button><button type="button" id="add-internal">Resource link</button><button type="button" id="add-image">Image</button><button type="button" id="add-download">Download</button><button type="button" id="add-table">Table</button><button type="button" id="add-callout">Callout</button><button type="button" id="add-warning">Safety warning</button></div><div id="body" class="rich-editor" contenteditable="${canWrite()}" spellcheck="true" role="textbox" aria-label="Article content" aria-multiline="true">${d.body}</div><details><summary>Sources & citations</summary><div><label>Source references<textarea id="sources" rows="5">${esc(d.sources.map((s) => `${s.label} | ${s.url}`).join("\n"))}</textarea><small>One source per line: Source title | https://original-source-url. Use Link in the toolbar for inline citations.</small></label></div></details></section><aside><section class="panel"><h2>Organization</h2><label>Primary category<select id="categoryId">${opt(
       taxonomy.filter((t) => t.kind === "category" && !t.archived),
       d.categoryId,
     )}</select></label><label>Topic tags<select id="tagIds" multiple size="6">${taxonomy
@@ -469,22 +570,37 @@ async function openEditor(id) {
       )
       .join(
         "",
-      )}</select></label></section><section class="panel"><h2>Equipment context</h2><label>Manufacturer (if applicable)<input id="manufacturer" value="${esc(d.manufacturer)}"></label><label>Model (if applicable)<input id="model" value="${esc(d.model)}"></label><label>Equipment category<input id="equipmentCategory" value="${esc(d.equipmentCategory)}" placeholder="Pump, filter, heater…"></label></section><section class="panel"><h2>Search & social</h2><label>URL slug<input id="slug" value="${esc(d.slug)}"><small>Published URL changes require separate authorization. Keep existing article URLs unchanged.</small></label><label>SEO title<input id="seo-title" value="${esc(d.seo.title)}" maxlength="180"></label><label>Meta description<textarea id="seo-description" maxlength="500">${esc(d.seo.description)}</textarea></label><label>Canonical URL<input id="seo-canonical" type="url" value="${esc(d.seo.canonical)}"></label><label>Open Graph title<input id="seo-ogTitle" value="${esc(d.seo.ogTitle)}"></label><label>Open Graph description<textarea id="seo-ogDescription">${esc(d.seo.ogDescription)}</textarea></label><label>Social image<input id="seo-image" value="${esc(d.seo.image)}" placeholder="/media/…"></label><button type="button" id="pick-social">Choose social image</button><label>Social image alt text<input id="seo-imageAlt" value="${esc(d.seo.imageAlt)}"></label><label>Featured image<input id="featuredImage" value="${esc(d.featuredImage)}" placeholder="/media/…"></label><button type="button" id="pick-featured">Choose featured image</button><label>Featured image alt text<input id="featuredImageAlt" value="${esc(d.featuredImageAlt)}"></label><label>Original publication date<input id="publishedAt" type="date" value="${esc(d.publishedAt?.slice(0, 10) || "")}"><small>Leave blank for first publication. Revision dates are recorded automatically.</small></label><label class="check-label"><input id="seo-noindex" type="checkbox" ${d.seo.noindex ? "checked" : ""}> Exclude from search indexing</label><div id="editor-warnings">${current.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("")}</div></section></aside></div>`;
+      )}</select></label></section><section class="panel"><h2>Equipment context</h2><label>Manufacturer (if applicable)<input id="manufacturer" value="${esc(d.manufacturer)}"></label><label>Model (if applicable)<input id="model" value="${esc(d.model)}"></label><label>Equipment category<input id="equipmentCategory" value="${esc(d.equipmentCategory)}" placeholder="Pump, filter, heater…"></label></section><section class="panel"><h2>Search & social</h2><label>URL slug<input id="slug" value="${esc(d.slug)}"><small>Published URL changes require separate authorization. Keep existing article URLs unchanged.</small></label><label>SEO title<input id="seo-title" value="${esc(d.seo.title)}" maxlength="180"></label><label>Meta description<small>If missing, screening can propose an extract from your article, but nothing is inserted or saved unless you approve it. Verify factual accuracy before publication.</small><textarea id="seo-description" maxlength="500">${esc(d.seo.description)}</textarea></label><label>Canonical URL<input id="seo-canonical" type="url" value="${esc(d.seo.canonical)}"></label><label>Open Graph title<input id="seo-ogTitle" value="${esc(d.seo.ogTitle)}"></label><label>Open Graph description<textarea id="seo-ogDescription">${esc(d.seo.ogDescription)}</textarea></label><label>Social image<input id="seo-image" value="${esc(d.seo.image)}" placeholder="/media/…"></label><button type="button" id="pick-social">Choose social image</button><label>Social image alt text<input id="seo-imageAlt" value="${esc(d.seo.imageAlt)}"></label><label>Featured image<input id="featuredImage" value="${esc(d.featuredImage)}" placeholder="/media/…"></label><button type="button" id="pick-featured">Choose featured image</button><label>Featured image alt text<input id="featuredImageAlt" value="${esc(d.featuredImageAlt)}"></label><label>Original publication date<input id="publishedAt" type="date" value="${esc(d.publishedAt?.slice(0, 10) || "")}"><small>Leave blank for first publication. Revision dates are recorded automatically.</small></label><label class="check-label"><input id="seo-noindex" type="checkbox" ${d.seo.noindex ? "checked" : ""}> Exclude from search indexing</label><div id="editor-warnings">${current.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("")}</div></section></aside></div><section class="panel"><h2>Editorial workflow</h2><p class="muted">Save Draft stores your manual edits. Screening approvals, editorial review, and publication remain separate steps.</p><div class="actions">${canWrite() && !['scheduled','archived','deleted'].includes(current.status) ? '<button id="save" class="primary">Save Draft</button>' : ""}${canWrite() ? '<button data-action="review">Submit for Editorial Review</button>' : ""}${canReview() ? '<button data-action="approve">Approve for Publication</button>' : ""}${isOwner() ? `<button class="primary" data-action="publish">Publish</button><button data-action="unpublish">Unpublish</button><button id="schedule">Schedule publication</button>${current.status === "scheduled" ? '<button data-action="cancel-schedule">Cancel schedule</button>' : ""}` : ""}<button id="revisions">View Revision History</button></div><hr><h3>Diagnostic knowledge</h3><p class="muted">${esc(current.knowledge.classification?.replaceAll("_", " "))}<br>${esc(current.knowledge.verification_status || "Unverified")} ${current.knowledge.reviewed_at ? " · " + esc(date(current.knowledge.reviewed_at)) : ""}</p><div class="actions">${canWrite() ? '<button data-action="knowledge-submit">Submit for Knowledge Review</button>' : ""}${canReview() ? '<button id="knowledge-approve">Approve for Knowledge Base</button><button class="danger" data-action="knowledge-revoke">Revoke Knowledge Approval</button>' : ""}</div></section>`;
   $("#back").onclick = () => navigate("library");
-  $("#save")?.addEventListener("click", () =>
-    save()
-      .then(() => toast("Draft saved"))
-      .catch((e) => toast(e.message, true)),
-  );
-  $("#preview").onclick = async () => {
-    try {
-      await save();
-      preview(id);
-    } catch (e) {
-      toast(e.message, true);
-    }
+  $("#save")?.addEventListener("click", () => {
+    if (!dirty) return toast("No unsaved edits to save.");
+    if (!confirm("Save your edits as a new private draft revision? Nothing will be published.")) return;
+    save().then(() => toast("Approved edits saved as a private draft")).catch(e => toast(e.message, true));
+  });
+  $("#preview").onclick = () => {
+    if (dirty) return toast("Unsaved changes: click Save Draft to approve those edits before previewing the saved revision.", true);
+    preview(id);
   };
   $("#revisions").onclick = showRevisions;
+  const reviewButton = document.createElement('button');
+  reviewButton.id = 'automated-review';
+  reviewButton.textContent = 'Screen saved draft — no changes';
+  reviewButton.title = 'Read-only suggestions; you choose and approve any proposed corrections.';
+  if($('#save')) $('#save').after(reviewButton);
+  else $('#revisions').before(reviewButton);
+  const reviewHelp = document.createElement('p');
+  reviewHelp.className = 'muted';
+  reviewHelp.textContent = 'Read-only scan. Review highlighted passages, approve each desired correction, then save only approved changes. Unapproved changes stay untouched.';
+  reviewButton.after(reviewHelp);
+  reviewButton.onclick = async () => {
+    reviewButton.disabled = true;
+    try {
+      if (dirty) throw Error('Save Draft explicitly first, or discard unsaved edits, before screening the saved revision.');
+      const report = await api('/api/content/'+current.id+'/automated-review',{method:'POST',body:{version:current.version}});
+      showAutomatedReview(report);
+    } catch (error) { toast(error.message,true); }
+    finally { reviewButton.disabled = false; }
+  };
   $("#schedule")?.addEventListener("click", schedule);
   $("#knowledge-approve")?.addEventListener("click", knowledgeApprove);
   $$("[data-action]").forEach(
@@ -612,6 +728,78 @@ async function openEditor(id) {
   };
   main.focus();
 }
+function reviewPassage(f) {
+  const passage=String(f.excerpt||f.evidence||''), target=String(f.highlight||'');
+  const exact=Number.isInteger(f.highlightOffset) && f.highlightOffset>=0 && passage.slice(f.highlightOffset,f.highlightOffset+target.length).toLowerCase()===target.toLowerCase();
+  const at=!target?-1:exact?f.highlightOffset:passage.toLowerCase().indexOf(target.toLowerCase());
+  if(at<0)return '<blockquote>'+esc(passage)+'</blockquote>';
+  return '<blockquote>'+esc(passage.slice(0,at))+'<mark>'+esc(passage.slice(at,at+target.length))+'</mark>'+esc(passage.slice(at+target.length))+'</blockquote>';
+}
+function showAutomatedReview(report, source, notices = []) {
+  const title=current?.id===report.articleId ? current.data.title : report.title || 'Unknown article';
+  const proposalCards=(report.proposals||[]).map(p=>'<section class="panel"><button type="button" data-proposal="'+esc(p.id)+'" aria-pressed="false">Approve this change</button><p class="muted" data-approval-state="'+esc(p.id)+'">Unapproved — this passage stays unchanged.</p><p><strong>Field:</strong> '+esc(p.field)+'</p><p><strong>Why:</strong> '+esc(p.why)+'</p><p><strong>Current:</strong> <mark>'+esc(p.before)+'</mark></p>'+(p.context?'<p><strong>Exact passage:</strong></p>'+reviewPassage({excerpt:p.context,highlight:p.before,highlightOffset:p.highlightOffset}):'')+(
+    p.kind==='verified-unit'
+      ? '<label>Replacement unit (choose only after checking the source)<select data-unit="'+esc(p.id)+'"><option value="">Choose verified unit</option><option value="ppm">ppm</option><option value="mg/L">mg/L</option></select></label><label class="check-label"><input type="checkbox" data-source-verified="'+esc(p.id)+'"> I verified this exact reading against its original source.</label>'
+      : '<p><strong>Proposed:</strong> '+esc(p.after)+'</p>'
+  )+'</section>').join('');
+  modal('<h2>Automated article review</h2><p><strong>Article:</strong> '+esc(title)+'</p><p><strong>Article ID:</strong> <code>'+esc(report.articleId)+'</code> · Saved version '+esc(report.version)+'</p><p>Checksum: <code>'+esc(report.checksum)+'</code></p><p role="status"><strong>Read-only screening: no draft edits or corrections were saved.</strong></p><p>Only selected changes you explicitly approve will be written as a new private draft revision. Other findings require your own source check and manual editing. Nothing here authorizes publication or diagnostic knowledge.</p>'+(
+    source?'<p>Uploaded '+esc(source.type)+' · SHA-256: <code>'+esc(source.sha256)+'</code></p>':''
+  )+notices.map(n=>'<p>'+esc(n)+'</p>').join('')+'<h3>Findings: exact passages and reasons</h3>'+(
+    report.findings.map(f=>'<section class="panel"><h4>'+esc(f.area)+' · '+esc(f.severity)+'</h4><p><strong>Where:</strong> '+esc(f.field||'article')+'</p><p><strong>Passage needing review:</strong></p>'+reviewPassage(f)+'<p><strong>Why review this:</strong> '+esc(f.why||f.suggestion)+'</p><p><strong>Suggested next step:</strong> '+esc(f.suggestion)+'</p></section>').join('')||'<p>No rule triggered. Human technical and source verification is still necessary.</p>'
+  )+'<h3>Proposed changes requiring your approval</h3>'+(
+    proposalCards||'<p>No precise, safe edit can be proposed for these findings. Check highlighted passages and make manual edits in the editor.</p>'
+  )+(proposalCards?'<button id="apply-review" class="primary">Apply ONLY approved changes &amp; save private draft</button>':'')+
+  '<button id="return-to-editor">Return to editor without changes</button> <button id="download-article-review">Download report</button>',()=>{
+    $('#return-to-editor').onclick=()=>{dialog.close();$('#body')?.focus();};
+    $('#download-article-review').onclick=()=>{
+      const blob=new Blob([JSON.stringify({...report,...(source?{uploadSource:source,notices}:{})},null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='article-review-'+report.articleId+'-v'+report.version+'.json';
+      a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    };
+    if(!proposalCards)return;
+    document.querySelectorAll('[data-proposal]').forEach(button=>{
+      button.onclick=()=>{
+        const approved=button.getAttribute('aria-pressed')!=='true';
+        button.setAttribute('aria-pressed',String(approved));
+        button.textContent=approved?'Approved — undo':'Approve this change';
+        button.classList.toggle('primary',approved);
+        const state=document.querySelector('[data-approval-state="'+button.dataset.proposal+'"]');
+        if(state)state.textContent=approved?'Approved for this batch. Nothing saved until final confirmation.':'Unapproved — this passage stays unchanged.';
+      };
+    });
+    $('#apply-review').onclick=async()=>{
+      const selected=[...document.querySelectorAll('[data-proposal][aria-pressed="true"]')],approvals=[];
+      if(!selected.length)return toast('Choose at least one proposal; nothing has been changed.',true);
+      if(dirty)return toast('Unsaved edits exist. Save or discard them first.',true);
+      for(const el of selected){
+        const id=el.dataset.proposal,p=report.proposals.find(x=>x.id===id);
+        if(!p) return toast('Review proposal is no longer available.',true);
+        if(p.kind==='verified-unit'){
+          const verifiedUnit=document.querySelector('[data-unit="'+id+'"]').value;
+          const sourceVerified=document.querySelector('[data-source-verified="'+id+'"]').checked;
+          if(!verifiedUnit||!sourceVerified)return toast('Verify the original reading and select a replacement unit for each technical change.',true);
+          approvals.push({id,verifiedUnit,sourceVerified});
+        } else approvals.push({id});
+      }
+      const differences=approvals.map(a=>{
+        const p=report.proposals.find(x=>x.id===a.id);
+        const target=p.kind==='verified-unit'?p.before.match(/^\d+(?:\.\d+)?/)[0]+' '+a.verifiedUnit:p.after;
+        return p.field+':\nBEFORE: '+p.before+'\nAFTER: '+target;
+      }).join('\n\n');
+      if(!confirm('Approve and SAVE the following exact changes as ONE new private draft revision?\n\n'+differences+'\n\nNo publication or knowledge approval.'))return;
+      const button=$('#apply-review');button.disabled=true;
+      try{
+        const result=await api('/api/content/'+report.articleId+'/apply-review',{method:'POST',body:{version:report.version,checksum:report.checksum,approvals}});
+        dialog.close();
+        await openEditor(result.article.id);
+        toast('Your '+result.applied.length+' approved change(s) were saved as a private draft.');
+      } catch(e){toast(e.message,true);}
+      finally{button.disabled=false;}
+    };
+  });
+}
+
 function collect() {
   const d = { ...current.data };
   for (const id of [
@@ -670,11 +858,7 @@ function markDirty() {
   dirty = true;
   editGeneration++;
   $("#save-status").textContent = "Unsaved changes";
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(
-    () => save().catch((e) => toast("Autosave failed: " + e.message, true)),
-    1300,
-  );
+  clearTimeout(saveTimer); // No automatic save: explicit user approval is required.
 }
 async function save() {
   clearTimeout(saveTimer);
@@ -689,6 +873,8 @@ async function save() {
   })
     .then((r) => {
       current = r;
+      if (generation === editGeneration && !payload.seo.description && r.data.seo.description)
+        $('#seo-description').value = r.data.seo.description;
       if (generation === editGeneration) dirty = false;
       $("#save-status").textContent = dirty
         ? "New changes waiting to save"
@@ -705,12 +891,11 @@ async function save() {
     })
     .finally(() => (saving = null));
   await saving;
-  if (dirty) return save();
-  return current;
+  return current; // Edits made during the request remain unsaved until another explicit Save Draft click.
 }
 async function editorAction(action) {
   try {
-    await save();
+    if(dirty) throw Error("Save Draft explicitly before changing editorial workflow.");
     if(action === "publish" && me?.ownerPublishing) return await requestOwnerPublication();
     if (
       ["publish", "unpublish", "knowledge-revoke"].includes(action) &&
@@ -744,14 +929,73 @@ function preview(id) {
     },
   );
 }
+// Compare immutable snapshots without applying or restoring them. All revision
+// values are rendered as escaped text, never executable article HTML.
+function revisionComparisonMarkup(older, newer) {
+  const fields = [
+    ['title', 'Article title'],
+    ['summary', 'Summary'],
+    ['body', 'Article body (saved HTML)'],
+    ['slug', 'URL slug'],
+    ['categoryId', 'Primary category'],
+    ['tagIds', 'Topic tags'],
+    ['audience', 'Audience'],
+    ['author', 'Author'],
+    ['manufacturer', 'Manufacturer'],
+    ['model', 'Equipment model'],
+    ['equipmentCategory', 'Equipment category'],
+    ['sources', 'Sources and citations'],
+    ['relatedIds', 'Related resources'],
+    ['seo', 'SEO metadata'],
+    ['featured', 'Featured resource']
+  ];
+  const asText = value => {
+    if(value===undefined||value===null)return '(empty)';
+    if(typeof value==='string')return value || '(empty)';
+    return JSON.stringify(value, null, 2);
+  };
+  const changed = fields.filter(([key]) =>
+    JSON.stringify(older.data?.[key] ?? null) !== JSON.stringify(newer.data?.[key] ?? null));
+  if(!changed.length)return '<p class="muted">No field differences between these saved snapshots.</p>';
+  return '<h3>Changed fields ('+changed.length+')</h3>'+
+    '<p class="muted">Read-only comparison of saved snapshots. Article HTML is displayed as text, not rendered. No content, approval or publication is changed.</p>'+
+    changed.map(([key,label]) =>
+      '<section class="revision-compare-field"><h4>'+esc(label)+'</h4>'+
+      '<div class="revision-compare-columns">'+
+      '<div><strong>Revision '+esc(String(older.version))+'</strong><pre>'+esc(asText(older.data?.[key]))+'</pre></div>'+
+      '<div><strong>Revision '+esc(String(newer.version))+'</strong><pre>'+esc(asText(newer.data?.[key]))+'</pre></div>'+
+      '</div></section>'
+    ).join('');
+}
 async function showRevisions() {
   try {
-    await save();
+    if(dirty) throw Error("Save Draft explicitly before opening revision history.");
     const rows = await api(`/api/content/${current.id}/revisions`);
     modal(
-      `<h2>Revision history</h2><p>Restoring creates a new draft revision. It does not publish or restore knowledge eligibility.</p>${rows.map((r) => `<div class="revision-item"><div><strong>Revision ${r.version}</strong> · ${esc(r.reason)}<br><small>${esc(date(r.created_at))} · ${esc(r.data.title)}</small></div>${canWrite() ? `<button data-restore-revision="${r.id}">Restore Version</button>` : ""}</div>`).join("")}`,
+      `<h2>Revision history</h2><p>Restoring creates a new draft revision. It does not publish or restore knowledge eligibility.</p>`+
+      (rows.length>1?'<section class="revision-compare-tool"><h3>Compare saved revisions</h3><div class="revision-compare-picker">'+
+        '<label>Earlier snapshot<select id="compare-from">'+rows.map((r,i)=>'<option value="'+esc(r.id)+'" '+(i===1?'selected':'')+'>Revision '+esc(String(r.version))+'</option>').join('')+'</select></label>'+
+        '<label>Later snapshot<select id="compare-to">'+rows.map((r,i)=>'<option value="'+esc(r.id)+'" '+(i===0?'selected':'')+'>Revision '+esc(String(r.version))+'</option>').join('')+'</select></label>'+
+        '<button type="button" id="compare-revisions">Compare selected</button></div>'+
+        '<div id="revision-comparison" aria-live="polite"></div></section>':
+        '<p class="muted">Compare will be available after a second revision is saved.</p>')+
+      rows.map((r) => `<div class="revision-item"><div><strong>Revision ${r.version}</strong> · ${esc(r.reason)}<br><small>${esc(date(r.created_at))} · ${esc(r.data.title)}</small></div>${canWrite() ? `<button data-restore-revision="${r.id}">Restore Version</button>` : ""}</div>`).join(""),
       () => {
-        $$("[data-restore-revision]").forEach(
+        const compareButton=$('#compare-revisions');
+        if(compareButton) compareButton.onclick=()=>{
+          const older=rows.find(row=>row.id===$('#compare-from').value);
+          const newer=rows.find(row=>row.id===$('#compare-to').value);
+          const target=$('#revision-comparison');
+          if(!older||!newer||older.id===newer.id) {
+            target.innerHTML='<p role="alert">Choose two different saved revisions to compare.</p>';
+            return;
+          }
+          target.innerHTML=revisionComparisonMarkup(
+            older.version<=newer.version?older:newer,
+            older.version<=newer.version?newer:older
+          );
+        };
+        $("[data-restore-revision]").forEach(
           (b) =>
             (b.onclick = async () => {
               if (!confirm("Restore this version as a working draft?")) return;
@@ -785,7 +1029,7 @@ function schedule() {
     () =>
       ($("#schedule-confirm").onclick = async () => {
         try {
-          await save();
+          if(dirty) throw Error("Save Draft explicitly before scheduling publication.");
           await api(`/api/content/${current.id}/schedule`, {
             method: "POST",
             body: {
@@ -809,7 +1053,7 @@ function knowledgeApprove() {
     () =>
       ($("#k-confirm").onclick = async () => {
         try {
-          await save();
+          if(dirty) throw Error("Save Draft explicitly before reviewing knowledge eligibility.");
           const evidence = [
             {
               url: $("#k-source").value,

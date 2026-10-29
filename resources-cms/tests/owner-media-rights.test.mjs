@@ -11,6 +11,15 @@ async function fixture(){const db=new PGlite();await db.exec('CREATE ROLE anon;C
 async function signIn(db,id){await db.exec('SET SESSION AUTHORIZATION postgres;RESET ROLE');await db.query("SELECT set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:id,role:'authenticated'})]);await db.exec('SET SESSION AUTHORIZATION authenticator;SET ROLE authenticated');}
 async function command(db,version,action,data={},id=randomUUID()){return(await db.query('SELECT resources_cms.media_rights_command($1,$2,$3,$4,$5) value',[id,media,version,action,JSON.stringify(data)])).rows[0].value;}
 
+test('canonical media registration accepts the UUID path and rejects mismatched paths',async()=>{const db=await fixture();try{
+ await db.exec(readFileSync('supabase/schema-proposals/media-canonical-object-key.sql','utf8'));
+ await signIn(db,owner);
+ const id=randomUUID(), payload={id,name:'Private fixture',mime:'image/webp',sizeBytes:44,objectKey:`images/${id}.webp`,checksum,alt:'Private test only'};
+ const register=p=>db.query('SELECT resources_cms.media_command($1,$2,$3) value',[randomUUID(),'register',JSON.stringify(p)]);
+ assert.equal((await register(payload)).rows[0].value.id,id);
+ for(const objectKey of [`images/${randomUUID()}.webp`,`images/${id}xwebp`,`images/${id}.pdf`]) await assert.rejects(register({...payload,id:randomUUID(),objectKey}),/Invalid canonical media/);
+}finally{await db.close();}});
+
 test('real local PostgreSQL roles enforce pending review, owner approval, immutable events and revocation',async()=>{const db=await fixture();try{
  await signIn(db,viewer);await assert.rejects(command(db,0,'submit',details()),/Editor required/);
  await signIn(db,editor);const pending=await command(db,0,'submit',details());assert.equal(pending.status,'pending');assert.equal(pending.ready,false);
@@ -46,11 +55,34 @@ test('forged direct SQL claims, anonymous RPCs, and audit transaction failures c
 
 test('JS adapter uses verified identity and exact version/command with no client self-approval',async()=>{assert.throws(()=>normalizeMediaRightsCommand('approve',{mediaId:media,version:1,details:{humanVerified:'true'}}),/human/);assert.throws(()=>normalizeMediaRightsCommand('submit',{mediaId:media,version:0,details:{...details(),reviewerId:owner}}),/Client/);await assert.rejects(readMediaRights({},null,media),/Verified CMS/);const calls=[];const db={rpc:async(...args)=>{calls.push(args);return{};}};await reviewMediaRights(db,{id:owner,accessToken:'verified-token'},'submit',{mediaId:media,version:0,commandId:media,details:details()});assert.equal(calls[0][0],'media_rights_command');assert.equal(calls[0][1].p_version,0);assert.equal(calls[0][2],'verified-token');});
 
-test('real local Storage RLS permits only caller-owned orphan cleanup and prevents registered delete or overwrite',async()=>{const db=await fixture();try{
- await db.exec(`CREATE SCHEMA auth;CREATE FUNCTION auth.uid()RETURNS uuid LANGUAGE sql STABLE AS $$SELECT (current_setting('request.jwt.claims',true)::jsonb->>'sub')::uuid$$;GRANT USAGE ON SCHEMA auth TO anon,authenticated,resources_cms_command_owner;GRANT EXECUTE ON FUNCTION auth.uid()TO anon,authenticated,resources_cms_command_owner;
+for (const storageProposal of ['owner-storage.sql','private-owner-storage.sql']) test(`Storage RLS (${storageProposal}) permits only caller-owned orphan cleanup and prevents registered delete or overwrite`,async()=>{const db=await fixture();try{
+ await db.exec(`CREATE SCHEMA auth;CREATE FUNCTION auth.uid()RETURNS uuid LANGUAGE sql STABLE AS $$SELECT (current_setting('request.jwt.claims',true)::jsonb->>'sub')::uuid$$;GRANT USAGE ON SCHEMA auth TO anon,authenticated;GRANT EXECUTE ON FUNCTION auth.uid()TO anon,authenticated,resources_cms_command_owner;
  CREATE SCHEMA storage;CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),bucket_id text,name text,owner_id text,UNIQUE(bucket_id,name));ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;GRANT USAGE ON SCHEMA storage TO authenticated,anon;GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO authenticated;GRANT SELECT ON storage.objects TO anon;CREATE ROLE local_storage_transport;GRANT authenticated TO local_storage_transport;`);
  await db.exec("CREATE POLICY synthetic_existing_broad_guard ON storage.objects FOR ALL TO authenticated USING(true) WITH CHECK(true);");
- await db.exec(readFileSync('supabase/schema-proposals/owner-storage.sql','utf8'));
+ if(storageProposal==='owner-storage.sql') await db.exec('GRANT USAGE ON SCHEMA auth TO resources_cms_command_owner');
+ await db.exec(readFileSync(`supabase/schema-proposals/${storageProposal}`,'utf8'));
+ // Reproduce hosted ACL drift, then repair as the actual NOLOGIN function
+ // owner. Superuser-only fixtures otherwise hide managed-admin grantor errors.
+ const repair=readFileSync('supabase/schema-proposals/private-media-execute-grants.sql','utf8');
+ await assert.rejects(db.exec(repair),/exact function owner/);
+ await db.exec(`SET ROLE resources_cms_command_owner;
+  GRANT EXECUTE ON FUNCTION resources_cms.media_release_ready(uuid),resources_cms.media_rights_read(uuid),
+   resources_cms.media_rights_command(uuid,uuid,integer,text,jsonb),resources_cms.owner_storage_orphan_object(text) TO PUBLIC;RESET ROLE;`);
+ assert.equal((await db.query("SELECT has_function_privilege('anon','resources_cms.media_rights_read(uuid)','EXECUTE') value")).rows[0].value,true);
+ await db.exec('SET ROLE resources_cms_command_owner');await db.exec(repair);await db.exec('RESET ROLE');
+ for(const role of ['anon','authenticated']) {
+  await db.exec(`SET ROLE ${role}`);
+  await assert.rejects(db.query('SELECT resources_cms.media_release_ready($1)',[media]),/permission denied/);
+  if(role==='anon') {
+   await assert.rejects(db.query('SELECT resources_cms.media_rights_read($1)',[media]),/permission denied/);
+   await assert.rejects(command(db,0,'submit',details()),/permission denied/);
+   await assert.rejects(db.query('SELECT resources_cms.owner_storage_orphan_object($1)',['images/test.webp']),/permission denied/);
+  }
+  await db.exec('RESET ROLE');
+ }
+ await signIn(db,owner);const pending=await command(db,0,'submit',details());assert.equal(pending.status,'pending');
+ assert.equal((await db.query('SELECT resources_cms.media_rights_read($1) value',[media])).rows[0].value[0].status,'pending');
+ await db.exec('SET SESSION AUTHORIZATION postgres;RESET ROLE');
  await db.exec(`INSERT INTO storage.objects(bucket_id,name,owner_id)VALUES('resources-cms-media','images/${media}.webp','${owner}')`);
  await db.query("SELECT set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner,role:'authenticated'})]);await db.exec('SET SESSION AUTHORIZATION local_storage_transport;SET ROLE authenticated');
  const orphan='00000000-0000-4000-8000-000000000099';await db.exec(`INSERT INTO storage.objects(bucket_id,name,owner_id)VALUES('resources-cms-media','images/${orphan}.webp','${owner}')`);

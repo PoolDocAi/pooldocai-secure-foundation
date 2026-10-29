@@ -91,7 +91,8 @@ export function commandRoute({ identity, db, origin }) {
       requireCsrf(request);
       const user = await identity(request);
       const { commandId, id, version, action, payload } = await json(request);
-      const normalized = normalizeArticleCommand(action, payload);
+      const previous = action === 'save' ? await db.read(user,id) : null;
+      const normalized = normalizeArticleCommand(action, payload, previous?.editable);
       const result = await db.command(user, id, version, action, normalized, commandId);
       return Response.json(result, { headers: { "Cache-Control": "no-store" } });
     } catch (error) {

@@ -4,12 +4,28 @@ import { normalizeArticleCommand } from "./validation.mjs";
 import {readMediaRights,reviewMediaRights} from "./media-rights-review.mjs";
 import {validateApprovedImport} from "./approved-import.mjs";
 import {sanitize,safeURL} from '../content.mjs';
+import {parseArticleFile} from './article-intake.mjs';
+import {reviewArticle} from './editorial-review.mjs';
+import {reviewProposals,applyApprovedProposals} from './review-proposals.mjs';
+import {articleChecksum} from './article-intake.mjs';
+import {handleTopicApi} from './topic-queue-api.mjs';
 
+const UUID_FOR_PUBLIC_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function body(request, maximum = 250_000) {
-  const text = await request.text();
-  if (Buffer.byteLength(text, "utf8") > maximum) throw Object.assign(new Error("Request too large"), { status: 413 });
-  return text ? JSON.parse(text) : {};
+  const chunks = []; let size = 0;
+  if (request.body) for await (const chunk of request.body) {
+    size += chunk.byteLength;
+    if (size > maximum) throw Object.assign(new Error("Request too large"), { status: 413 });
+    chunks.push(Buffer.from(chunk));
+  }
+  const text = Buffer.concat(chunks).toString('utf8');
+  try {
+    const parsed = text ? JSON.parse(text) : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+    return parsed;
+  }
+  catch { throw Object.assign(new Error('Invalid request JSON'), {status:422}); }
 }
 function warningList(data) {
   const result = [];
@@ -41,13 +57,37 @@ function status(error) {
   return 500;
 }
 
-export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute, approvedImports=null, ownerPublishing=false }) {
+
+export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute, approvedImports=null, ownerPublishing=false,topicPipeline=null }) {
   return async (request) => {
     try {
       const url = new URL(request.url), path = url.pathname;
       if (request.method !== "GET") { requireOrigin(request, origin); requireCsrf(request); }
       const user = await identity(request), role = await memberRole(user);
-      if (path === "/api/me" && request.method === "GET") return json({ id: user.id, email: user.email || "", role, ownerPublishing, approvedCollectionInstalled:Array.isArray(approvedImports), csrf: parseCookies(request.headers.get("cookie"))[CSRF_COOKIE] || null });
+      if(path==='/api/topics'||path.startsWith('/api/topics/')) return handleTopicApi({request,db,user,role,topicPipeline});
+      if (path === '/api/article-upload' && request.method === 'POST') {
+        if (!['owner','editor'].includes(role)) return json({error:'Editor required'},403);
+        const incoming = await body(request,1_450_000), intake = parseArticleFile(incoming);
+        // Do not create another private draft for the same uploaded source.
+        // Text-based imports use a deterministic source-hash slug. This
+        // preflight also checks byte-different imports with identical cleaned
+        // article content (e.g. Markdown vs structured JSON).
+        const existing = await db.list(user,{limit:200});
+        if (!Array.isArray(existing)) throw new Error('CMS article catalog unavailable');
+        const comparable = value => String(value || '').replace(/\s+/g,' ').trim();
+        const duplicate = existing.find(row => {
+          const saved = row.editable || row.data || {};
+          return row.slug === intake.article.slug || saved.slug === intake.article.slug ||
+            (comparable(saved.title).toLowerCase() === comparable(intake.article.title).toLowerCase() &&
+             comparable(saved.body) === comparable(intake.article.body));
+        });
+        if (duplicate) return json({error:'This resource is already in your CMS. Open the existing draft instead of importing a duplicate.',existingArticleId:duplicate.id},409);
+        const id = randomUUID();
+        await db.command(user,id,0,'create',intake.article,randomUUID());
+        const row = await db.read(user,id);
+        return json({article:formatted(row),source:intake.source,notices:intake.notices,review:reviewArticle(row,await db.list(user,{limit:200}))},201);
+      }
+      if (path === "/api/me" && request.method === "GET") return json({ id: user.id, email: user.email || "", role, ownerPublishing, topicQueueEnabled:topicPipeline?.queueEnabled===true,topicGenerationEnabled:!!topicPipeline?.generator, approvedCollectionInstalled:Array.isArray(approvedImports), csrf: parseCookies(request.headers.get("cookie"))[CSRF_COOKIE] || null });
       if(path === "/api/approved-resources") {
         if(role!=="owner") return json({error:"Owner required"},403);
         if(!Array.isArray(approvedImports))return json({error:"Private approved collection is not installed"},503);
@@ -75,14 +115,37 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
         if (path === "/api/import" && incoming.format !== "pooldocai-resource-v1") throw Object.assign(new Error("Invalid import format"), { status: 422 });
         const id = randomUUID();
         const result = await db.command(user, id, 0, "create", normalizeArticleCommand("create", value), randomUUID());
-        return json(formatted({ ...result, editable: value }), 201);
+        return json(formatted(await db.read(user, result.id || id)), 201);
       }
       const content = path.match(/^\/api\/content\/([0-9a-f-]{36})(?:\/([a-z-]+))?$/i);
       if (content) {
         const [, id, action] = content;
+        if (action === 'automated-review' && request.method === 'POST') {
+          const incoming=await body(request,8192), row=await db.read(user,id);
+          if(!row)return json({error:'Not found'},404);
+          if(!Number.isInteger(incoming.version)||incoming.version!==row.version)return json({error:'Revision changed; review the saved version again'},409);
+          const peers=await db.list(user,{limit:200});
+          return json(reviewArticle(row,peers));
+        }
+        if (action === 'apply-review' && request.method === 'POST') {
+          if(!['owner','editor'].includes(role))return json({error:'Editor required'},403);
+          const incoming=await body(request,16384), row=await db.read(user,id);
+          if(!row)return json({error:'Not found'},404);
+          if(row.state!=='draft')return json({error:'Only protected drafts can receive reviewed corrections'},409);
+          if(!Number.isInteger(incoming.version)||incoming.version!==row.version||incoming.checksum!==articleChecksum(row.editable))return json({error:'Draft changed since review; run the screener again'},409);
+          const proposals=reviewProposals(row.editable);
+          const {changed,applied}=applyApprovedProposals(row.editable,incoming.approvals,proposals);
+          // Existing stored content is authoritative. Re-running the generic
+          // article normalizer here would silently remove valid historical
+          // markup/metadata that was NOT in the owner's approved diff.
+          // applyApprovedProposals only alters re-derived, allowlisted fields.
+          await db.command(user,id,row.version,'save',changed,randomUUID());
+          return json({article:formatted(await db.read(user,id)),applied});
+        }
         if (!action && request.method === "GET") return json(formatted(await db.read(user, id)));
         if (!action && request.method === "PUT") {
-          const incoming = await body(request), result = await db.command(user, id, incoming.version, "save", normalizeArticleCommand("save", incoming), randomUUID());
+          const incoming = await body(request), previous = await db.read(user,id);
+          const result = await db.command(user, id, incoming.version, "save", normalizeArticleCommand("save", incoming, previous?.editable), randomUUID());
           return json(formatted(await db.read(user, result.id)));
         }
         if(action === "release" && request.method === "GET") {
@@ -144,8 +207,17 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
       if (path === "/api/settings" && request.method === "PUT") return json(await db.settingsCommand(user, await body(request)));
       if (path === "/api/dashboard" && request.method === "GET") {
         const rows = await db.list(user, { limit: 200 }), counts = {};
-        for (const state of ["published", "draft", "scheduled", "archived", "review", "approved", "deleted"]) counts[state] = rows.filter((row) => row.state === state).length;
-        return json({ counts, warnings: rows.flatMap((row) => warningList(row.editable).map((message) => ({ id: row.id, title: row.editable.title, message }))), recent: await db.recentAudit(user) });
+        for (const state of ["draft", "scheduled", "archived", "review", "approved", "deleted"]) counts[state] = rows.filter((row) => row.state === state).length;
+        // A published revision remains live while the owner edits a newer
+        // working draft. Counting a.state='published' incorrectly displays 0.
+        // Read the exact public projection instead of inferring from draft state
+        // or the pointer alone (which might be blocked by editorial holds).
+        const publicRows = await db.publicIndex();
+        if (!Array.isArray(publicRows)) throw new Error('CMS public projection unavailable');
+        const publicArticleIds = [...new Set(publicRows.map(row => row.article_id ?? row.id))];
+        if (publicArticleIds.some(id => !UUID_FOR_PUBLIC_ID.test(String(id)))) throw new Error('Invalid public projection');
+        counts.published = publicArticleIds.length;
+        return json({ counts, publicArticleIds, warnings: rows.flatMap((row) => warningList(row.editable).map((message) => ({ id: row.id, title: row.editable.title, message }))), recent: await db.recentAudit(user) });
       }
       if (path === "/api/bulk/archive" && request.method === "POST") return json(await db.bulkArchive(user, (await body(request)).items));
       if (path === "/api/export" && request.method === "GET") return json(await db.exportAll(user), 200, { "Content-Disposition": 'attachment; filename="pooldocai-resources-backup.json"' });

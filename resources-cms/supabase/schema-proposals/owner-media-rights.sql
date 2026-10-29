@@ -106,10 +106,11 @@ BEGIN
  RETURN answer;
 END $$;
 
+REVOKE ALL ON FUNCTION resources_cms.media_rights_details_valid(jsonb),resources_cms.media_release_ready(uuid),resources_cms.media_rights_read(uuid),resources_cms.media_rights_command(uuid,uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated,resources_cms_runtime;
+GRANT EXECUTE ON FUNCTION resources_cms.media_rights_read(uuid),resources_cms.media_rights_command(uuid,uuid,integer,text,jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION resources_cms.media_rights_details_valid(jsonb),resources_cms.media_release_ready(uuid) TO resources_cms_command_owner;
+-- Finalize ACLs while still the creator; managed postgres is not a superuser.
 ALTER FUNCTION resources_cms.media_rights_details_valid(jsonb) OWNER TO resources_cms_command_owner;
 ALTER FUNCTION resources_cms.media_release_ready(uuid) OWNER TO resources_cms_command_owner;
 ALTER FUNCTION resources_cms.media_rights_read(uuid) OWNER TO resources_cms_command_owner;
 ALTER FUNCTION resources_cms.media_rights_command(uuid,uuid,integer,text,jsonb) OWNER TO resources_cms_command_owner;
-REVOKE ALL ON FUNCTION resources_cms.media_rights_details_valid(jsonb),resources_cms.media_release_ready(uuid),resources_cms.media_rights_read(uuid),resources_cms.media_rights_command(uuid,uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated,resources_cms_runtime;
-GRANT EXECUTE ON FUNCTION resources_cms.media_rights_read(uuid),resources_cms.media_rights_command(uuid,uuid,integer,text,jsonb) TO authenticated;
-GRANT EXECUTE ON FUNCTION resources_cms.media_rights_details_valid(jsonb),resources_cms.media_release_ready(uuid) TO resources_cms_command_owner;

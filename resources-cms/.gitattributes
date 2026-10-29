@@ -1,0 +1,2 @@
+# SQL fixtures use line-sensitive hosted-role guard removal in local tests.
+*.sql text eol=lf

@@ -9,7 +9,7 @@
   "scripts": {
     "build:review": "node scripts/build-sanitizer.mjs && node scripts/build-review.mjs",
     "postinstall": "node scripts/build-sanitizer.mjs",
-    "test:public-target": "node --test tests/public-target.test.mjs"
+    "test:public-target": "node --test tests/public-target.test.mjs tests/prune-static-publications.test.mjs"
   },
   "dependencies": {
     "esbuild": "0.28.2",

@@ -15,7 +15,7 @@ function short(value, maximum, required = false) {
 
 // This is the untrusted-input boundary. Database procedures repeat the
 // authorization and state-transition checks; neither layer is trusted alone.
-export function normalizeArticleCommand(action, input = {}) {
+export function normalizeArticleCommand(action, input = {}, previous = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) reject("Invalid payload");
   if (!["create", "save"].includes(action)) return structuredClone(input);
   const slug = short(input.slug, 120, true);
@@ -55,7 +55,7 @@ export function normalizeArticleCommand(action, input = {}) {
     author: short(input.author, 120) || "PoolDocAI",
     sources: sources.map(({ label, url }) => ({ label: short(label, 300, true), url: String(url) })),
     seo: {
-      title: short(seo.title, 180), description: short(seo.description, 500), canonical,
+      title: short(seo.title, 180), description: short(seo.description || previous.seo?.description, 500), canonical,
       ogTitle: short(seo.ogTitle, 180), ogDescription: short(seo.ogDescription, 500),
       image: short(seo.image, 200), imageAlt: short(seo.imageAlt, 300), noindex: Boolean(seo.noindex),
     },

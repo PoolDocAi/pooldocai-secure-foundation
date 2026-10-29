@@ -1,0 +1,246 @@
+{
+  "deploymentId": "dpl_Z6Au5cLbsYrABmLUz9B8CE8EPpai",
+  "observedAt": "2026-10-28",
+  "files": [
+    {
+      "path": "api/resources.mjs",
+      "uid": "25a1adc18f84bfb0433206dd947d3bdf2fce209a"
+    },
+    {
+      "path": "config/analytics-events.json",
+      "uid": "aee96cc5fa3a5d1b0f1333aa1728dbfd63d6e686"
+    },
+    {
+      "path": "config/media-rights.schema.json",
+      "uid": "f928a0f8ba2b33785fad18c0c898715a03bc89b5"
+    },
+    {
+      "path": "config/navigation-proposed.json",
+      "uid": "8d250e14dac03b5796446386f1acab4a250f7c7a"
+    },
+    {
+      "path": "config/taxonomy-v3.json",
+      "uid": "aadeed5e7cf5b5d0c54671253353683abacde286"
+    },
+    {
+      "path": "public/navigation-proposed.json",
+      "uid": "8d250e14dac03b5796446386f1acab4a250f7c7a"
+    },
+    {
+      "path": "public/admin.css",
+      "uid": "b05ca93264f2da94085a79aa32acbba6585bb236"
+    },
+    {
+      "path": "public/admin.html",
+      "uid": "f253fb46f00c29c402df130b412a99c3acd9811f"
+    },
+    {
+      "path": "public/admin.js",
+      "uid": "2bc4b444b2d7062af5ac6666f026950ef6186979"
+    },
+    {
+      "path": "public/hosted-login.html",
+      "uid": "2e60cca01ce63a3e4e23d2e8269bb129db3f1646"
+    },
+    {
+      "path": "public/login.html",
+      "uid": "3148987f006cac782bc0eecabb5a4133fa2c64bd"
+    },
+    {
+      "path": "public/login.js",
+      "uid": "e99d762010af72565d8e3cd0ff77422ffde1c301"
+    },
+    {
+      "path": "public/navigation-admin.js",
+      "uid": "4b9dd5976e4779304c79b49e4e09b44260d4c9d3"
+    },
+    {
+      "path": "public/platform-admin.js",
+      "uid": "bb6d44c1cd1daddc425793e4de4a598b5687cd01"
+    },
+    {
+      "path": "public/platform.css",
+      "uid": "75902175b311745358dff6caaa1bc4e1bc6bc571"
+    },
+    {
+      "path": "public/public.css",
+      "uid": "ab4717395f904f4e74815986b7db37d67eefaa3e"
+    },
+    {
+      "path": "public/recovery.html",
+      "uid": "1bcfecc4cef46b68d1e3641260991fa6d8938062"
+    },
+    {
+      "path": "public/recovery.js",
+      "uid": "0838e490a945e152a601edfce74cf44b9d484d39"
+    },
+    {
+      "path": "public/resource-analytics.js",
+      "uid": "b84e53334cf7c38dc84ff5537794a703c2df1288"
+    },
+    {
+      "path": "public/resource-assistant.js",
+      "uid": "fb819ca9d1b5c7f60bc133e49c55022b10a9c4a1"
+    },
+    {
+      "path": "public/resource-design.css",
+      "uid": "f34d9cba7da7be087b39e6a02219c7c8b9433ed9"
+    },
+    {
+      "path": "public/resource-reading.js",
+      "uid": "d16b2359372fc8bfd9a4decbd8b49f8a7a1328c2"
+    },
+    {
+      "path": "package-lock.json",
+      "uid": "04ee689d4b23b60b3c495ab468e0babea5fca209"
+    },
+    {
+      "path": "package.json",
+      "uid": "ef2f0ef98aab7db213fb380f0748fc31a43346d4"
+    },
+    {
+      "path": "src/approved-content.mjs",
+      "uid": "25980023b128d35473dab104a4ed4d76848fb398"
+    },
+    {
+      "path": "src/content.mjs",
+      "uid": "2be455093a5bbf4e52565a69e54ac44055d091f0"
+    },
+    {
+      "path": "src/editorial-assets.mjs",
+      "uid": "a0554300540cdf4013e008b81c2d94c1b06bd791"
+    },
+    {
+      "path": "src/editorial-collection.mjs",
+      "uid": "39fdfa4c6541cab6322ec0f610b78baeae1625e2"
+    },
+    {
+      "path": "src/knowledge.mjs",
+      "uid": "5b84cdb04ce258889d0fccea8436feb9bb47cb8d"
+    },
+    {
+      "path": "src/platform/analytics.mjs",
+      "uid": "9e310fc1c01c6528616b9f1d3d64ee92b70087ba"
+    },
+    {
+      "path": "src/platform/catalog.mjs",
+      "uid": "5f1d370a1b9ff3a3878ec6a9c4eb6d9e595beefc"
+    },
+    {
+      "path": "src/platform/local.mjs",
+      "uid": "40475e61a91c86ba23fe8b82f93752ae08a43221"
+    },
+    {
+      "path": "src/platform/media-rights.mjs",
+      "uid": "5c16384a3abe205d421d5300fb8e060d4dbcc43d"
+    },
+    {
+      "path": "src/platform/navigation.mjs",
+      "uid": "6f6848a50165963c7a370230f5d9687e585067f4"
+    },
+    {
+      "path": "src/platform/presentation.mjs",
+      "uid": "be5f20be28c7323bdeebe69694f9b7c05f1df078"
+    },
+    {
+      "path": "src/platform/public-gateway.mjs",
+      "uid": "5291998d8416ea729ab4d2e50d44c5f4ae247390"
+    },
+    {
+      "path": "src/platform/routes.mjs",
+      "uid": "af2a643d75221ee1434d1149a35348ee8f8f6145"
+    },
+    {
+      "path": "src/platform/taxonomy.mjs",
+      "uid": "5a33972c7390ceb33627ce9e067287f234c7e8aa"
+    },
+    {
+      "path": "src/production/app.mjs",
+      "uid": "e5b7fc2f563c9c6d2395b426f8ac1c7fc9503fc8"
+    },
+    {
+      "path": "src/production/approved-import.mjs",
+      "uid": "0c2b9bf29a5466828acf194a0d99f2004c511dd9"
+    },
+    {
+      "path": "src/production/auth.mjs",
+      "uid": "73769e43194dfa2de078589d1ad4c0583a8ba650"
+    },
+    {
+      "path": "src/production/backup.mjs",
+      "uid": "09dc17616388dd096c2a63278f6b578f45eab72d"
+    },
+    {
+      "path": "src/production/compat-api.mjs",
+      "uid": "5fece07637f5db4bbbacd1d01e67abd81d0e7bc9"
+    },
+    {
+      "path": "src/production/editorial-migration.mjs",
+      "uid": "29c5f07ca7c8481bf64bb9899d54ca2b88c1be68"
+    },
+    {
+      "path": "src/production/media-backup.mjs",
+      "uid": "d1e24bad07d9500747e50fd28bb92eef86f70b46"
+    },
+    {
+      "path": "src/production/media-rights-review.mjs",
+      "uid": "6be849a2424cc5023537479c583fb6d48f326ff6"
+    },
+    {
+      "path": "src/production/node-http.mjs",
+      "uid": "bba7e2f8d46709923e88d214b1a6b4d23139ab94"
+    },
+    {
+      "path": "src/production/platform-adapter.mjs",
+      "uid": "f56fb9837d6aaa1ca2b9e7c89233618d8e52cdb8"
+    },
+    {
+      "path": "src/production/postgres.mjs",
+      "uid": "542736ba5fa50ef2c163d780185f4c2bbe4fadee"
+    },
+    {
+      "path": "src/production/public-delivery.mjs",
+      "uid": "0576ac51be664f2d9dbe11f85f5f7e41405d62bb"
+    },
+    {
+      "path": "src/production/recovery.mjs",
+      "uid": "de80d45ab4691d11c05d3c3262adf2f636371885"
+    },
+    {
+      "path": "src/production/render.mjs",
+      "uid": "95fda7c526a295937717f47c2c0627d33e257517"
+    },
+    {
+      "path": "src/production/runtime.mjs",
+      "uid": "5590cfc56924dbea848f8c2e693738a967162d35"
+    },
+    {
+      "path": "src/production/serverless.mjs",
+      "uid": "f70123efb2e1178ed5d73e819303cdeaaee0fe5a"
+    },
+    {
+      "path": "src/production/storage.mjs",
+      "uid": "6b7d85b7c3b5d898c8c33189a0025329334cec21"
+    },
+    {
+      "path": "src/production/supabase-data.mjs",
+      "uid": "cf97d8522440fdb3b5b878f9a02050a4abd6a590"
+    },
+    {
+      "path": "src/production/validation.mjs",
+      "uid": "2a3a6d2c86fa5b06cd2e0391c0a1d0903e68f6e2"
+    },
+    {
+      "path": "src/render.mjs",
+      "uid": "ed25e7fceed270ba8703533367f5c791e53c46fe"
+    },
+    {
+      "path": "src/store.mjs",
+      "uid": "f49f20bc9f37427e71b0519c0dd15423126e917f"
+    },
+    {
+      "path": "vercel.json",
+      "uid": "db2a35102c4b2062a78313d6e36a8231a7d46ded"
+    }
+  ]
+}

@@ -57,6 +57,16 @@ export class SupabaseDataCMS {
 
   memberRole(user) { return this.admin(user, "member-role"); }
 
+  topicList(user) {
+    return this.rpc("topic_queue_list",{},principal(user).accessToken);
+  }
+  topicCommand(user,action,id,version,payload={}) {
+    uuid(id,"Topic");
+    if(!['add','claim','release','complete','archive','retry'].includes(action)||!Number.isInteger(version)||version<0)throw new TypeError('Invalid topic command');
+    if(jsonSize(payload)>4096)throw new RangeError('Topic command too large');
+    return this.rpc("topic_queue_command",{p_action:action,p_id:id,p_version:version,p_payload:payload},principal(user).accessToken);
+  }
+
   command(user, articleId, version, action, payload = {}, commandId = randomUUID()) {
     const auth = principal(user);
     uuid(articleId, "Article"); uuid(commandId, "Command");

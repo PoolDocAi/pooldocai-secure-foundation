@@ -1,6 +1,9 @@
 name: PoolDocAI Resources CMS review-only tests
 
 on:
+  pull_request:
+    branches:
+      - review/owner-publishing-recovery
   push:
     branches:
       - review/owner-publishing-recovery
@@ -29,12 +32,77 @@ jobs:
       - name: Install pinned CMS dependencies
         working-directory: resources-cms
         run: npm ci
+      - name: Export generated sanitizer for isolated full-source dynamic CMS test
+        uses: actions/upload-artifact@v4
+        with:
+          name: cms-verified-sanitizer
+          path: resources-cms/src/generated/sanitize-html.cjs
+          retention-days: 2
+          if-no-files-found: error
+      - name: Test isolated Staging-only manual lookup tenant authorization
+        working-directory: resources-cms
+        run: node --test tests/manual-duplicate-tenant-isolation.test.mjs
       - name: Test CMS production adapters and publication routes
         working-directory: resources-cms
         run: npm run test:production
       - name: Test Production migration assembly (no SQL applied)
         working-directory: resources-cms
         run: node --test tests/production-owner-assembly.test.mjs
+      - name: Test owner authorization and private media boundaries
+        working-directory: resources-cms
+        run: node --test tests/owner-media-rights.test.mjs tests/owner-publication.test.mjs tests/owner-media.test.mjs tests/login-fix.test.mjs
+      - name: Test audit display attribution without changing historical identity
+        working-directory: resources-cms
+        run: node --test tests/audit-attribution.test.mjs
+      - name: Verify selected Vercel preview suppression and Production invariants
+        working-directory: resources-cms
+        run: node --test tests/vercel-branch-policy.test.mjs
+      - name: Check PG17 Staging topic release SQL assembly (no hosted migration)
+        working-directory: resources-cms
+        run: node --test tests/topic-queue-pg17-package.test.mjs
+      - name: Test owner-only durable topic queue, source grounding and private-draft handoff
+        working-directory: resources-cms
+        run: node --test tests/topic-queue-pglite.test.mjs tests/topic-queue-api.test.mjs tests/topic-queue-draft-postgres.test.mjs tests/gemini-article-generator.test.mjs
+      - name: Verify dedicated bounded editorial generation function and routing
+        working-directory: resources-cms
+        run: node --test tests/topic-generation-function.test.mjs
+      - name: Verify full-length sourced topic-to-article draft contract
+        working-directory: resources-cms
+        run: node --test tests/topic-to-article.test.mjs
+      - name: Test private article intake and automated review boundaries
+        working-directory: resources-cms
+        run: npm run test:article-intake
+      - name: Test read-only review and explicit owner-approved revision persistence
+        working-directory: resources-cms
+        run: node --test tests/seo-description.test.mjs tests/seo-description-postgres.test.mjs tests/typo-approval.test.mjs
+      - name: Test encrypted recovery packaging with synthetic database and Storage bytes
+        working-directory: resources-cms
+        run: node --test tests/recovery-bundle.test.mjs
+      - name: Install isolated browser
+        working-directory: resources-cms
+        run: npx playwright install --with-deps chromium
+      - name: Verify restricted ten-step diagnostic checklist and secure HTML sanitizer
+        working-directory: resources-cms
+        run: |
+          node --test tests/restricted-checklist.test.mjs
+          node tests/restricted-checklist-browser.mjs
+      - name: Test article upload and revision review screens with synthetic data
+        working-directory: resources-cms
+        run: |
+          npm run test:article-intake:browser
+          node tests/seo-description-browser.mjs
+      - name: Test topic queue through private editor at mobile and desktop sizes
+        working-directory: resources-cms
+        run: node tests/topic-queue-browser.mjs
+      - name: Test private fixture installer with disposable synthetic input only
+        working-directory: resources-cms
+        run: node --test tests/private-fixture-installer.test.mjs
+      - name: Verify held editorial content and Staging API policy baseline
+        working-directory: resources-cms
+        run: |
+          node --test tests/staging-content-gates.test.mjs
+          node --test tests/public-hub-navigation.test.mjs
+          node scripts/verify-staging-release-gates.mjs evidence/staging-content-gate-20261028.json
       - name: Test disabled folder gate
         working-directory: resources-cms
         run: node --test tests/folders/hosted-feature-gate.test.mjs
@@ -54,8 +122,57 @@ jobs:
       - name: Verify Production and Staging database target protection
         working-directory: resources-cms/marketing-review
         run: npm run test:public-target
+      - name: Verify exact private-source preview assembly and ZIP extraction safeguards
+        working-directory: resources-cms
+        run: python3 -m unittest discover -s tests -p test_private_marketing_assembler.py -v
       # The complete approved marketing source is privately held; the public
       # review mirror does not include its renderer/sanitizer or original assets.
       # Full delivery E2E must be executed against the protected complete package.
+      - name: Export public CMS overlay for private owner-source assembly
+        uses: actions/upload-artifact@v4
+        with:
+          name: cms-marketing-reviewed-overlay
+          path: resources-cms/marketing-review/
+          retention-days: 2
+          if-no-files-found: error
       - name: Record required private-package delivery gate
         run: echo "::notice::Dynamic marketing-site delivery E2E remains unverified; complete approved marketing source and private renderer required before production release."
+
+  cms-topic-pg17-native:
+    name: PostgreSQL 17 disposable queue rollback and role boundary
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: cms_fixture
+          POSTGRES_USER: bootstrap
+          POSTGRES_PASSWORD: synthetic-bootstrap-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bootstrap -d cms_fixture"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      CMS_PG17_DISPOSABLE: '1'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGDATABASE: cms_fixture
+    steps:
+      - name: Checkout guarded Staging candidate and isolated fixtures
+        uses: actions/checkout@v4
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install local PostgreSQL test client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+      - name: Rehearse ROLLBACK, commit in disposable fixture, verify owner boundaries
+        working-directory: resources-cms
+        run: node scripts/topic-queue-pg17-native-fixture.mjs

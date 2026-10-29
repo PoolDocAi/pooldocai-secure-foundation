@@ -46,9 +46,15 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/cms-private-staging-media": false,
       "review/resources-platform-v060": false,
       "review/resources-folders-design-v061": false,
-      "review/owner-publishing-recovery": false
+      "review/owner-publishing-recovery": false,
+      "security/cms-totp-owner-2fa-stage": false,
+      "fix/marketing-public-launch-gates-20261028": false,
+      "security/cms-sms-2fa-staging-20261028": false,
+      "fix/restricted-resource-checklists": false,
+      "review/cms-launch-readiness-20261028": false
     }
   }
 }
