@@ -44,7 +44,7 @@ try {
     const savesBefore = commands.filter(x=>x==='save').length;
     await page.goto(origin+'/admin/#library');
     await page.locator('#import').click();
-    await page.locator('#import-file').setInputFiles({name:'synthetic.md',mimeType:'text/markdown',buffer:Buffer.from('# Synthetic upload\n\nTODO: Repair at 20 psi. Mix chlorine with acid.')});
+    await page.locator('#import-file').setInputFiles({name:'synthetic.md',mimeType:'text/markdown',buffer:Buffer.from('# Synthetic upload\n\nTODO: Repair at 20 psi. Mix chlorine with acid. Viewport '+width)});
     await page.locator('#import-submit').click();
     await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
     const report=await page.locator('#dialog-content').innerText();
