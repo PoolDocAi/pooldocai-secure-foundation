@@ -10,6 +10,7 @@ import { sendWebResponse } from '../src/production/node-http.mjs';
 
 const categoryId='00000000-0000-4000-8000-000000000003',rows=new Map(),commands=[],errors=[];
 const db={
+  publicIndex:async()=>[], // Synthetic CMS has no approved public revisions.
   list:async()=>[...rows.values()],knowledgeStatuses:async()=>[],recentAudit:async()=>[],
   taxonomy:async()=>[{id:categoryId,kind:'category',name:'Synthetic guides',archived:false}],
   read:async(_u,id)=>rows.get(id),
