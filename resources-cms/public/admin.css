@@ -562,6 +562,50 @@ td small {
   justify-content: space-between;
   align-items: center;
 }
+.revision-compare-tool {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 14px;
+}
+.revision-compare-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.revision-compare-picker label {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.revision-compare-picker select {
+  width: 100%;
+}
+.revision-compare-field {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+.revision-compare-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.revision-compare-columns > div {
+  min-width: 0;
+}
+.revision-compare-columns pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--paper);
+  font: 12px/1.45 ui-monospace, monospace;
+}
+@media(max-width: 620px) {
+  .revision-compare-columns { grid-template-columns: minmax(0, 1fr); }
+}
 .media-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
