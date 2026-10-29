@@ -32,6 +32,9 @@ jobs:
       - name: Install pinned CMS dependencies
         working-directory: resources-cms
         run: npm ci
+      - name: Test isolated Staging-only manual lookup tenant authorization
+        working-directory: resources-cms
+        run: node --test tests/manual-duplicate-tenant-isolation.test.mjs
       - name: Test CMS production adapters and publication routes
         working-directory: resources-cms
         run: npm run test:production
