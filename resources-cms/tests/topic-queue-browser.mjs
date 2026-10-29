@@ -11,6 +11,16 @@ let generations=0;
 const db={list:async()=>[...articles.values()],knowledgeStatuses:async()=>[],recentAudit:async()=>[],
  taxonomy:async()=>[{id:categoryId,kind:'category',name:'Pool care',archived:false}],read:async(_u,id)=>articles.get(id),
  topicList:async()=>[...topics.values()].filter(t=>t.status!=='archived').map(t=>structuredClone(t)),
+ revisions:async(_u,id)=>{
+  const saved=articles.get(id)?.editable;
+  assert(saved,'Comparison must reference a saved article');
+  return [
+   {id:'00000000-0000-4000-8000-000000000092',version:2,created_at:'2026-10-29T10:00:00Z',
+    data:{...saved,title:saved.title+' (reviewed)',summary:'Reviewer clarified the summary',
+      body:'<p>Reviewed text &amp; safety caveat.</p><img src="/not-a-request" onerror="alert(1)">'}},
+   {id:'00000000-0000-4000-8000-000000000091',version:1,created_at:'2026-10-29T09:00:00Z',data:saved}
+  ];
+ },
  topicCommand:async(_u,action,id,version,payload)=>{
   if(action==='add')topics.set(id,{id,...payload,status:'queued',version:1,attempts:0,articleId:randomUUID()});
   else{const t=topics.get(id);assert.equal(t.version,version);
@@ -49,6 +59,24 @@ try{browser=await chromium.launch({headless:true,...(process.env.CMS_CHROMIUM?{e
   const axe=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();assert.deepEqual(axe.violations.map(v=>v.id),[]);
   await page.locator('#topic-create').click();await page.locator('#title').waitFor();assert.equal(await page.locator('#title').inputValue(),item.topic);
   assert.equal(articles.get(item.articleId).state,'draft');assert.equal(articles.get(item.articleId).editable.seo.noindex,true);
+  // Review two immutable snapshots without rendering historical HTML or
+  // changing the draft. Verify usable controls on both phone and desktop.
+  const savedBefore=structuredClone(articles.get(item.articleId));
+  const writesBefore=commands.length;
+  await page.locator('#revisions').click();
+  await page.locator('#compare-revisions').click();
+  const compare=page.locator('#revision-comparison');
+  assert.match(await compare.innerText(),/Changed fields/);
+  assert.match(await compare.innerText(),/Reviewer clarified the summary/);
+  assert.match(await compare.innerText(),/Reviewed text & safety caveat/);
+  assert.equal(await compare.locator('img').count(),0,'Saved HTML must not be interpreted as image markup');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+  await page.locator('#compare-from').selectOption('00000000-0000-4000-8000-000000000092');
+  await page.locator('#compare-revisions').click();
+  assert.match(await compare.innerText(),/Choose two different saved revisions/);
+  await page.locator('.dialog-close').click();
+  assert.deepEqual(articles.get(item.articleId),savedBefore);
+  assert.equal(commands.length,writesBefore);
   const before=generations;await page.goto(origin+'/admin/#topics');await page.locator('[data-topic-open="'+item.articleId+'"]').click();
   await page.locator('#title').waitFor();assert.equal(generations,before);await context.close();
   console.log(width+'px: add -> select -> create -> private editor -> reopen; accessibility passed');
