@@ -8,7 +8,8 @@ import {compatibilityRoute} from '../src/production/compat-api.mjs';
 import {sendWebResponse} from '../src/production/node-http.mjs';
 const categoryId=randomUUID(),topics=new Map(),articles=new Map(),commands=[],errors=[];
 let generations=0;
-const db={list:async()=>[...articles.values()],knowledgeStatuses:async()=>[],recentAudit:async()=>[],
+const db={publicIndex:async()=>[], // Synthetic CMS has no approved public revisions.
+ list:async()=>[...articles.values()],knowledgeStatuses:async()=>[],recentAudit:async()=>[],
  taxonomy:async()=>[{id:categoryId,kind:'category',name:'Pool care',archived:false}],read:async(_u,id)=>articles.get(id),
  topicList:async()=>[...topics.values()].filter(t=>t.status!=='archived').map(t=>structuredClone(t)),
  revisions:async(_u,id)=>{
