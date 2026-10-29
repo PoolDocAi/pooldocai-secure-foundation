@@ -645,7 +645,7 @@ function reviewPassage(f) {
 }
 function showAutomatedReview(report, source, notices = []) {
   const title=current?.id===report.articleId ? current.data.title : report.title || 'Unknown article';
-  const proposalCards=(report.proposals||[]).map(p=>'<section class="panel"><button type="button" data-proposal="'+esc(p.id)+'" aria-pressed="false">Approve this change</button><p class="muted" data-approval-state="'+esc(p.id)+'">Unapproved — this passage stays unchanged.</p><p><strong>Field:</strong> '+esc(p.field)+'</p><p><strong>Why:</strong> '+esc(p.why)+'</p><p><strong>Current:</strong> <mark>'+esc(p.before)+'</mark></p>'+(p.context?'<p><strong>Exact passage:</strong></p>'+reviewPassage({excerpt:p.context,highlight:p.before}):'')'+(
+  const proposalCards=(report.proposals||[]).map(p=>'<section class="panel"><button type="button" data-proposal="'+esc(p.id)+'" aria-pressed="false">Approve this change</button><p class="muted" data-approval-state="'+esc(p.id)+'">Unapproved — this passage stays unchanged.</p><p><strong>Field:</strong> '+esc(p.field)+'</p><p><strong>Why:</strong> '+esc(p.why)+'</p><p><strong>Current:</strong> <mark>'+esc(p.before)+'</mark></p>'+(p.context?'<p><strong>Exact passage:</strong></p>'+reviewPassage({excerpt:p.context,highlight:p.before}):'')+(
     p.kind==='verified-unit'
       ? '<label>Replacement unit (choose only after checking the source)<select data-unit="'+esc(p.id)+'"><option value="">Choose verified unit</option><option value="ppm">ppm</option><option value="mg/L">mg/L</option></select></label><label class="check-label"><input type="checkbox" data-source-verified="'+esc(p.id)+'"> I verified this exact reading against its original source.</label>'
       : '<p><strong>Proposed:</strong> '+esc(p.after)+'</p>'
