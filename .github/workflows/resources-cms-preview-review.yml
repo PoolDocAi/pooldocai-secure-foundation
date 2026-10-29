@@ -50,6 +50,9 @@ jobs:
       - name: Verify selected Vercel preview suppression and Production invariants
         working-directory: resources-cms
         run: node --test tests/vercel-branch-policy.test.mjs
+      - name: Verify full-length sourced topic-to-article draft contract
+        working-directory: resources-cms
+        run: node --test tests/topic-to-article.test.mjs
       - name: Test private article intake and automated review boundaries
         working-directory: resources-cms
         run: npm run test:article-intake
