@@ -68,6 +68,20 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
       if (path === '/api/article-upload' && request.method === 'POST') {
         if (!['owner','editor'].includes(role)) return json({error:'Editor required'},403);
         const incoming = await body(request,1_450_000), intake = parseArticleFile(incoming);
+        // Do not create another private draft for the same uploaded source.
+        // Text-based imports use a deterministic source-hash slug. This
+        // preflight also checks byte-different imports with identical cleaned
+        // article content (e.g. Markdown vs structured JSON).
+        const existing = await db.list(user,{limit:200});
+        if (!Array.isArray(existing)) throw new Error('CMS article catalog unavailable');
+        const comparable = value => String(value || '').replace(/\\s+/g,' ').trim();
+        const duplicate = existing.find(row => {
+          const saved = row.editable || row.data || {};
+          return row.slug === intake.article.slug || saved.slug === intake.article.slug ||
+            (comparable(saved.title).toLowerCase() === comparable(intake.article.title).toLowerCase() &&
+             comparable(saved.body) === comparable(intake.article.body));
+        });
+        if (duplicate) return json({error:'This resource is already in your CMS. Open the existing draft instead of importing a duplicate.',existingArticleId:duplicate.id},409);
         const id = randomUUID();
         await db.command(user,id,0,'create',intake.article,randomUUID());
         const row = await db.read(user,id);
