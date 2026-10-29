@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { inflateRawSync, crc32 } from 'node:zlib';
 import markedBundle from '../generated/marked.cjs';
 const { marked } = markedBundle;
@@ -74,7 +74,7 @@ export function parseArticleFile({ name, base64, categoryId }) {
     if (!text.trim()) reject('Article text is empty');
     const title = text.split(/\r?\n/).find(line => line.trim())?.replace(/^#+\s*/, '').trim().slice(0,180);
     const stem = title.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,105).replace(/-$/,'') || 'article';
-    article = {title, slug:`${stem}-${randomUUID().slice(0,8)}`, categoryId, tagIds:[], sources:[], summary:'', seo:{}, body:extension === 'md' ? marked.parse(text, {async:false}) : text.split(/\r?\n\s*\r?\n/).map(p=>`<p>${escape(p).replace(/\r?\n/g,'<br>')}</p>`).join('')};
+    article = {title, slug:`${stem}-${createHash('sha256').update(bytes).digest('hex').slice(0,12)}`, categoryId, tagIds:[], sources:[], summary:'', seo:{}, body:extension === 'md' ? marked.parse(text, {async:false}) : text.split(/\r?\n\s*\r?\n/).map(p=>`<p>${escape(p).replace(/\r?\n/g,'<br>')}</p>`).join('')};
   }
   const normalized = normalizeArticleCommand('create', article);
   return { article:normalized, source:{format:'pooldocai-upload-v1',sha256:createHash('sha256').update(bytes).digest('hex'),type:extension,bytes:bytes.length}, notices:extension==='docx'?['DOCX imports plain paragraph text only. Verify headings, tables, citations and image rights against the original before publication.']:[] };
