@@ -45,3 +45,13 @@ No Staging/Production SQL, flag, secret, deployment, publication or existing man
 ### Hosting duration reference
 
 Verified provider documentation: https://vercel.com/docs/functions/configuring-functions/duration . Fluid compute defaults to 300s for current Hobby/Pro Node functions, and a 120s override is within documented bounds when Fluid compute is enabled. Non-Fluid Hobby max remains 60s. Check actual private CMS project settings and usage/billing before enabling; this migration changes source configuration only and does not attest to hosted configuration or reliability.
+
+## October 29 — PostgreSQL 17 Staging review package (code only)
+
+The owner-only topic queue still **does not exist** in hosted Staging. Read-only checks confirmed PostgreSQL **17.11**, 35 CMS articles, 32 holds, the expected single managed `supabase_admin` grantor row granting `postgres` ADMIN but **not** INHERIT/SET for `resources_cms_command_owner`. Existing restricted role is NOLOGIN/NOSUPERUSER/NOBYPASSRLS, has schema USAGE but not CREATE, and `postgres` has CREATE.
+
+A **review-only** assembler at `scripts/topic-queue-pg17-review.mjs` composes the unchanged candidate `security/staging-topic-queue-candidate.sql` with PG17 hosted preflight and postflight safeguards. To **inspect locally only**, use `node scripts/topic-queue-pg17-review.mjs --print-review-sql`. It never opens a connection or applies SQL. CI runs `tests/topic-queue-pg17-package.test.mjs`, plus the existing executable PGlite queue tests against the unchanged candidate. This is neither a Supabase migration-history entry nor hosted PostgreSQL acceptance.
+
+The SQL envelope checks exactly one managed non-inheriting role membership; forbids preexisting queue objects; creates a temporary grantor-specific SET membership and temporary schema CREATE permission solely for function ownership; revokes both before COMMIT; verifies the existing managed grant, restricted function owner, RLS, RPC ACLs and exactly eight queued topics. Any failed guard aborts the **single transaction**. Actual PostgreSQL 17 semantics of the ownership transfer require a reviewed hosted ROLLBACK rehearsal and cannot be certified by PGlite or a read-only query.
+
+**Next gated steps:** (1) independently review actual assembled SQL, including PostgREST JWT role isolation; (2) obtain explicit Staging-only authorization; (3) run a controlled full-transaction ROLLBACK rehearsal with pre/post snapshots, (4) obtain separate approval for committed migration and hosted owner acceptance. Do not apply generated SQL automatically; do not modify Production.

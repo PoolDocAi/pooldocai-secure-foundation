@@ -50,6 +50,9 @@ jobs:
       - name: Verify selected Vercel preview suppression and Production invariants
         working-directory: resources-cms
         run: node --test tests/vercel-branch-policy.test.mjs
+      - name: Check PG17 Staging topic release SQL assembly (no hosted migration)
+        working-directory: resources-cms
+        run: node --test tests/topic-queue-pg17-package.test.mjs
       - name: Test owner-only durable topic queue, source grounding and private-draft handoff
         working-directory: resources-cms
         run: node --test tests/topic-queue-pglite.test.mjs tests/topic-queue-api.test.mjs tests/topic-queue-draft-postgres.test.mjs tests/gemini-article-generator.test.mjs
