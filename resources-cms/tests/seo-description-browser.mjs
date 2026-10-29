@@ -40,6 +40,7 @@ try {
   for(const width of [390,1440]) {
     const context=await browser.newContext({viewport:{width,height:1000}}),page=await context.newPage();
     page.on('pageerror',e=>errors.push(e.message));
+    const savesBefore = commands.filter(x=>x==='save').length;
     await page.goto(origin+'/admin/#library');
     await page.locator('#import').click();
     await page.locator('#import-file').setInputFiles({name:'synthetic.md',mimeType:'text/markdown',buffer:Buffer.from('# Synthetic upload\n\nThis synthetic article explains how pool water testing, circulation, and filtration relate to the observations recorded during a weekly inspection. TODO: Repair at 20 psi. Mix chlorine with acid.')});
@@ -53,7 +54,7 @@ try {
     assert.equal(await page.locator('#seo-description').inputValue(),'');
     await page.locator('#automated-review').click();
     await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
-    assert.equal(commands.filter(x=>x==='save').length,0,'Review alone must never save');
+    assert.equal(commands.filter(x=>x==='save').length,savesBefore,'Review alone must never save');
     await page.locator('[data-proposal="seo-description"]').check();
     page.once('dialog',d=>d.accept());
     await page.locator('#apply-review').click();
@@ -61,9 +62,9 @@ try {
     assert.ok((await page.locator('#seo-description').inputValue()).length>=90);
     await page.locator('#seo-description').fill('Human written description preserved after article changes.');
     await page.locator('#title').fill('Updated synthetic article');
-    assert.equal(commands.filter(x=>x==='save').length,1,'Unsaved changes must not autosave');
+    assert.equal(commands.filter(x=>x==='save').length,savesBefore+1,'Unsaved changes must not autosave');
     await page.waitForTimeout(1500);
-    assert.equal(commands.filter(x=>x==='save').length,1,'Autosave must stay disabled');
+    assert.equal(commands.filter(x=>x==='save').length,savesBefore+1,'Autosave must stay disabled');
     page.once('dialog',d=>d.accept());
     await page.locator('#save').click();
     await page.locator('#automated-review').click();

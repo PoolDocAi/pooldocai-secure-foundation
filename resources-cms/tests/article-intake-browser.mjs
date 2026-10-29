@@ -40,6 +40,7 @@ try {
   for(const width of [390,1440]) {
     const context=await browser.newContext({viewport:{width,height:1000}}),page=await context.newPage();
     page.on('pageerror',e=>errors.push(e.message));
+    const savesBefore = commands.filter(x=>x==='save').length;
     await page.goto(origin+'/admin/#library');
     await page.locator('#import').click();
     await page.locator('#import-file').setInputFiles({name:'synthetic.md',mimeType:'text/markdown',buffer:Buffer.from('# Synthetic upload\n\nTODO: Repair at 20 psi. Mix chlorine with acid.')});
@@ -52,7 +53,7 @@ try {
     await page.locator('.dialog-close').click();
     await page.locator('#title').fill('Updated synthetic article');
     await page.waitForTimeout(1500);
-    assert.equal(commands.filter(x=>x==='save').length,0,'Text edit must not autosave');
+    assert.equal(commands.filter(x=>x==='save').length,savesBefore,'Text edit must not autosave');
     page.once('dialog',d=>d.accept());
     await page.locator('#save').click();
     await page.locator('#automated-review').click();
