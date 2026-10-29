@@ -97,6 +97,36 @@ try {
     await page.waitForFunction(()=>document.querySelector('#body')?.textContent?.includes('Check the watre'),null,{timeout:10000});
     assert.match([...rows.values()].at(-1).editable.body,/Check the watre/);
     assert.doesNotMatch([...rows.values()].at(-1).editable.body,/Check the water/);
+
+    // Browser acceptance: grammar changes are also opt-in, independent by occurrence.
+    await page.locator('#body').evaluate(el=>{
+      el.insertAdjacentHTML('beforeend','<p>The pressure is is stable. You could of reviewed it.</p>');
+      el.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    const savesBeforeGrammar=commands.filter(x=>x==='save').length;
+    await page.locator('#automated-review').click();
+    await page.waitForTimeout(120);
+    assert.equal(commands.filter(x=>x==='save').length,savesBeforeGrammar,'Dirty review must not write');
+    page.once('dialog',d=>d.accept());
+    await page.locator('#save').click();
+    await page.locator('#automated-review').click();
+    await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
+    const repeatCard=page.locator('[data-proposal^="language-body-"]').filter({hasText:'Approve this change'}).first();
+    assert.ok(await repeatCard.count()>=1,'Expected a grammar suggestion');
+    const reportText=await page.locator('#dialog-content').innerText();
+    assert.match(reportText,/is is/);
+    assert.match(reportText,/could of/);
+    const cards=page.locator('[data-proposal^="language-body-"]');
+    assert.ok(await cards.count()>=2,'Expected separate grammar suggestions');
+    await cards.first().click();
+    assert.equal(await cards.first().getAttribute('aria-pressed'),'true');
+    assert.equal(await cards.nth(1).getAttribute('aria-pressed'),'false');
+    page.once('dialog',d=>d.accept());
+    await page.locator('#apply-review').click();
+    await page.waitForFunction(()=>document.querySelector('#body')?.textContent?.includes('pressure is stable'),null,{timeout:10000});
+    assert.match([...rows.values()].at(-1).editable.body,/pressure is stable/);
+    assert.match([...rows.values()].at(-1).editable.body,/could of reviewed it/,'Unapproved grammar suggestion unchanged');
+
     const axe=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();assert.deepEqual(axe.violations.map(v=>v.id),[]);
     checks.push(`${width}px: upload -> private draft -> evidence/fixes -> report download -> edit/save -> new version review; accessibility passed`);
     await context.close();
