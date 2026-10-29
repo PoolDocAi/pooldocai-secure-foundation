@@ -47,6 +47,9 @@ jobs:
       - name: Test private article intake and automated review boundaries
         working-directory: resources-cms
         run: npm run test:article-intake
+      - name: Test read-only review and explicit owner-approved revision persistence
+        working-directory: resources-cms
+        run: node --test tests/seo-description.test.mjs tests/seo-description-postgres.test.mjs
       - name: Test encrypted recovery packaging with synthetic database and Storage bytes
         working-directory: resources-cms
         run: node --test tests/recovery-bundle.test.mjs
@@ -55,7 +58,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Test article upload and revision review screens with synthetic data
         working-directory: resources-cms
-        run: npm run test:article-intake:browser
+        run: |
+          npm run test:article-intake:browser
+          node tests/seo-description-browser.mjs
       - name: Test private fixture installer with disposable synthetic input only
         working-directory: resources-cms
         run: node --test tests/private-fixture-installer.test.mjs
