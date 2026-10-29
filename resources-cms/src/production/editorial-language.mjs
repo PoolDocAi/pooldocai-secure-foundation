@@ -22,6 +22,7 @@ function proposal(field,segment,start,before,after,why,kind) {
     id:'language-'+field.replace('.','-')+'-'+start,
     kind:'editorial-text', field,start,before,after,
     context:segment.text.slice(Math.max(0,local-55),Math.min(segment.text.length,local+before.length+65)),
+    highlightOffset:local-Math.max(0,local-55),
     why,category:kind,requiresSourceCheck:false
   };
 }

@@ -216,6 +216,7 @@ export function spellingSuggestions(article, limit=30) {
           id:'spelling-'+field.replace('.','-')+'-'+start,
           kind:'spelling',field,start,before,after,
           context:segment.value.slice(Math.max(0,match.index-60),Math.min(segment.value.length,match.index+before.length+70)),
+          highlightOffset:match.index-Math.max(0,match.index-60),
           why:before.toLowerCase()==='poo'
             ? 'Possible missing final "l": "poo" may have been intended as "pool". However, "poo" can correctly refer to feces in contamination guidance. Check this highlighted sentence and approve only if "pool" is intended.'
             : exact

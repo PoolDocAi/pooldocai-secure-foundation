@@ -640,13 +640,14 @@ async function openEditor(id) {
 }
 function reviewPassage(f) {
   const passage=String(f.excerpt||f.evidence||''), target=String(f.highlight||'');
-  const at=target?passage.toLowerCase().indexOf(target.toLowerCase()):-1;
+  const exact=Number.isInteger(f.highlightOffset) && f.highlightOffset>=0 && passage.slice(f.highlightOffset,f.highlightOffset+target.length).toLowerCase()===target.toLowerCase();
+  const at=!target?-1:exact?f.highlightOffset:passage.toLowerCase().indexOf(target.toLowerCase());
   if(at<0)return '<blockquote>'+esc(passage)+'</blockquote>';
   return '<blockquote>'+esc(passage.slice(0,at))+'<mark>'+esc(passage.slice(at,at+target.length))+'</mark>'+esc(passage.slice(at+target.length))+'</blockquote>';
 }
 function showAutomatedReview(report, source, notices = []) {
   const title=current?.id===report.articleId ? current.data.title : report.title || 'Unknown article';
-  const proposalCards=(report.proposals||[]).map(p=>'<section class="panel"><button type="button" data-proposal="'+esc(p.id)+'" aria-pressed="false">Approve this change</button><p class="muted" data-approval-state="'+esc(p.id)+'">Unapproved — this passage stays unchanged.</p><p><strong>Field:</strong> '+esc(p.field)+'</p><p><strong>Why:</strong> '+esc(p.why)+'</p><p><strong>Current:</strong> <mark>'+esc(p.before)+'</mark></p>'+(p.context?'<p><strong>Exact passage:</strong></p>'+reviewPassage({excerpt:p.context,highlight:p.before}):'')+(
+  const proposalCards=(report.proposals||[]).map(p=>'<section class="panel"><button type="button" data-proposal="'+esc(p.id)+'" aria-pressed="false">Approve this change</button><p class="muted" data-approval-state="'+esc(p.id)+'">Unapproved — this passage stays unchanged.</p><p><strong>Field:</strong> '+esc(p.field)+'</p><p><strong>Why:</strong> '+esc(p.why)+'</p><p><strong>Current:</strong> <mark>'+esc(p.before)+'</mark></p>'+(p.context?'<p><strong>Exact passage:</strong></p>'+reviewPassage({excerpt:p.context,highlight:p.before,highlightOffset:p.highlightOffset}):'')+(
     p.kind==='verified-unit'
       ? '<label>Replacement unit (choose only after checking the source)<select data-unit="'+esc(p.id)+'"><option value="">Choose verified unit</option><option value="ppm">ppm</option><option value="mg/L">mg/L</option></select></label><label class="check-label"><input type="checkbox" data-source-verified="'+esc(p.id)+'"> I verified this exact reading against its original source.</label>'
       : '<p><strong>Proposed:</strong> '+esc(p.after)+'</p>'

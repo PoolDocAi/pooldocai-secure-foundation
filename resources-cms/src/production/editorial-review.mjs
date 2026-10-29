@@ -54,14 +54,14 @@ export function reviewArticle(row, peers = []) {
     findings.push({
       area:p.category==='repetition'?'repetition':p.category==='spacing'?'formatting':'grammar',
       severity:'suggested-edit',field:p.field,evidence:p.before,excerpt:p.context,
-      highlight:p.before,why:p.why,
+      highlight:p.before,highlightOffset:p.highlightOffset,why:p.why,
       suggestion:'Approve this specific change only if it improves the intended sentence: "'+p.before+'" → "'+p.after+'".'
     });
   }
   for(const p of proposals.filter(p=>p.kind==='spelling')) {
     findings.push({
       area:'spelling',severity:'suggested-edit',field:p.field,
-      evidence:p.before,excerpt:p.context,highlight:p.before,
+      evidence:p.before,excerpt:p.context,highlight:p.before,highlightOffset:p.highlightOffset,
       why:p.why,suggestion:'If this is a typo, approve just this change: "'+p.before+'" → "'+p.after+'". Nothing changes unless you approve it.'
     });
   }

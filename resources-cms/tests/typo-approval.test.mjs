@@ -257,3 +257,31 @@ test('conflicting approvals through the API produce no revision write',async()=>
   assert.equal(denial.status,409);
   assert.equal(writes,0);
 });
+
+
+test('duplicated words are highlighted at exact intended character offsets in the review report',()=>{
+  const a={...article,
+    body:'<p>teh pump needs teh replacement valve, and the the gauge shows high pressure.</p>',
+    seo:{description:'A test article for exact offset review reports that leave other copies of identical text completely intact.'}
+  };
+  const proposals=reviewProposals(a);
+  const words=proposals.filter(x=>x.kind==='spelling'&&x.before==='teh');
+  assert.equal(words.length,2);
+  assert.ok(words[0].start<words[1].start);
+  for(const p of words) {
+    assert.equal(p.context.slice(p.highlightOffset,p.highlightOffset+p.before.length),p.before);
+    assert.equal(typeof p.highlightOffset,'number');
+  }
+  const latter=words[1];
+  assert.ok(latter.context.indexOf('teh')<latter.highlightOffset,'The second occurrence must not highlight the first duplicate');
+  const report=reviewArticle({id,version:11,editable:a},[]);
+  const wordFindings=report.findings.filter(f=>f.area==='spelling'&&f.highlight==='teh');
+  assert.equal(wordFindings.length,2);
+  assert.equal(wordFindings[1].excerpt.slice(wordFindings[1].highlightOffset,wordFindings[1].highlightOffset+3),'teh');
+  const language=report.proposals.find(p=>p.kind==='editorial-text'&&p.before==='the the');
+  assert.ok(language);
+  assert.equal(language.context.slice(language.highlightOffset,language.highlightOffset+language.before.length),'the the');
+  const approved=applyApprovedProposals(a,[{id:latter.id}]);
+  assert.match(approved.changed.body,/^<p>teh pump needs the replacement valve/);
+  assert.equal(a.body,'<p>teh pump needs teh replacement valve, and the the gauge shows high pressure.</p>');
+});
