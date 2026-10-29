@@ -10,6 +10,7 @@ async function fixture(){
   const pg=new PGlite();
   await pg.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE resources_cms_runtime; CREATE ROLE resources_cms_command_owner;');
   await pg.exec('CREATE SCHEMA resources_cms;');
+  await pg.exec('GRANT USAGE ON SCHEMA resources_cms TO anon,authenticated,resources_cms_command_owner;');
   await pg.exec("CREATE TABLE resources_cms.members(user_id uuid PRIMARY KEY,role text,active boolean);");
   await pg.exec("CREATE TABLE resources_cms.articles(id uuid PRIMARY KEY,state text);");
   // Synthetic local actor only. Hosted resources_cms.actor() strictly requires
