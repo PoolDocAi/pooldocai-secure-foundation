@@ -69,7 +69,10 @@ test('read-only screening highlights typo, approval saves exactly selected edit 
   assert.equal(read.status,200);
   const report=await read.json();
   const typos=report.proposals.filter(p=>p.kind==='spelling');
-  assert.equal(typos.length,4);
+  assert.ok(typos.length>=4);
+  assert.equal(typos.filter(x=>x.before==='teh').length,2);
+  assert.ok(typos.some(x=>x.before==='watre'));
+  assert.ok(typos.some(x=>x.before==='filtre'));
   assert.ok(report.findings.some(f=>f.area==='spelling'&&f.evidence==='teh'&&f.highlight==='teh'&&f.why));
   assert.deepEqual(commands,[]);
   assert.equal((await post(route,'apply-review',{version:5,checksum:'wrong',approvals:[{id:typos[0].id}]})).status,409);

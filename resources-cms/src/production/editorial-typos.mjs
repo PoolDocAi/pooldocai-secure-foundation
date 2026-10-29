@@ -178,6 +178,9 @@ function nearMiss(word) {
     if(candidate)return null; // Ambiguous suggestions require manual review.
     candidate=term;
   }
+  // Ordinary plurals and third-person verbs are not misspellings of their
+  // singular/base forms. Avoid noisy false positives such as "checks".
+  if(candidate && word.endsWith('s') && word.slice(0,-1)===candidate)return null;
   return candidate;
 }
 
