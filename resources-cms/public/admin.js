@@ -408,7 +408,7 @@ async function topicQueuePage() {
   };
   $('#topic-choice').onchange=update;
   $('#topic-add').onclick=()=>modal(
-    '<h2>Add article topic</h2><form id="topic-add-form">'+
+    '<h2>Add article topic</h2><form id="topic-add-form"><input type="hidden" name="id" value="'+crypto.randomUUID()+'">'+
     '<label>Topic<input name="topic" required minlength="6" maxlength="180" autofocus></label>'+
     '<label>Editorial notes (optional)<textarea name="brief" maxlength="1200" rows="4" placeholder="Questions to cover, equipment context or safety concerns"></textarea></label>'+
     '<label>Audience<select name="audience"><option value="both">Homeowners and professionals</option><option value="homeowners">Homeowners</option><option value="professionals">Technicians</option></select></label>'+
@@ -422,12 +422,12 @@ async function topicQueuePage() {
         }catch(error){toast(error.message,true);button.disabled=false;}
       };
     });
-  $('#topic-choice').forEach(()=>{});
-  $('[data-topic-pick]').forEach(b=>b.onclick=()=>{
+
+  $$('[data-topic-pick]').forEach(b=>b.onclick=()=>{
     $('#topic-choice').value=b.dataset.topicPick;update();$('#topic-choice').focus();
   });
-  $('[data-topic-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.topicOpen).catch(e=>toast(e.message,true)));
-  $('[data-topic-archive]').forEach(b=>b.onclick=async()=>{
+  $$('[data-topic-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.topicOpen).catch(e=>toast(e.message,true)));
+  $$('[data-topic-archive]').forEach(b=>b.onclick=async()=>{
     const r=rows.find(x=>x.id===b.dataset.topicArchive);
     if(!r||!confirm('Archive this topic without deleting any article?'))return;
     b.disabled=true;
@@ -435,7 +435,7 @@ async function topicQueuePage() {
       await topicQueuePage();toast('Topic archived');}
     catch(error){toast(error.message,true);b.disabled=false;}
   });
-  $('[data-topic-recover]').forEach(b=>b.onclick=async()=>{
+  $$('[data-topic-recover]').forEach(b=>b.onclick=async()=>{
     const r=rows.find(x=>x.id===b.dataset.topicRecover);
     if(!r||!confirm('Recover this stalled generation? Only attempts older than three minutes can be recovered.'))return;
     b.disabled=true;

@@ -69,10 +69,13 @@ DECLARE
  name text;
  instructions text;
  audience text;
- desired_article uuid;
+
 BEGIN
  IF actor_id IS NULL OR NOT resources_cms.has_role(ARRAY['owner'])
  THEN RAISE EXCEPTION 'Owner required' USING ERRCODE='42501'; END IF;
+ IF p_action IS NULL OR p_id IS NULL OR p_version IS NULL OR p_version<0
+    OR p_payload IS NULL OR jsonb_typeof(p_payload)<>'object'
+ THEN RAISE EXCEPTION 'Invalid topic request' USING ERRCODE='22023'; END IF;
  IF p_action='add' THEN
    name:=btrim(coalesce(p_payload->>'topic',''));
    instructions:=btrim(coalesce(p_payload->>'brief',''));
@@ -80,14 +83,22 @@ BEGIN
    IF p_version<>0 OR p_id IS NULL OR char_length(name) NOT BETWEEN 6 AND 180
       OR char_length(instructions)>1200 OR audience NOT IN ('both','homeowners','professionals')
    THEN RAISE EXCEPTION 'Invalid topic request' USING ERRCODE='22023'; END IF;
+   PERFORM 1 FROM resources_cms.topic_generation_gate WHERE id=1 FOR UPDATE;
+   SELECT * INTO q FROM resources_cms.topic_queue WHERE id=p_id;
+   IF FOUND THEN
+     IF q.topic IS DISTINCT FROM name OR q.brief IS DISTINCT FROM instructions
+        OR q.audience IS DISTINCT FROM audience OR q.created_by IS DISTINCT FROM actor_id
+     THEN RAISE EXCEPTION 'Topic request identity conflict' USING ERRCODE='40001'; END IF;
+   ELSE
    IF (SELECT count(*) FROM resources_cms.topic_queue WHERE state<>'archived')>=100
    THEN RAISE EXCEPTION 'Topic queue limit' USING ERRCODE='22023'; END IF;
    INSERT INTO resources_cms.topic_queue(id,topic,brief,audience,created_by)
    VALUES(p_id,name,instructions,audience,actor_id) RETURNING * INTO q;
+   END IF;
  ELSE
    SELECT * INTO q FROM resources_cms.topic_queue WHERE id=p_id FOR UPDATE;
    IF NOT FOUND THEN RAISE EXCEPTION 'Topic not found' USING ERRCODE='22023'; END IF;
-   IF q.version<>p_version THEN RAISE EXCEPTION 'Topic changed; reload queue' USING ERRCODE='40001'; END IF;
+   IF q.version IS DISTINCT FROM p_version THEN RAISE EXCEPTION 'Topic changed; reload queue' USING ERRCODE='40001'; END IF;
    IF p_action='claim' THEN
      IF q.state<>'queued' OR q.attempts>=3
      THEN RAISE EXCEPTION 'Topic is not ready for generation' USING ERRCODE='22023'; END IF;
@@ -122,7 +133,7 @@ BEGIN
      IF q.state<>'generating' OR q.claimed_at>now()-interval '3 minutes'
      THEN RAISE EXCEPTION 'Generation is still active' USING ERRCODE='22023'; END IF;
      UPDATE resources_cms.topic_queue SET state='queued',claimed_at=NULL,
-       attempts=0,version=version+1,updated_at=now() WHERE id=p_id RETURNING * INTO q;
+       version=version+1,updated_at=now() WHERE id=p_id RETURNING * INTO q;
    ELSE RAISE EXCEPTION 'Unsupported topic action' USING ERRCODE='22023';
    END IF;
  END IF;
@@ -130,6 +141,9 @@ BEGIN
    'audience',q.audience,'status',q.state,'articleId',q.article_id,
    'version',q.version,'attempts',q.attempts);
 END $$;
+
+ALTER FUNCTION resources_cms.topic_queue_list() OWNER TO resources_cms_command_owner;
+ALTER FUNCTION resources_cms.topic_queue_command(text,uuid,integer,jsonb) OWNER TO resources_cms_command_owner;
 
 REVOKE ALL ON FUNCTION resources_cms.topic_queue_list(),
  resources_cms.topic_queue_command(text,uuid,integer,jsonb) FROM PUBLIC,anon;

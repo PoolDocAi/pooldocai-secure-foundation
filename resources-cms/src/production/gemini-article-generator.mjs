@@ -1,42 +1,70 @@
 import {composeTopicArticle,validateTopicRequest} from './topic-to-article.mjs';
+import {validResearchUrl} from './research-url.mjs';
 
 const err=(message,status=503)=>Object.assign(new Error(message),{status});
 const MODEL='gemini-2.5-flash';
-const validUrl=value=>{
-  try{
-    const u=new URL(value);
-    return u.protocol==='https:'&&!u.username&&!u.password&&u.hostname.includes('.')&&
-      !/^(?:localhost|(?:127|10|0)\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.)/i.test(u.hostname);
-  }catch{return false;}
-};
-const outputText=data=>(data?.candidates?.[0]?.content?.parts||[]).filter(p=>typeof p.text==='string').map(p=>p.text).join('\n').trim();
+const outputText=data=>(data?.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought&&typeof p.text==='string').map(p=>p.text).join('\n').trim();
 export function groundedSources(result) {
-  const chunks=result?.candidates?.[0]?.groundingMetadata?.groundingChunks;
-  if(!Array.isArray(chunks))return [];
+  const candidate=result?.candidates?.[0],metadata=candidate?.groundingMetadata;
+  const chunks=metadata?.groundingChunks,supports=metadata?.groundingSupports;
+  if(!Array.isArray(chunks)||!Array.isArray(supports))return [];
+  const cited=new Set();
+  for(const support of supports){
+    const segment=support?.segment,part=candidate.content?.parts?.[segment?.partIndex??0];
+    if(!part||part.thought||typeof part.text!=='string'||!segment||
+      !Number.isInteger(segment.startIndex)||!Number.isInteger(segment.endIndex)||
+      segment.startIndex<0||segment.endIndex<=segment.startIndex)continue;
+    const bytes=Buffer.from(part.text,'utf8');
+    if(segment.endIndex>bytes.length||typeof segment.text!=='string'||
+      bytes.subarray(segment.startIndex,segment.endIndex).toString('utf8')!==segment.text)continue;
+    for(const i of support.groundingChunkIndices||[])
+      if(Number.isInteger(i)&&i>=0&&i<chunks.length)cited.add(i);
+  }
   const found=new Map();
-  for(const chunk of chunks){
+  for(const i of cited){
+    const chunk=chunks[i];
     const web=chunk?.web, url=web?.uri;
-    if(!validUrl(url)||found.has(url))continue;
+    if(!validResearchUrl(url))continue;
+    const canonical=new URL(url);canonical.hash='';
+    if(found.has(canonical.href))continue;
     const label=typeof web.title==='string'&&web.title.trim()?web.title.trim().slice(0,180):new URL(url).hostname;
-    found.set(url,{id:'s'+(found.size+1),label,url});
+    found.set(canonical.href,{id:'s'+(found.size+1),label,url:canonical.href});
     if(found.size>=12)break;
   }
   return [...found.values()];
 }
 
-export function createGeminiArticleGenerator({apiKey,fetchImpl=fetch,model=MODEL}={}) {
+export function createGeminiArticleGenerator({apiKey,fetchImpl=fetch,model=MODEL,logUsage=console.info}={}) {
   if(!apiKey||typeof apiKey!=='string')throw err('Editorial generator is not configured');
   if(!['gemini-2.5-flash','gemini-2.5-flash-lite'].includes(model))throw err('Unsupported editorial model');
   const endpoint='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent';
   const call=async(payload,timeout=12000)=>{
+    const started=Date.now();
     let response;
     try {
       response=await fetchImpl(endpoint,{method:'POST',headers:{
         'Content-Type':'application/json','x-goog-api-key':apiKey
-      },body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)});
+      },body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout),redirect:'error'});
     }catch{throw err('Editorial AI service is temporarily unavailable');}
     if(!response.ok)throw err(response.status===429?'Editorial AI usage limit reached':'Editorial AI request failed',response.status===429?429:503);
-    try {return await response.json();}catch{throw err('Editorial AI response could not be read');}
+    try {
+      const chunks=[];let size=0;
+      for await(const chunk of response.body){
+        size+=chunk.byteLength;
+        if(size>150000)throw Error('Provider response too large');
+        chunks.push(Buffer.from(chunk));
+      }
+      const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if(data.promptFeedback?.blockReason||data.candidates?.length!==1||
+        data.candidates[0].finishReason!=='STOP')throw Error('Incomplete or blocked provider response');
+      const usage=data.usageMetadata||{},count=x=>Number.isSafeInteger(x)&&x>=0?x:null;
+      // Allowlisted measurements only: never prompts, notes, article text,
+      // provider errors, user IDs, credentials or raw provider metadata.
+      try{logUsage('cms_editorial_ai_usage',{model,stage:payload.tools?'research':'write',
+        inputTokens:count(usage.promptTokenCount),outputTokens:count(usage.candidatesTokenCount),
+        totalTokens:count(usage.totalTokenCount),elapsedMs:Date.now()-started});}catch{}
+      return data;
+    }catch{throw err('Editorial AI response could not be read');}
   };
   return async({topic,audience,brief,categoryId})=>{
     const req=validateTopicRequest({topic,audience});
@@ -51,7 +79,7 @@ export function createGeminiArticleGenerator({apiKey,fetchImpl=fetch,model=MODEL
     const research=await call({
       contents:[{role:'user',parts:[{text:researchPrompt}]}],
       tools:[{google_search:{}}],
-      generationConfig:{temperature:0.25,maxOutputTokens:2800}
+      generationConfig:{temperature:0.25,maxOutputTokens:2800,thinkingConfig:{thinkingBudget:0}}
     },13000);
     const sourceList=groundedSources(research);
     const notes=outputText(research).slice(0,14000);
@@ -73,7 +101,7 @@ export function createGeminiArticleGenerator({apiKey,fetchImpl=fetch,model=MODEL
     ].join('\n');
     const generated=await call({
       contents:[{role:'user',parts:[{text:prompt}]}],
-      generationConfig:{temperature:0.35,responseMimeType:'application/json',maxOutputTokens:6500}
+      generationConfig:{temperature:0.35,responseMimeType:'application/json',maxOutputTokens:6500,thinkingConfig:{thinkingBudget:0}}
     },13000);
     const response=outputText(generated);
     if(response.length>50000||!response.startsWith('{'))throw err('Generated article did not meet the complete-draft contract',422);

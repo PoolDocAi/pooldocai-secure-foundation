@@ -1,7 +1,7 @@
 import {publicNavigation,addNavigationBreadcrumbs} from '../platform/navigation.mjs';
 import { membership, sessionToken, signInWithPassword, verifiedIdentity } from "./auth.mjs";
 import { compatibilityRoute } from "./compat-api.mjs";
-import { productionRuntime } from "./runtime.mjs";
+import { productionRuntime, assertTopicStaging } from "./runtime.mjs";
 import { PrivateStorage } from "./storage.mjs";
 import { commandRoute, healthRoute, loginRoute, logoutRoute, mediaReadRoute, mediaUploadRoute, refreshRoute } from "./serverless.mjs";
 import { renderPublicArticle, renderPublicHub, renderSitemap } from "./render.mjs";
@@ -20,6 +20,7 @@ const html = (value, status = 200, extra = {}) => new Response(value, { status, 
 
 export function createProductionApp(runtime = productionRuntime()) {
   const { config, db } = runtime;
+  assertTopicStaging(config);
   if(config.features?.discovery)db.useVerifiedCatalog=true;
   if(config.features?.taxonomy)db.platformEnabled=true;
   if(config.ownerPublishing)db.ownerPublishing=true;

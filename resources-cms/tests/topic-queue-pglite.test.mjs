@@ -13,6 +13,7 @@ async function fixture(){
   await pg.exec('GRANT USAGE ON SCHEMA resources_cms TO anon,authenticated,resources_cms_command_owner;');
   await pg.exec("CREATE TABLE resources_cms.members(user_id uuid PRIMARY KEY,role text,active boolean);");
   await pg.exec("CREATE TABLE resources_cms.articles(id uuid PRIMARY KEY,state text);");
+  await pg.exec('GRANT SELECT ON resources_cms.articles TO resources_cms_command_owner;');
   // Synthetic local actor only. Hosted resources_cms.actor() strictly requires
   // PostgREST session_user='authenticator' and verified JWT role/sub claims.
   await pg.exec("CREATE FUNCTION resources_cms.actor() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER AS $$ SELECT NULLIF(current_setting('test.actor',true),'')::uuid $$;");
@@ -104,5 +105,45 @@ test('durable generation guard serializes claims and records billable attempts',
   assert.equal(counts,2);
   const restricted=await pg.query("SELECT has_table_privilege('anon','resources_cms.topic_generation_attempts','SELECT') AS anon");
   assert.equal(restricted.rows[0].anon,false);
+ }finally{await pg.close();}
+});
+
+test('NULL versions/payloads cannot bypass the SQL command boundary; add retries preserve identity',async()=>{
+ const pg=await fixture();
+ try{
+  await identity(pg,owner);
+  for(const action of ['add','claim','release','retry','complete','archive'])await assert.rejects(command(pg,action,item,null,{topic:'Synthetic pool care'}),/Invalid topic request/);
+  await assert.rejects(command(pg,'add',item,0,null),/Invalid topic request/);
+  const payload={topic:'Synthetic pool care',brief:'Synthetic notes'};
+  const first=await command(pg,'add',item,0,payload);
+  const second=await command(pg,'add',item,0,payload);
+  assert.deepEqual(second,first);
+  await assert.rejects(command(pg,'add',item,0,{...payload,brief:'Changed'}),/identity conflict/);
+  await pg.exec('RESET ROLE');
+  const owners=await pg.query("SELECT pg_get_userbyid(proowner) AS owner FROM pg_proc WHERE proname IN ('topic_queue_list','topic_queue_command')");
+  assert(owners.rows.every(r=>r.owner==='resources_cms_command_owner'));
+ }finally{await pg.close();}
+});
+
+test('stalled recovery preserves three-attempt cap and rolling daily claims cannot exceed ten',async()=>{
+ const pg=await fixture();
+ try{
+  await identity(pg,owner);
+  const created=await command(pg,'add',item,0,{topic:'Synthetic bounded care'});
+  let row=created;
+  for(let i=1;i<=3;i++){
+   row=await command(pg,'claim',item,row.version);
+   await assert.rejects(command(pg,'retry',item,row.version),/still active/);
+   await pg.exec('RESET ROLE');
+   await pg.query("UPDATE resources_cms.topic_queue SET claimed_at=now()-interval '4 minutes' WHERE id=$1",[item]);
+   await identity(pg,owner);
+   row=await command(pg,'retry',item,row.version);assert.equal(row.attempts,i);
+  }
+  await assert.rejects(command(pg,'claim',item,row.version),/not ready/);
+  await pg.exec('RESET ROLE');
+  await pg.query('INSERT INTO resources_cms.topic_generation_attempts(topic_id,actor_id) SELECT $1::uuid,$2::uuid FROM generate_series(1,7)',[item,owner]);
+  await identity(pg,owner);
+  const other=await command(pg,'add',uuid(62),0,{topic:'Another bounded pool topic'});
+  await assert.rejects(command(pg,'claim',other.id,other.version),/budget exhausted/);
  }finally{await pg.close();}
 });

@@ -1,4 +1,5 @@
 import { normalizeArticleCommand } from './validation.mjs';
+import {validResearchUrl} from './research-url.mjs';
 
 // Stage A of Topic -> full article: only trusted source IDs supplied by the
 // server-side research stage may become links. NEVER trust model-invented URLs.
@@ -27,11 +28,14 @@ export function composeTopicArticle({request,draft,researchSources,categoryId}) 
   if(!draft||typeof draft!=='object'||Array.isArray(draft))error('Full article generation did not return a draft');
   if(!Array.isArray(researchSources)||researchSources.length<2||researchSources.length>30)error('Research sources are missing');
   const sources=new Map();
+  const urls=new Set();
   for(const source of researchSources){
     if(!source||typeof source.id!=='string'||!/^[a-z0-9-]{1,32}$/i.test(source.id)||sources.has(source.id))error('Invalid research source identity');
     const name=clean(source.label,200),url=clean(source.url,2048);
-    let parsed;try{parsed=new URL(url);}catch{error('Research source is not a valid URL');}
-    if(parsed.protocol!=='https:'||parsed.username||parsed.password||!parsed.hostname.includes('.')||/^(localhost|127\.|0\.|10\.|192\.168\.)/i.test(parsed.hostname))error('Untrusted research source');
+    if(!validResearchUrl(url))error('Untrusted research source');
+    const canonical=new URL(url);canonical.hash='';
+    if(urls.has(canonical.href))error('Duplicate research source');
+    urls.add(canonical.href);
     sources.set(source.id,{id:source.id,label:name,url});
   }
   const title=clean(draft.title,180),intro=clean(draft.intro,2200),summary=clean(draft.summary,500);

@@ -1,12 +1,16 @@
-import {randomUUID} from 'node:crypto';
 import {validateTopicRequest} from './topic-to-article.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const response=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow'}});
 const reject=(error,status=422)=>{throw Object.assign(new Error(error),{status});};
 async function readInput(req){
-  const text=await req.text();
-  if(Buffer.byteLength(text,'utf8')>4096)reject('Request too large',413);
+  const chunks=[];let size=0;
+  if(req.body)for await(const chunk of req.body){
+    size+=chunk.byteLength;
+    if(size>4096)reject('Request too large',413);
+    chunks.push(Buffer.from(chunk));
+  }
+  const text=Buffer.concat(chunks).toString('utf8');
   try {
     const data=text?JSON.parse(text):{};
     if(!data||typeof data!=='object'||Array.isArray(data))throw Error();
@@ -30,7 +34,8 @@ export async function handleTopicApi({request,db,user,role,topicPipeline}) {
       const input=await readInput(request),topic=validateTopicRequest(input);
       const brief=typeof input.brief==='string'?input.brief.trim():'';
       if(brief.length>1200)reject('Topic notes must be 1200 characters or fewer');
-      const item=await db.topicCommand(user,'add',randomUUID(),0,{...topic,brief});
+      if(!UUID.test(input.id||''))reject('A stable topic request ID is required');
+      const item=await db.topicCommand(user,'add',input.id,0,{...topic,brief});
       return response(item,201);
     }
     const m=/^\/api\/topics\/([a-f0-9-]{36})\/(create-article|archive|recover)$/i.exec(path);
@@ -39,18 +44,25 @@ export async function handleTopicApi({request,db,user,role,topicPipeline}) {
     const [,id,action]=m,input=await readInput(request);
     const list=await db.topicList(user),item=list.find(x=>x.id===id);
     if(!item)return response({error:'Topic not found'},404);
-    if(!Number.isInteger(input.version)||input.version!==item.version)return response({error:'Reload changed topic'},409);
+    if(!Number.isInteger(input.version)||input.version<1)return response({error:'Topic version required'},422);
+    // A lost completion response can be retried with the original version.
+    // Reopen only; never issue another paid call or change the saved revision.
+    if(action==='create-article'&&item.status==='drafted'){
+      return response({topic:item,articleId:item.articleId,reviewRequired:true,state:'drafted'});
+    }
+    if(input.version!==item.version)return response({error:'Reload changed topic'},409);
     if(action==='archive'){
       if(item.status==='generating')return response({error:'Generation is in progress'},409);
       return response(await db.topicCommand(user,'archive',id,item.version));
     }
     if(action==='recover'){
       if(item.status!=='generating')return response({error:'Topic is not in progress'},409);
+      // The article transaction may have committed before its HTTP response was
+      // lost. Finish the association without consuming another paid attempt.
+      let saved=null;
+      try{saved=await db.read(user,item.articleId);}catch(e){if(e.status!==404)throw e;}
+      if(saved?.state==='draft')return response(await db.topicCommand(user,'complete',id,item.version));
       return response(await db.topicCommand(user,'retry',id,item.version));
-    }
-    if(item.status==='drafted'){
-      const row=await db.read(user,item.articleId);
-      return response({topic:item,articleId:item.articleId,article:row,state:'drafted'});
     }
     if(item.status!=='queued')return response({error:'Topic is already generating'},409);
     if(!topicPipeline.generator)return response({error:'The server-side AI generator has not been configured'},503);
@@ -90,7 +102,10 @@ export async function handleTopicApi({request,db,user,role,topicPipeline}) {
       throw error;
     }
   }catch(error){
-    const status=Number.isInteger(error?.status)&&error.status>=400&&error.status<=599?error.status:500;
-    return response({error:message(error)},status);
+    const status=error?.code==='40001'||error?.code==='23505'?409:
+      error?.code==='22023'&&/budget exhausted|already generating|not ready for generation/i.test(error.message)?429:
+      error?.code==='22023'?422:
+      Number.isInteger(error?.status)&&error.status>=400&&error.status<=599?error.status:500;
+    return response({error:message({status})},status);
   }
 }

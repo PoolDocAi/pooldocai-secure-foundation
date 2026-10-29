@@ -68,8 +68,8 @@ test('failed writer releases claimed topic without creating incomplete article',
  assert.equal(fail.status,503);assert.equal(db.saved,null);
  assert.deepEqual(db.actions,['claim','release']);
 });
-test('grounds citations only from vetted search metadata and exposes editor UI route',()=>{
- const sources=groundedSources({candidates:[{groundingMetadata:{groundingChunks:[
+test('grounds citations only from supported search metadata and exposes editor UI route',()=>{
+ const sources=groundedSources({candidates:[{content:{parts:[{text:'Verified research'}]},groundingMetadata:{groundingSupports:[{segment:{startIndex:0,endIndex:17,text:'Verified research'},groundingChunkIndices:[0,1,2]}],groundingChunks:[
   {web:{uri:'https://www.cdc.gov/healthy-swimming/',title:'CDC'}},
   {web:{uri:'https://www.phta.org/',title:'PHTA'}},
   {web:{uri:'http://localhost/private',title:'Not allowed'}}
@@ -81,4 +81,44 @@ test('grounds citations only from vetted search metadata and exposes editor UI r
  assert.match(js,/id="topic-choice"/);
  assert.match(js,/id="topic-create"/);
  assert.match(js,/data-topic-open/);
+});
+
+test('replayed create returns existing draft without regenerating or overwriting revisions',async()=>{
+ const db=fixture();let count=0;
+ const generator=async()=>{count++;return{article:{title:'Weekly care',slug:'weekly-care',body:'<p>Finished</p>',seo:{}}};};
+ const args={method:'POST',path:'/api/topics/'+ID+'/create-article',payload:{version:1},generator};
+ assert.equal((await call(db,args)).status,201);
+ const original=structuredClone(db.saved),actions=[...db.actions];
+ const replay=await call(db,args);assert.equal(replay.status,200);assert.equal((await replay.json()).articleId,ARTICLE);
+ assert.equal(count,1);assert.deepEqual(db.saved,original);assert.deepEqual(db.actions,actions);
+});
+test('oversized streaming topic body is rejected before DB writes',async()=>{
+ const db=fixture();const response=await call(db,{method:'POST',payload:{topic:'x'.repeat(5000)}});
+ assert.equal(response.status,413);assert.deepEqual(db.actions,[]);
+});
+
+test('add requires stable request identity and passes it unchanged to the durable command',async()=>{
+ let received;
+ const db={topicCommand:async(_u,action,id,version,payload)=>{received={action,id,version,payload};return received;}};
+ assert.equal((await call(db,{method:'POST',payload:{topic:'Weekly care of your pool'}})).status,422);
+ const r=await call(db,{method:'POST',payload:{id:ID,topic:'Weekly care of your pool'}});
+ assert.equal(r.status,201);assert.equal(received.id,ID);assert.equal(received.version,0);assert.equal(received.action,'add');
+});
+
+test('SQL quota and stale-version errors become safe actionable HTTP errors',async()=>{
+ for(const [code,detail,status] of [['22023','Daily editorial generation budget exhausted',429],['40001','Topic changed',409],['23505','duplicate key',409]]){
+  const db=fixture();db.topicCommand=async()=>{throw Object.assign(Error(detail),{code,status:400});};
+  const r=await call(db,{method:'POST',path:'/api/topics/'+ID+'/create-article',payload:{version:1},generator:async()=>{throw Error('Must not run');}});
+  assert.equal(r.status,status);assert.doesNotMatch(JSON.stringify(await r.json()),/duplicate key|SQL/);
+ }
+});
+
+test('lost article-create acknowledgement recovers the committed draft without another paid call',async()=>{
+ const db=fixture(),original=db.command;let calls=0;
+ db.command=async(...args)=>{await original(...args);throw Error('Lost response');};
+ const args={method:'POST',path:'/api/topics/'+ID+'/create-article',payload:{version:1},generator:async()=>{calls++;return{article:{title:'Finished weekly care',slug:'weekly-care',body:'<p>Finished</p>',seo:{}}};}};
+ assert.equal((await call(db,args)).status,500);assert(db.saved);
+ const rows=await db.topicList();
+ const retry=await call(db,{...args,payload:{version:rows[0].version}});
+ assert.equal(retry.status,201);assert.equal(calls,1);
 });
