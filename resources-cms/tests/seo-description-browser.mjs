@@ -58,7 +58,9 @@ try {
     await page.locator('[data-proposal="seo-description"]').check();
     page.once('dialog',d=>d.accept());
     await page.locator('#apply-review').click();
-    await page.locator('#seo-description').waitFor({state:'visible'});
+    await page.waitForFunction(() => document.querySelector('#seo-description')?.value.length >= 90, null, {timeout:10000}).catch(async err => {
+      throw new Error('Approved description was not visible after revision reload: '+(await page.locator('#toast').innerText())+'; '+err.message);
+    });
     assert.ok((await page.locator('#seo-description').inputValue()).length>=90);
     await page.locator('#seo-description').fill('Human written description preserved after article changes.');
     await page.locator('#title').fill('Updated synthetic article');
