@@ -12,7 +12,15 @@ function contentOf(record) {
 
 export function renderPublicArticle(record, { preview = false } = {}) {
   const data = contentOf(record);
-  if (!preview && typeof data.legacyHtml === "string" && data.legacyHtml.startsWith("<!doctype html>")) return data.legacyHtml;
+  if (!preview && typeof data.legacyHtml === "string" && data.legacyHtml.startsWith("<!doctype html>")) {
+    // Preserve the approved legacy design, but deliver current revision metadata.
+    const canonical = data.seo?.canonical || `${ORIGIN}/resources/${data.slug || record.slug}/`;
+    const description = data.seo?.description || data.summary || '';
+    return data.legacyHtml.replace(/<head\b[^>]*>[\s\S]*?<\/head>/i, head => head
+      .replace(/<meta\b(?=[^>]*(?:name=["']description["']|property=["']og:(?:description|url)["']))[^>]*>/gi, '')
+      .replace(/<link\b(?=[^>]*rel=["']canonical["'])[^>]*>/gi, '')
+      .replace(/<\/head>/i, `<meta name="description" content="${esc(description)}"><meta property="og:description" content="${esc(data.seo?.ogDescription || description)}"><meta property="og:url" content="${esc(canonical)}"><link rel="canonical" href="${esc(canonical)}"></head>`));
+  }
   const title = data.title || "Resource";
   const summary = data.summary || "";
   const slug = data.slug || record.slug;

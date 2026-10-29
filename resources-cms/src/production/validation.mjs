@@ -1,4 +1,5 @@
 import { sanitize, safeURL } from "../content.mjs";
+import {populateDescription} from './seo-description.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -15,7 +16,7 @@ function short(value, maximum, required = false) {
 
 // This is the untrusted-input boundary. Database procedures repeat the
 // authorization and state-transition checks; neither layer is trusted alone.
-export function normalizeArticleCommand(action, input = {}) {
+export function normalizeArticleCommand(action, input = {}, previous = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) reject("Invalid payload");
   if (!["create", "save"].includes(action)) return structuredClone(input);
   const slug = short(input.slug, 120, true);
@@ -39,7 +40,7 @@ export function normalizeArticleCommand(action, input = {}) {
   if (!["homeowners", "professionals", "both"].includes(audience)) reject("Invalid audience");
   const discovery=input.discovery;
   if(discovery&&(typeof discovery!=='object'||Array.isArray(discovery)||['primaryTopicId','guideTypeId','audienceTagId'].some(k=>discovery[k]&&!tagIds.includes(discovery[k]))))reject('Discovery selections must be selected tags');
-  return {
+  return populateDescription({
     ...(discovery?{discovery:{primaryTopicId:discovery.primaryTopicId||null,guideTypeId:discovery.guideTypeId||null,audienceTagId:discovery.audienceTagId||null}}:{}),
     manufacturer: short(input.manufacturer, 120),
     model: short(input.model, 120),
@@ -55,7 +56,7 @@ export function normalizeArticleCommand(action, input = {}) {
     author: short(input.author, 120) || "PoolDocAI",
     sources: sources.map(({ label, url }) => ({ label: short(label, 300, true), url: String(url) })),
     seo: {
-      title: short(seo.title, 180), description: short(seo.description, 500), canonical,
+      title: short(seo.title, 180), description: short(seo.description || previous.seo?.description, 500), canonical,
       ogTitle: short(seo.ogTitle, 180), ogDescription: short(seo.ogDescription, 500),
       image: short(seo.image, 200), imageAlt: short(seo.imageAlt, 300), noindex: Boolean(seo.noindex),
     },
@@ -64,5 +65,5 @@ export function normalizeArticleCommand(action, input = {}) {
     relatedIds: Array.isArray(input.relatedIds) ? input.relatedIds.filter((id) => UUID.test(String(id))).slice(0, 12) : [],
     featured: Boolean(input.featured),
     publishedAt: input.publishedAt || null,
-  };
+  }, input.body);
 }

@@ -6,6 +6,7 @@ import {validateApprovedImport} from "./approved-import.mjs";
 import {sanitize,safeURL} from '../content.mjs';
 import {parseArticleFile} from './article-intake.mjs';
 import {reviewArticle} from './editorial-review.mjs';
+import {populateDescription} from './seo-description.mjs';
 
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function body(request, maximum = 250_000) {
@@ -53,6 +54,18 @@ function status(error) {
   return 500;
 }
 
+async function fillImportedDescription(db,user,id) {
+  let row = await db.read(user,id);
+  if (row?.state === 'draft' && !row.editable?.seo?.description) {
+    const generated = populateDescription(row.editable);
+    if (generated.seo.description) {
+      await db.command(user,id,row.version,'save',generated,randomUUID());
+      row = await db.read(user,id);
+    }
+  }
+  return row;
+}
+
 export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute, approvedImports=null, ownerPublishing=false }) {
   return async (request) => {
     try {
@@ -76,7 +89,7 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
           const incoming=await body(request),selected=approvedImports.find(e=>e.source.identity===incoming.sourceIdentity&&e.source.sha256===incoming.sourceChecksum);
           if(!selected)return json({error:"Approved source not found"},404);
           const entry=validateApprovedImport(selected,approvedImports),result=await db.ownerImport(user,entry);
-          return json(formatted(await db.read(user,result.id)),200);
+          return json(formatted(await fillImportedDescription(db,user,result.id)),200);
         }
       }
       if (path === "/api/content" && request.method === "GET") {
@@ -90,26 +103,35 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
           if(role!=="owner")return json({error:"Owner required"},403);
           if(!Array.isArray(approvedImports))return json({error:"Private approved collection is not installed"},503);
           const entry=validateApprovedImport(incoming,approvedImports),result=await db.ownerImport(user,entry);
-          return json(formatted(await db.read(user,result.id)),200);
+          return json(formatted(await fillImportedDescription(db,user,result.id)),200);
         }
         if (path === "/api/import" && incoming.format !== "pooldocai-resource-v1") throw Object.assign(new Error("Invalid import format"), { status: 422 });
         const id = randomUUID();
         const result = await db.command(user, id, 0, "create", normalizeArticleCommand("create", value), randomUUID());
-        return json(formatted({ ...result, editable: value }), 201);
+        return json(formatted(await db.read(user, result.id || id)), 201);
       }
       const content = path.match(/^\/api\/content\/([0-9a-f-]{36})(?:\/([a-z-]+))?$/i);
       if (content) {
         const [, id, action] = content;
         if (action === 'automated-review' && request.method === 'POST') {
-          const incoming = await body(request,8192), row = await db.read(user,id);
+          const incoming = await body(request,8192); let row = await db.read(user,id);
           if (!row) return json({error:'Not found'},404);
           if (!Number.isInteger(incoming.version) || incoming.version !== row.version) return json({error:'Revision conflict; save and review the current version'},409);
+          let savedArticle;
+          if (['owner','editor'].includes(role) && row.state === 'draft' && !row.editable?.seo?.description) {
+            const generated = populateDescription(row.editable);
+            if (generated.seo.description) {
+              await db.command(user,id,row.version,'save',generated,randomUUID());
+              row = await db.read(user,id); savedArticle = formatted(row);
+            }
+          }
           const peers = await db.list(user,{limit:200});
-          return json(reviewArticle(row,peers));
+          return json({...reviewArticle(row,peers),...(savedArticle?{savedArticle}:{})});
         }
         if (!action && request.method === "GET") return json(formatted(await db.read(user, id)));
         if (!action && request.method === "PUT") {
-          const incoming = await body(request), result = await db.command(user, id, incoming.version, "save", normalizeArticleCommand("save", incoming), randomUUID());
+          const incoming = await body(request), previous = await db.read(user,id);
+          const result = await db.command(user, id, incoming.version, "save", normalizeArticleCommand("save", incoming, previous?.editable), randomUUID());
           return json(formatted(await db.read(user, result.id)));
         }
         if(action === "release" && request.method === "GET") {

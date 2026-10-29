@@ -480,7 +480,7 @@ async function openEditor(id) {
       )
       .join(
         "",
-      )}</select></label></section><section class="panel"><h2>Equipment context</h2><label>Manufacturer (if applicable)<input id="manufacturer" value="${esc(d.manufacturer)}"></label><label>Model (if applicable)<input id="model" value="${esc(d.model)}"></label><label>Equipment category<input id="equipmentCategory" value="${esc(d.equipmentCategory)}" placeholder="Pump, filter, heater…"></label></section><section class="panel"><h2>Search & social</h2><label>URL slug<input id="slug" value="${esc(d.slug)}"><small>Published URL changes require separate authorization. Keep existing article URLs unchanged.</small></label><label>SEO title<input id="seo-title" value="${esc(d.seo.title)}" maxlength="180"></label><label>Meta description<textarea id="seo-description" maxlength="500">${esc(d.seo.description)}</textarea></label><label>Canonical URL<input id="seo-canonical" type="url" value="${esc(d.seo.canonical)}"></label><label>Open Graph title<input id="seo-ogTitle" value="${esc(d.seo.ogTitle)}"></label><label>Open Graph description<textarea id="seo-ogDescription">${esc(d.seo.ogDescription)}</textarea></label><label>Social image<input id="seo-image" value="${esc(d.seo.image)}" placeholder="/media/…"></label><button type="button" id="pick-social">Choose social image</button><label>Social image alt text<input id="seo-imageAlt" value="${esc(d.seo.imageAlt)}"></label><label>Featured image<input id="featuredImage" value="${esc(d.featuredImage)}" placeholder="/media/…"></label><button type="button" id="pick-featured">Choose featured image</button><label>Featured image alt text<input id="featuredImageAlt" value="${esc(d.featuredImageAlt)}"></label><label>Original publication date<input id="publishedAt" type="date" value="${esc(d.publishedAt?.slice(0, 10) || "")}"><small>Leave blank for first publication. Revision dates are recorded automatically.</small></label><label class="check-label"><input id="seo-noindex" type="checkbox" ${d.seo.noindex ? "checked" : ""}> Exclude from search indexing</label><div id="editor-warnings">${current.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("")}</div></section></aside></div>`;
+      )}</select></label></section><section class="panel"><h2>Equipment context</h2><label>Manufacturer (if applicable)<input id="manufacturer" value="${esc(d.manufacturer)}"></label><label>Model (if applicable)<input id="model" value="${esc(d.model)}"></label><label>Equipment category<input id="equipmentCategory" value="${esc(d.equipmentCategory)}" placeholder="Pump, filter, heater…"></label></section><section class="panel"><h2>Search & social</h2><label>URL slug<input id="slug" value="${esc(d.slug)}"><small>Published URL changes require separate authorization. Keep existing article URLs unchanged.</small></label><label>SEO title<input id="seo-title" value="${esc(d.seo.title)}" maxlength="180"></label><label>Meta description<small>When empty, saving extracts a description from complete article sentences. Deterministic authoring, not AI verification. Existing descriptions are preserved. Review and edit before publication; target about 140–160 characters.</small><textarea id="seo-description" maxlength="500">${esc(d.seo.description)}</textarea></label><label>Canonical URL<input id="seo-canonical" type="url" value="${esc(d.seo.canonical)}"></label><label>Open Graph title<input id="seo-ogTitle" value="${esc(d.seo.ogTitle)}"></label><label>Open Graph description<textarea id="seo-ogDescription">${esc(d.seo.ogDescription)}</textarea></label><label>Social image<input id="seo-image" value="${esc(d.seo.image)}" placeholder="/media/…"></label><button type="button" id="pick-social">Choose social image</button><label>Social image alt text<input id="seo-imageAlt" value="${esc(d.seo.imageAlt)}"></label><label>Featured image<input id="featuredImage" value="${esc(d.featuredImage)}" placeholder="/media/…"></label><button type="button" id="pick-featured">Choose featured image</button><label>Featured image alt text<input id="featuredImageAlt" value="${esc(d.featuredImageAlt)}"></label><label>Original publication date<input id="publishedAt" type="date" value="${esc(d.publishedAt?.slice(0, 10) || "")}"><small>Leave blank for first publication. Revision dates are recorded automatically.</small></label><label class="check-label"><input id="seo-noindex" type="checkbox" ${d.seo.noindex ? "checked" : ""}> Exclude from search indexing</label><div id="editor-warnings">${current.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("")}</div></section></aside></div>`;
   $("#back").onclick = () => navigate("library");
   $("#save")?.addEventListener("click", () =>
     save()
@@ -505,6 +505,10 @@ async function openEditor(id) {
     try {
       if (canWrite()) await save();
       const report = await api('/api/content/'+current.id+'/automated-review',{method:'POST',body:{version:current.version}});
+      if (report.savedArticle) {
+        current = report.savedArticle;
+        if (!dirty) $('#seo-description').value = current.data.seo.description;
+      }
       showAutomatedReview(report);
     } catch (error) { toast(error.message,true); }
     finally { reviewButton.disabled = false; }
@@ -718,6 +722,8 @@ async function save() {
   })
     .then((r) => {
       current = r;
+      if (generation === editGeneration && !payload.seo.description && r.data.seo.description)
+        $('#seo-description').value = r.data.seo.description;
       if (generation === editGeneration) dirty = false;
       $("#save-status").textContent = dirty
         ? "New changes waiting to save"

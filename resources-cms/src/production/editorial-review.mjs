@@ -1,4 +1,5 @@
 import { articleChecksum } from './article-intake.mjs';
+import {descriptionProposal} from './seo-description.mjs';
 
 const plain = value => String(value || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 const words = value => new Set(plain(value).toLowerCase().match(/[a-z0-9]{3,}/g) || []);
@@ -23,7 +24,8 @@ export function reviewArticle(row, peers = []) {
   else for (const source of article.sources) add('sources','needs-human-review',`${source.label}: ${source.url}`,'Source URL is recorded, but its contents, authority, freshness and support for claims have not been fetched or verified. Check and record the exact supporting passage.');
   const title = article.seo?.title || '', description = article.seo?.description || '';
   if (!title || title.length > 60) add('SEO','warning',`SEO title length: ${title.length}.`,'Provide a descriptive SEO title; aim for 60 characters or fewer.');
-  if (description.length < 70 || description.length > 160) add('SEO','warning',`Meta description length: ${description.length}.`,'Write an accurate description of about 70–160 characters.');
+  if (!description) add('SEO','warning','Meta description is absent.',descriptionProposal(article).warning || 'Save this draft to populate an extractive description from its article prose.');
+  else if (description.length < 90 || description.length > 200) add('SEO','warning',`Meta description length: ${description.length}.`,'Review the description for clarity; aim for about 140–160 characters without losing meaning.');
   if (/<img\b/i.test(article.body || '') || article.featuredImage) add('safety','needs-human-review','The draft references imagery.','Verify separate image rights, provenance, alt text and technical relevance. Automated review grants no image permissions.');
   const own = words(text);
   for (const peer of peers.filter(p=>p.id!==row.id)) {
