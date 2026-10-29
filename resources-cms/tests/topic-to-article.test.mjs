@@ -52,3 +52,18 @@ test('escapes untrusted model markup and does not mutate draft or sources',()=>{
  assert.match(result.article.body,/&lt;script&gt;/);
  assert.deepEqual(draft,original);assert.deepEqual(researchSources,src);
 });
+
+
+test('complete AI drafts reject repeated section headings and FAQ questions',()=>{
+ const duplicateSection={...draft.sections[1],heading:'  '+draft.sections[0].heading.toUpperCase()+'  '};
+ assert.throws(()=>generate({draft:{...draft,sections:[draft.sections[0],duplicateSection,...draft.sections.slice(2)]}}),/Duplicate article section heading/);
+ const duplicateFaq={...draft.faqs[1],question:draft.faqs[0].question.toUpperCase()};
+ assert.throws(()=>generate({draft:{...draft,faqs:[draft.faqs[0],duplicateFaq]}}),/Duplicate article FAQ question/);
+});
+
+test('complete AI drafts reject token paragraphs and one-word FAQ answers even if other prose is long',()=>{
+ const shallowSection={...draft.sections[0],paragraphs:['See above.',draft.sections[0].paragraphs[1]]};
+ assert.throws(()=>generate({draft:{...draft,sections:[shallowSection,...draft.sections.slice(1)]}}),/complete explanatory paragraphs/);
+ const shallowFaq={...draft.faqs[0],answer:'Yes.'};
+ assert.throws(()=>generate({draft:{...draft,faqs:[shallowFaq,draft.faqs[1]]}}),/complete explanations/);
+});
