@@ -2,6 +2,9 @@ import { SupabaseDataCMS } from "./supabase-data.mjs";
 let singleton;
 
 export function assertTopicStaging(config) {
+  if(config.features?.topicGeneration && !config.features?.topicQueue) {
+    throw new Error('Paid topic generation requires a private Staging topic queue');
+  }
   if(!config.features?.topicQueue)return;
   if(config.deploymentEnvironment!=='preview'||
     config.supabaseUrl!=='https://rzkgmvyyeclrpomrlyft.supabase.co') {
@@ -27,7 +30,7 @@ export function readRuntimeConfig(env = process.env) {
     publishableKey: env.SUPABASE_PUBLISHABLE_KEY,
     origin,
     deploymentEnvironment:env.VERCEL_ENV || null,
-    features:{folders:env.CMS_FOLDERS_ENABLED==='1',taxonomy:env.CMS_TAXONOMY_V3==='1',discovery:env.CMS_DISCOVERY_V3==='1',analytics:env.CMS_ANALYTICS_ENABLED==='1',assistant:env.CMS_ASSISTANT_ENABLED==='1',topicQueue:env.CMS_TOPIC_QUEUE_ENABLED==='1'},
+    features:{folders:env.CMS_FOLDERS_ENABLED==='1',taxonomy:env.CMS_TAXONOMY_V3==='1',discovery:env.CMS_DISCOVERY_V3==='1',analytics:env.CMS_ANALYTICS_ENABLED==='1',assistant:env.CMS_ASSISTANT_ENABLED==='1',topicQueue:env.CMS_TOPIC_QUEUE_ENABLED==='1',topicGeneration:env.CMS_TOPIC_GENERATION_ENABLED==='1'},
     ownerPublishing: env.CMS_OWNER_PUBLISHING === "1",
     approvedImportCatalogPath: env.CMS_APPROVED_IMPORT_CATALOG || null,
     editorialGeminiKey:env.CMS_GEMINI_API_KEY || null,
@@ -35,6 +38,8 @@ export function readRuntimeConfig(env = process.env) {
     recoveryOwnerEmail: env.CMS_RECOVERY_OWNER_EMAIL,
   };
   assertTopicStaging(config);
+  if(config.features.topicGeneration && !config.editorialGeminiKey)
+    throw new Error('Paid editorial generation requires a private server-side key');
   return config;
 }
 

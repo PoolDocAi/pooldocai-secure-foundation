@@ -44,7 +44,7 @@ export function createProductionApp(runtime = productionRuntime()) {
   const media = mediaReadRoute({ identity, db, storage });
   const approvedImports = config.approvedImportCatalogPath ? JSON.parse(readFileSync(config.approvedImportCatalogPath,"utf8")) : null;
   const topicPipeline={queueEnabled:config.features?.topicQueue===true,generator:
-    config.features?.topicQueue && config.editorialGeminiKey
+    config.features?.topicQueue && config.features?.topicGeneration && config.editorialGeminiKey
       ? createGeminiArticleGenerator({apiKey:config.editorialGeminiKey})
       : null};
   const compat = compatibilityRoute({ db, identity, memberRole, origin: config.origin,

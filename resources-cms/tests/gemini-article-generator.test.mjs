@@ -53,6 +53,18 @@ test('topic runtime rejects Production, unreviewed targets and unspecified deplo
  assert.equal(readRuntimeConfig(base).features.topicQueue,true);
  for(const patch of [{VERCEL_ENV:'production'},{VERCEL_ENV:''},{SUPABASE_URL:'https://owfeebydlyacssqpnmkq.supabase.co'},{SUPABASE_URL:'https://other.supabase.co'}])assert.throws(()=>readRuntimeConfig({...base,...patch}),/Staging/);
 });
+test('topic queue and paid AI generation require independent server-only Staging toggles',()=>{
+ const env={SUPABASE_URL:'https://rzkgmvyyeclrpomrlyft.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_synthetic',CMS_ORIGIN:'https://cms.example',VERCEL_ENV:'preview',CMS_TOPIC_QUEUE_ENABLED:'1',CMS_GEMINI_API_KEY:'synthetic-server-only-key'};
+ const queueOnly=readRuntimeConfig(env);
+ assert.equal(queueOnly.features.topicQueue,true);
+ assert.equal(queueOnly.features.topicGeneration,false,'a configured key alone cannot enable paid generation');
+ const enabled=readRuntimeConfig({...env,CMS_TOPIC_GENERATION_ENABLED:'1'});
+ assert.equal(enabled.features.topicGeneration,true);
+ assert.throws(()=>readRuntimeConfig({...env,CMS_TOPIC_GENERATION_ENABLED:'1',CMS_GEMINI_API_KEY:''}),/server-side key/);
+ assert.throws(()=>readRuntimeConfig({...env,CMS_TOPIC_GENERATION_ENABLED:'1',CMS_TOPIC_QUEUE_ENABLED:'0'}),/requires a private Staging topic queue/);
+ assert.throws(()=>readRuntimeConfig({...env,CMS_TOPIC_GENERATION_ENABLED:'1',VERCEL_ENV:'production'}),/Staging/);
+ assert.throws(()=>readRuntimeConfig({...env,CMS_TOPIC_GENERATION_ENABLED:'1',SUPABASE_URL:'https://owfeebydlyacssqpnmkq.supabase.co'}),/Staging/);
+});
 test('topic mutation routes require Origin and CSRF before data or generator access',async()=>{
  let touched=0;
  const route=compatibilityRoute({db:{topicList:async()=>{touched++;return[];}},identity:async()=>({id:'owner'}),memberRole:async()=> 'owner',origin:'https://cms.example',topicPipeline:{queueEnabled:true,generator:()=>{touched++;}}});
