@@ -47,5 +47,13 @@ export function reviewArticle(row, peers = []) {
     const union = new Set([...own,...tokens]).size, similarity = union ? [...own].filter(t=>tokens.has(t)).length / union : 0;
     if ((text && text === plain(other.body)) || (own.size >= 20 && similarity >= .7) || (article.slug && article.slug === other.slug)) add('duplicate','warning',`Potential overlap with accessible article ${peer.id}; token similarity ${Math.round(similarity*100)}%.`,'Compare both drafts, consolidate repeated material or explain the distinct audience and purpose.');
   }
-  return {proposals:reviewProposals(article),format:'pooldocai-editorial-review-v1',engine:'deterministic-screening-v1',articleId:row.id,version:row.version,checksum:articleChecksum(article),createdAt:new Date().toISOString(),findings,coverage:{editorial:'screened',technical:'human verification required',safety:'heuristics only; human verification required',sources:'recorded references only; not externally verified',SEO:'metadata screened',duplicate:`compared with ${peers.filter(p=>p.id!==row.id).length} accessible articles`},approvalGranted:false,publicationGranted:false,diagnosticKnowledgeGranted:false};
+  const proposals=reviewProposals(article);
+  for(const p of proposals.filter(p=>p.kind==='spelling')) {
+    findings.push({
+      area:'spelling',severity:'suggested-edit',field:p.field,
+      evidence:p.before,excerpt:p.context,highlight:p.before,
+      why:p.why,suggestion:'If this is a typo, approve just this change: "'+p.before+'" → "'+p.after+'". Nothing changes unless you approve it.'
+    });
+  }
+  return {proposals,format:'pooldocai-editorial-review-v1',engine:'deterministic-screening-v1',articleId:row.id,version:row.version,checksum:articleChecksum(article),createdAt:new Date().toISOString(),findings,coverage:{editorial:'screened',technical:'human verification required',safety:'heuristics only; human verification required',sources:'recorded references only; not externally verified',SEO:'metadata screened',duplicate:`compared with ${peers.filter(p=>p.id!==row.id).length} accessible articles`},approvalGranted:false,publicationGranted:false,diagnosticKnowledgeGranted:false};
 }

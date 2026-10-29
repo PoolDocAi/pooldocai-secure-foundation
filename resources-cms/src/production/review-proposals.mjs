@@ -1,4 +1,5 @@
 import { descriptionProposal } from './seo-description.mjs';
+import { spellingSuggestions, applySpellingEdits } from './editorial-typos.mjs';
 
 // Proposals never mutate input. Candidate edits are re-derived from a saved
 // revision on approval, rather than trusted from a browser-supplied diff.
@@ -40,6 +41,7 @@ export function reviewProposals(article) {
     });
     if(i>=20)break;
   }
+  proposals.push(...spellingSuggestions(article,25));
   return proposals;
 }
 
@@ -57,7 +59,7 @@ function replaceUniqueTextNode(html, token, replacement) {
 export function applyApprovedProposals(article, approvals, proposals = reviewProposals(article)) {
   if(!Array.isArray(approvals)||approvals.length===0||approvals.length>20)reject('Select at least one change to approve');
   if(!approvals.every(a=>a && typeof a==='object' && typeof a.id==='string'))reject('Invalid approval');
-  const ids=new Set(), allowed=new Map(proposals.map(p=>[p.id,p])), changed=structuredClone(article), applied=[];
+  const ids=new Set(), allowed=new Map(proposals.map(p=>[p.id,p])), changed=structuredClone(article), applied=[], spelling=[];
   for(const approval of approvals) {
     if(ids.has(approval.id))reject('Duplicate proposal approval');ids.add(approval.id);
     const proposal=allowed.get(approval.id);
@@ -74,7 +76,15 @@ export function applyApprovedProposals(article, approvals, proposals = reviewPro
       const replacement=number+' '+approval.verifiedUnit;
       changed.body=replaceUniqueTextNode(changed.body,proposal.before,replacement);
       applied.push({id:proposal.id,before:proposal.before,after:replacement,field:proposal.field});
+    } else if(proposal.kind==='spelling') {
+      if(Object.keys(approval).some(k=>k!=='id'))reject('Unsupported spelling approval');
+      if(typeof proposal.start!=='number' || !['title','summary','body','seo.title','seo.description'].includes(proposal.field))reject('Invalid spelling proposal');
+      spelling.push(proposal);
+      applied.push({id:proposal.id,before:proposal.before,after:proposal.after,field:proposal.field});
     } else reject('Unsupported proposal');
   }
-  return {changed,applied};
+  // Position-specific spelling edits are applied in descending offsets so
+  // approving one occurrence never alters another occurrence of the same word.
+  const finalArticle = spelling.length ? applySpellingEdits(changed,spelling) : changed;
+  return {changed:finalArticle,applied};
 }
