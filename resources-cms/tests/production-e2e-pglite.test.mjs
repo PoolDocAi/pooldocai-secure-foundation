@@ -33,6 +33,16 @@ test("production HTTP app executes editorial workflow through PostgreSQL adapter
     assert.equal(login.status, 200);
     const session = await login.json(), cookie = login.headers.getSetCookie().map((item) => item.split(";", 1)[0]).join("; ");
     const call = async (path, method = "GET", value) => app(new Request(`https://cms.example${path}`, { method, headers: { origin: "https://cms.example", cookie, ...(method !== "GET" ? { "x-csrf-token": session.csrf, "content-type": "application/json" } : {}) }, ...(value ? { body: JSON.stringify(value) } : {}) }));
+    const upload = await call('/api/article-upload','POST',{name:'synthetic.md',categoryId:category,base64:Buffer.from('# Private synthetic upload\n\nTODO: repair at 20 psi.').toString('base64')});
+    assert.equal(upload.status,201);
+    const intake = await upload.json();
+    assert.equal(intake.article.status,'draft');
+    assert.equal((await call(`/api/content/${intake.article.id}/automated-review`,'POST',{version:intake.article.version})).status,200);
+    assert.equal((await app(new Request(`https://cms.example/resources/${intake.article.data.slug}/`))).status,404);
+    assert.equal((await db.publicIndex()).some(item=>item.article_id===intake.article.id),false);
+    await pg.exec('RESET ROLE');
+    assert.equal((await pg.query('SELECT count(*)::int n FROM resources_cms.knowledge_grants')).rows[0].n,0);
+    await pg.exec('SET ROLE authenticated');
     const payload = { title: "Production path draft", slug: "production-path-draft", summary: "Safe summary", body: "<p>Safe body</p>", categoryId: category, tagIds: [], audience: "homeowners", author: "PoolDocAI", sources: [{ label: "Manual", url: "https://example.com/manual" }], seo: { title: "Production path draft", description: "Safe summary" } };
     let response = await call("/api/content", "POST", payload);
     assert.equal(response.status, 201);

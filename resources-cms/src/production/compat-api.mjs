@@ -4,12 +4,24 @@ import { normalizeArticleCommand } from "./validation.mjs";
 import {readMediaRights,reviewMediaRights} from "./media-rights-review.mjs";
 import {validateApprovedImport} from "./approved-import.mjs";
 import {sanitize,safeURL} from '../content.mjs';
+import {parseArticleFile} from './article-intake.mjs';
+import {reviewArticle} from './editorial-review.mjs';
 
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function body(request, maximum = 250_000) {
-  const text = await request.text();
-  if (Buffer.byteLength(text, "utf8") > maximum) throw Object.assign(new Error("Request too large"), { status: 413 });
-  return text ? JSON.parse(text) : {};
+  const chunks = []; let size = 0;
+  if (request.body) for await (const chunk of request.body) {
+    size += chunk.byteLength;
+    if (size > maximum) throw Object.assign(new Error("Request too large"), { status: 413 });
+    chunks.push(Buffer.from(chunk));
+  }
+  const text = Buffer.concat(chunks).toString('utf8');
+  try {
+    const parsed = text ? JSON.parse(text) : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+    return parsed;
+  }
+  catch { throw Object.assign(new Error('Invalid request JSON'), {status:422}); }
 }
 function warningList(data) {
   const result = [];
@@ -47,6 +59,14 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
       const url = new URL(request.url), path = url.pathname;
       if (request.method !== "GET") { requireOrigin(request, origin); requireCsrf(request); }
       const user = await identity(request), role = await memberRole(user);
+      if (path === '/api/article-upload' && request.method === 'POST') {
+        if (!['owner','editor'].includes(role)) return json({error:'Editor required'},403);
+        const incoming = await body(request,1_450_000), intake = parseArticleFile(incoming);
+        const id = randomUUID();
+        await db.command(user,id,0,'create',intake.article,randomUUID());
+        const row = await db.read(user,id);
+        return json({article:formatted(row),source:intake.source,notices:intake.notices,review:reviewArticle(row,await db.list(user,{limit:200}))},201);
+      }
       if (path === "/api/me" && request.method === "GET") return json({ id: user.id, email: user.email || "", role, ownerPublishing, approvedCollectionInstalled:Array.isArray(approvedImports), csrf: parseCookies(request.headers.get("cookie"))[CSRF_COOKIE] || null });
       if(path === "/api/approved-resources") {
         if(role!=="owner") return json({error:"Owner required"},403);
@@ -80,6 +100,13 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
       const content = path.match(/^\/api\/content\/([0-9a-f-]{36})(?:\/([a-z-]+))?$/i);
       if (content) {
         const [, id, action] = content;
+        if (action === 'automated-review' && request.method === 'POST') {
+          const incoming = await body(request,8192), row = await db.read(user,id);
+          if (!row) return json({error:'Not found'},404);
+          if (!Number.isInteger(incoming.version) || incoming.version !== row.version) return json({error:'Revision conflict; save and review the current version'},409);
+          const peers = await db.list(user,{limit:200});
+          return json(reviewArticle(row,peers));
+        }
         if (!action && request.method === "GET") return json(formatted(await db.read(user, id)));
         if (!action && request.method === "PUT") {
           const incoming = await body(request), result = await db.command(user, id, incoming.version, "save", normalizeArticleCommand("save", incoming), randomUUID());

@@ -404,26 +404,30 @@ function newArticle() {
 }
 function importDraft() {
   modal(
-    `<h2>Import a resource</h2><p>Imports stay private. Select one owner-approved resource or upload compatible draft JSON.</p><button type="button" id="approved-library">Choose from approved collection</button><label>JSON file<input type="file" id="import-file" accept="application/json,.json"></label><label>Or paste compatible JSON<textarea id="import-json" rows="12" placeholder='{"format":"pooldocai-resource-v1","article":{…}}'></textarea></label><button class="primary" id="import-submit">Validate and create draft</button>`,
+    `<h2>Import a resource</h2><p>Uploads create private, unapproved drafts. Automated screening does not verify facts or authorize publication. Maximum 1 MB; PDFs are disabled. DOCX imports paragraph text; check layout and citations against the original.</p><button type="button" id="approved-library">Choose from approved collection</button><label>Article file<input type="file" id="import-file" accept=".docx,.md,.txt,.json"></label><label>Category for DOCX, MD or TXT<select id="import-category">${opt(taxonomy.filter(t=>t.kind==='category'&&!t.archived))}</select></label><label>Or paste approved article JSON<textarea id="import-json" rows="8" placeholder='{"format":"pooldocai-resource-v1","article":{…}}'></textarea></label><button class="primary" id="import-submit">Validate and create draft</button>`,
     () => {
       $("#approved-library").onclick = () => approvedLibrary().catch(e=>toast(e.message,true));
-      $("#import-file").onchange = async (e) => {
-        if (e.target.files[0])
-          $("#import-json").value = await e.target.files[0].text();
-      };
       $("#import-submit").onclick = async () => {
+        const button = $('#import-submit');
+        button.disabled = true;
         try {
-          const r = await api("/api/import", {
-            method: "POST",
-            body: JSON.parse($("#import-json").value),
-          });
+          const file = $('#import-file').files[0];
+          let result;
+          if (file) {
+            if (file.size > 1024*1024) throw new Error('Article file must be 1 MB or smaller');
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
+            result = await api('/api/article-upload',{method:'POST',body:{name:file.name,base64:btoa(binary),categoryId:$('#import-category').value}});
+          } else result = {article:await api('/api/import',{method:'POST',body:JSON.parse($('#import-json').value)})};
+          const r = result.article;
           dialog.close();
           await refresh();
           await openEditor(r.id);
           toast("Imported as an unapproved draft");
+          if (result.review) showAutomatedReview(result.review,result.source,result.notices);
         } catch (e) {
           toast(e.message, true);
-        }
+        } finally { button.disabled = false; }
       };
     },
   );
@@ -492,6 +496,19 @@ async function openEditor(id) {
     }
   };
   $("#revisions").onclick = showRevisions;
+  const reviewButton = document.createElement('button');
+  reviewButton.id = 'automated-review';
+  reviewButton.textContent = 'Run automated article review';
+  $('#revisions').before(reviewButton);
+  reviewButton.onclick = async () => {
+    reviewButton.disabled = true;
+    try {
+      if (canWrite()) await save();
+      const report = await api('/api/content/'+current.id+'/automated-review',{method:'POST',body:{version:current.version}});
+      showAutomatedReview(report);
+    } catch (error) { toast(error.message,true); }
+    finally { reviewButton.disabled = false; }
+  };
   $("#schedule")?.addEventListener("click", schedule);
   $("#knowledge-approve")?.addEventListener("click", knowledgeApprove);
   $$("[data-action]").forEach(
@@ -618,6 +635,11 @@ async function openEditor(id) {
     );
   };
   main.focus();
+}
+function showAutomatedReview(report, source, notices = []) {
+  modal(`<h2>Automated article review</h2><p>Saved version ${esc(report.version)} · ${esc(report.engine)}</p><p>Checksum: <code>${esc(report.checksum)}</code></p><p>This report applies only to this saved version. Any edit requires a new review. No approval, publication, diagnostic knowledge access or image permission is granted.</p>${source?`<p>Uploaded ${esc(source.type)} · SHA-256: <code>${esc(source.sha256)}</code></p>`:''}${notices.map(n=>`<p class="notice">${esc(n)}</p>`).join('')}<h3>Coverage and limits</h3><ul>${Object.entries(report.coverage).map(([area,coverage])=>`<li>${esc(area)}: ${esc(coverage)}</li>`).join('')}</ul><h3>Findings and suggested fixes</h3>${report.findings.map(f=>`<section class="panel"><h4>${esc(f.area)} · ${esc(f.severity)}</h4><p><strong>Evidence:</strong> ${esc(f.evidence)}</p><p><strong>Suggested fix:</strong> ${esc(f.suggestion)}</p></section>`).join('')||'<p>No rule triggered. Human technical, safety and source review is still required.</p>'}<button id="download-article-review">Download this report</button>`,()=>{
+    $('#download-article-review').onclick=()=>{const blob=new Blob([JSON.stringify({...report,...(source?{uploadSource:source,notices}:{})},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='article-review-'+report.articleId+'-v'+report.version+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+  });
 }
 function collect() {
   const d = { ...current.data };

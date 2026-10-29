@@ -44,6 +44,15 @@ jobs:
       - name: Test audit display attribution without changing historical identity
         working-directory: resources-cms
         run: node --test tests/audit-attribution.test.mjs
+      - name: Test private article intake and automated review boundaries
+        working-directory: resources-cms
+        run: npm run test:article-intake
+      - name: Install isolated browser
+        working-directory: resources-cms
+        run: npx playwright install --with-deps chromium
+      - name: Test article upload and revision review screens with synthetic data
+        working-directory: resources-cms
+        run: npm run test:article-intake:browser
       - name: Test private fixture installer with disposable synthetic input only
         working-directory: resources-cms
         run: node --test tests/private-fixture-installer.test.mjs
