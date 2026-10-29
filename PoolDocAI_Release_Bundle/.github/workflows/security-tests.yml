@@ -7,6 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Keep only the newest CI run for a PR branch active; Supabase test containers are resource-heavy.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   migration-and-worker-checks:
     runs-on: ubuntu-24.04
@@ -26,9 +31,71 @@ jobs:
 
       - name: Validate document worker syntax
         run: node --check document-worker/src/server.js
+      - name: Validate email service syntax
+        run: node --check document-worker/src/email-service.js
+      - name: Validate push service syntax
+        run: node --check document-worker/src/push-service.js
+      - name: Test worker SSRF and webhook boundaries
+        run: node document-worker/tests/network-webhook-boundary.test.cjs
+      - name: Test email delivery worker lifecycle, lease fencing, and privacy minimization
+        run: node document-worker/tests/email-delivery-worker.test.cjs
+      - name: Test push delivery worker lifecycle, lease fencing, and device auto-revocation
+        run: node document-worker/tests/push-delivery-worker.test.cjs
 
-      - name: Test conversational troubleshooting routing
+      - name: Test conversational troubleshooting routing and script parsing
         run: node website/tests/troubleshooter-intent.test.cjs
+      - name: Test troubleshooter safety stop reasonable boundaries
+        run: node website/tests/safety-stop.test.cjs
+      - name: Test TASK-002 troubleshooter UX, technician default, and site readiness
+        run: node website/tests/task002-troubleshooter-ux.test.cjs
+      - name: Test TASK-003 design tokens, logo concepts, and Option C hybrid styling
+        run: node website/tests/task003-design-tokens-and-logos.test.cjs
+      - name: Test TASK-003 owner-approved copy updates and experience integration
+        run: node website/tests/task003-copy-and-experience-updates.test.cjs
+      - name: Test verified knowledge-first Search avoidance, learning quality, and retained pricing
+        run: node website/tests/knowledge-first-routing.test.cjs
+
+      - name: Test monthly session entitlements, technician sync, and trial RPC scope
+        run: node website/tests/monthly-sessions.test.cjs
+
+      - name: Test Stripe billing alignment and simulated webhook replay
+        run: node website/tests/stripe-simulation.test.cjs
+      - name: Test Stripe checkout runtime execution and billing portal
+        run: node website/tests/stripe-checkout-handler.test.cjs
+      - name: Test authenticated browser state teardown and cross-account isolation
+        run: node website/tests/browser-isolation.test.cjs
+      - name: Test fail-closed learning approval and contributor consent verification
+        run: node website/tests/learning-consent-fail-closed.test.cjs
+      - name: Test true Edge handler integration with isolated multi-tenant simulation
+        run: node website/tests/handler-e2e-diagnostic.test.cjs
+      - name: Test staging configuration and Vercel preview fail-closed guards
+        run: node website/tests/staging-config.test.cjs
+      - name: Test environment-specific indexing and SEO directives
+        run: node website/tests/seo-indexing.test.cjs
+      - name: Test company notification inbox and delivery foundation
+        run: node website/tests/notifications-foundation.test.cjs
+      - name: Test Diagnostic Benchmark 001 SuperFlo VST and EasyTouch RS-485
+        run: node website/tests/diagnostic-benchmark-001.test.cjs
+      - name: Test Pentair SuperFlo VST E2E hybrid retrieval and multi-tenant isolation
+        run: node website/tests/handler-e2e-superflo-benchmark.test.cjs
+      - name: Test manual pilot provenance contract, duplicate guard, and isolation gates
+        run: node website/tests/manual-pilot-provenance-and-isolation.test.cjs
+      - name: Test staging migration bundle, synthetic fixtures, and verification suite
+        run: node website/tests/staging-bundle-and-fixtures.test.cjs
+      - name: Test simulated / mock HTTP tenant isolation and security definer triage
+        run: node website/tests/staging-tenant-isolation-http.test.cjs
+      - name: Preflight actual-staging live tenant isolation integration harness
+        run: node website/tests/staging-live-tenant-isolation.test.cjs
+      - name: Test live tenant isolation harness fault injection and fail-closed gates
+        run: node website/tests/staging-live-tenant-isolation-fault-injection.test.cjs
+      - name: Test TASK-009 Part-1 positive application-level tenant isolation
+        run: node website/tests/task009-part1-application-tenant-isolation.test.cjs
+      - name: Test TASK-010 Part-1 form routing and privacy boundary
+        run: node website/tests/task010-part1-form-routing.test.cjs
+      - name: Test TASK-011 Part-1 verified AI source contract and grounding
+        run: node website/tests/task011-part1-ai-source-contract.test.cjs
+      - name: Test TASK-012 Part-1 learning publication safety and server-side job consent
+        run: node website/tests/task012-part1-learning-consent.test.cjs
 
       - name: Validate Edge Function TypeScript syntax
         run: |
@@ -51,6 +118,48 @@ jobs:
             --set ON_ERROR_STOP=1 \
             --file supabase/tests/security_review.sql
 
+      - name: Apply and verify staging synthetic fixtures and multi-tenant isolation in PostgreSQL
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            --set ON_ERROR_STOP=1 \
+            --file supabase/staging/01_synthetic_staging_fixtures.sql
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            --set ON_ERROR_STOP=1 \
+            --file supabase/staging/02_staging_verification_tests.sql
+
+      - name: Run true two-connection PostgreSQL webhook concurrency and claim-fencing test
+        run: node supabase/tests/stripe-concurrency.test.cjs
+
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
+
+
+  windows-powershell-and-security-checks:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Validate staging synthetic password rotation unit tests
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts/test_rotate_staging_synthetic_passwords.ps1
+
+      - name: Test staging migration bundle and fixture integrity
+        run: node website/tests/staging-bundle-and-fixtures.test.cjs
+
+      - name: Test live tenant isolation harness fault injection and fail-closed gates
+        run: node website/tests/staging-live-tenant-isolation-fault-injection.test.cjs
+      - name: Test TASK-009 Part-1 positive application-level tenant isolation
+        run: node website/tests/task009-part1-application-tenant-isolation.test.cjs
+      - name: Test TASK-010 Part-1 form routing and privacy boundary
+        run: node website/tests/task010-part1-form-routing.test.cjs
+      - name: Test TASK-011 Part-1 verified AI source contract and grounding
+        run: node website/tests/task011-part1-ai-source-contract.test.cjs
+      - name: Test TASK-012 Part-1 learning publication safety and server-side job consent
+        run: node website/tests/task012-part1-learning-consent.test.cjs

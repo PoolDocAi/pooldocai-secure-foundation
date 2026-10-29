@@ -7,6 +7,7 @@ const handler = fs.readFileSync(path.join(root, "supabase", "functions", "clever
 const planMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "202610220003_plan_entitlements_pooled_sessions_branding.sql"), "utf8");
 const tierMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "202610220004_three_size_tiers_founders_pricing.sql"), "utf8");
 const trialMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20261023030000_temporary_access_validity_rpc_scope.sql"), "utf8");
+const storagePolicyMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20261023060000_storage_temporary_access_expiry_policy.sql"), "utf8");
 
 assert.match(app, /function createDiagnosticSessionId\(\)/, "app creates a unique diagnostic session ID");
 assert.match(app, /diagnosticSessionId = createDiagnosticSessionId\(\)/, "starting a new conversation rotates the diagnostic ID");
@@ -16,7 +17,7 @@ assert.match(app, /photo_recognition[^\n]{0,250}diagnosticSessionId/, "photo dia
 assert.match(handler, /pooldocai_consume_company_monthly_session/, "server calls the pooled monthly session RPC");
 assert.match(handler, /MONTHLY_QUOTA_GUARD_UNAVAILABLE/, "usage-check errors fail closed");
 assert.match(handler, /MONTHLY_SESSION_LIMIT_REACHED/, "monthly entitlement exhaustion prevents further troubleshooting");
-assert.match(handler, /\.lte\("valid_from",new Date\(\)\.toISOString\(\)\)/, "model rate lookup ignores future-effective price cards");
+assert.match(handler, /\.lte\("valid_from",\s*(?:new Date\(\)\.toISOString\(\)|rateLookupTime)\)/, "model rate lookup ignores future-effective price cards");
 assert.match(handler, /pooldocai_reserve_grounding_budget/, "Google Search grounding reserves budget before provider requests");
 assert.match(handler, /pooldocai_finish_grounding_budget/, "grounding budget reservations are released after requests");
 assert.match(handler, /POOLDOCAI_GROUNDING_GLOBAL_DAILY_LIMIT/, "grounding calls have a global bounded budget");
@@ -97,4 +98,102 @@ assert.ok(app.includes('id="integratedTechNotesPanel"'), "authenticated troubles
 assert.ok(app.includes('action:\'save_technician_job\''), "inline field notes save through the authenticated job-record endpoint");
 assert.ok(app.includes('updateIntegratedTechNotesVisibility()'), "inline notes are shown only in authenticated field-tech mode");
 
-console.log("PASS: monthly pooled-session limits, safety-hold routing and technician entry");
+assert.ok(handler.includes("8a. MODE-SPECIFIC FIRST STEPS (mandatory)"), "server prompt includes mandatory mode-specific diagnostic behavior");
+assert.ok(handler.includes("pump-not-starting"), "homeowner pump-start symptoms have a safe-first-step path");
+assert.ok(handler.includes("whether the pump display or indicator lights are on"), "homeowner pump-start triage begins with non-invasive observations");
+assert.ok(handler.includes("Do not begin by directing the homeowner to reset or test a breaker"), "homeowner pump-start triage avoids electrical repair instructions");
+assert.ok(handler.includes("mode: techMode ?"), "prompt case context identifies server-derived mode");
+assert.match(storagePolicyMigration, /temporary_access_storage_expiry_guard ON storage.objects/i, "temporary trial account expiry gate is applied to storage.objects via forward-only migration");
+
+assert.ok(handler.includes('code: "RIGHTS_ATTESTATION_REQUIRED"'), "webpage import enforces affirmative rights attestation");
+assert.ok(handler.includes('code: "GENERAL_RIGHTS_ATTESTATION_REQUIRED"'), "webpage shared-learning opt-in enforces affirmative general rights attestation");
+
+assert.ok(handler.includes('body = record as AnyRecord;'), 'clever-handler preserves request body without global PII destruction');
+assert.ok(handler.includes('const shouldMeterAuthenticatedDiagnostic = Boolean(authenticatedUserId && authenticatedCompanyId)'), 'metering relies on verified server auth, not client-controlled flags');
+assert.ok(app.includes('pooldocai.authenticatedCrossTabState.') && app.includes('companyId'), 'app.html scopes cross-tab persistence to both user and company');
+assert.ok(!app.includes('event.key !== STORAGE_KEY') && app.includes('event.key !== currentKey'), 'app.html eliminates undefined STORAGE_KEY reference in storage event listener');
+assert.ok(demo.includes('pooldocai.crossTabState.v1'), 'demo.html keeps public demo state isolated from authenticated cross-tab state');
+
+const stripeWebhook = fs.readFileSync(path.join(root, "supabase", "functions", "stripe-webhook", "index.ts"), "utf8");
+assert.ok(stripeWebhook.includes('solo_tech') && stripeWebhook.includes('fleet_complete'), 'Stripe webhook maps all canonical tiers');
+assert.ok(stripeWebhook.includes('stale_out_of_order_event'), 'Stripe webhook skips out-of-order stale events');
+assert.ok(stripeWebhook.includes('DEFAULT_SEAT_LIMITS'), 'Stripe webhook preserves tier default seat limits');
+
+const techHtml = fs.readFileSync(path.join(root, "website", "technician.html"), "utf8");
+assert.ok(techHtml.includes('queueCompanyId:companyId'), 'technician.html binds queued jobs to originating company');
+assert.ok(techHtml.includes('authClient?.auth?.refreshSession'), 'technician.html refreshes auth session before syncing');
+assert.ok(techHtml.includes('item.queueCompanyId!==activeCompanyId'), 'technician.html prevents syncing jobs across company workspaces');
+assert.ok(handler.includes('body.companyId && textValue(body.companyId, 80) !== authenticatedCompanyId'), 'clever-handler rejects technician jobs for mismatched company IDs');
+
+// Group 1 regressions: widget authorization, invitation replay safety, and shared learning permissions
+assert.ok(handler.includes('code: "WIDGET_KEY_REQUIRED"'), 'widget requests require valid customerWidgetKey');
+assert.ok(handler.includes('isVerifiedAuthenticated = Boolean(authenticatedUserId && authenticatedCompanyId)'), 'authentication derived from server state');
+assert.ok(handler.includes('!isVerifiedAuthenticated && !isVerifiedWidget'), 'public guards cannot be bypassed by client flags');
+assert.ok(handler.includes('invite.status==="accepted"') && handler.indexOf('invite.status==="accepted"') < handler.indexOf('invite.status==="expired" || new Date(invite.expires_at||0).getTime()<Date.now()'), 'accepted invitations handled idempotently before expiration');
+assert.ok(handler.includes('existingMember.status !== "active"'), 'expired invite links never suspend active company members');
+assert.ok(handler.includes('code: "COMPANY_LEARNING_OPT_IN_REQUIRED"'), 'approving diagnostic learning requires governing company opt-in');
+assert.ok(handler.includes('learningStatus: "company_private"'), 'cases without explicit opt-in remain company private');
+
+// Group 4 regressions: document sharing boundaries and SOP privacy in consent updates
+assert.ok(handler.includes('PRIVATE_DOCUMENT_CANNOT_BE_SHARED') && handler.includes('set_manual_learning_consent'), 'SOPs and company manuals cannot be opted into shared learning via consent updates');
+assert.ok(handler.includes('knowledge_scope: next ? "general_candidate" : "company_private"'), 'document consent update flips knowledge_scope appropriately');
+
+// Group 5 regressions: case-level learning consent, terms version, and automatic withdrawal revocation
+const caseConsentMigration = fs.readFileSync(path.join(root, "supabase", "migrations", "20261023070000_case_level_learning_consent_dual_opt_in.sql"), "utf8");
+assert.ok(caseConsentMigration.includes("case_learning_opt_in boolean NOT NULL DEFAULT false"), "migration 031 adds case_learning_opt_in to diagnostic_cases");
+assert.ok(caseConsentMigration.includes("learning_terms_version text"), "migration 031 adds learning_terms_version to diagnostic_cases");
+assert.ok(caseConsentMigration.includes("pooldocai_audit_case_learning_consent"), "migration 031 creates case-level consent audit and revocation trigger");
+assert.ok(caseConsentMigration.includes("pooldocai_approve_learning_case"), "migration 031 creates atomic approval RPC");
+assert.ok(handler.includes('case_learning_opt_in: effectiveCaseOptIn') || handler.includes('case_learning_opt_in: caseOptedIn'), "clever-handler persists explicit case_learning_opt_in");
+assert.ok(handler.includes('learning_terms_version: authoritativeTermsVersion') || handler.includes('learning_terms_version: termsVersion'), "clever-handler records applicable terms version on diagnostic case");
+assert.ok(handler.includes('code: "CASE_LEARNING_OPT_IN_REQUIRED"'), "clever-handler rechecks case-level opt-in before publishing");
+assert.ok(handler.includes('action === "withdraw_case_learning_consent"'), "clever-handler provides dedicated case consent withdrawal handler");
+assert.ok(handler.includes('pooldocai_approve_learning_case'), "clever-handler invokes transaction-safe learning approval function");
+
+// TASK-006: Marketing copy regression test - obsolete separate-bucket elimination and pooled copy consistency
+const shippedPages = [
+  "app.html",
+  "demo.html",
+  "faq.html",
+  "how-it-works.html",
+  "index.html",
+  "pricing.html",
+  "waitlist.html"
+];
+
+const obsoletePhrases = [
+  /Separate Homeowner &amp; Tech Allowances/i,
+  /Busy weekend customer chats never use up your Monday technicians/i,
+  /distinct from your technicians' operational allowance/i,
+  /separate homeowner\/tech allowances/i,
+  /Are homeowner sessions and technician sessions separate\?/i,
+  /separate monthly allowances for homeowner sessions and technician sessions/i,
+  /25 bonus technician sessions/i,
+  /The other demo mode has its own separate 8-turn allowance/i,
+  /2,000\+\s*<\/?strong>\s*Homeowner Sessions/i,
+  /3,500\+\s*<\/?strong>\s*(?:Field )?Tech Sessions/i,
+  /2,000 Tech Sessions\)/i
+];
+
+for (const pageName of shippedPages) {
+  const pageContent = fs.readFileSync(path.join(root, "website", pageName), "utf8");
+  for (const pattern of obsoletePhrases) {
+    assert.doesNotMatch(
+      pageContent,
+      pattern,
+      `Page ${pageName} must not contain obsolete separate-bucket copy matching ${pattern}`
+    );
+  }
+
+  // Affirmative pooled-copy assertions
+  assert.match(pageContent, /Pooled Monthly Diagnostic Sessions/, `${pageName} must display pooled feature card title`);
+  assert.match(pageContent, /Single company allowance shared across customer triage and field troubleshooting on Complete plans/, `${pageName} must display single company allowance description`);
+  assert.match(pageContent, /How are monthly diagnostic sessions counted\?/, `${pageName} must have updated FAQ title`);
+  assert.match(pageContent, /Each plan includes one monthly allowance\. On Complete plans, homeowner and technician diagnostics both count toward that shared total/, `${pageName} must have updated FAQ body`);
+  assert.match(pageContent, /25 bonus diagnostic sessions added to your company(?:’|')s single pooled monthly allowance/, `${pageName} must have updated bonus session description`);
+  assert.match(pageContent, /Custom pooled(?:<\/strong>)?\s*monthly session allowance \(confirmed in written quote\)/, `${pageName} must have quote-based pooled Complete Enterprise allowance`);
+  assert.match(pageContent, /2,000(?:<\/strong>)?\s*pooled diagnostic sessions\/mo/, `${pageName} must reflect pooled sessions on Tech Fleet`);
+  assert.match(pageContent, /Custom pooled(?:<\/strong>)?\s*diagnostic session allowance \(confirmed in written quote\)/, `${pageName} must have quote-based pooled Tech Enterprise allowance`);
+}
+
+console.log("PASS: monthly pooled-session limits, safety-hold routing, technician entry, and case-level learning consent passed.");

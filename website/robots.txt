@@ -1,0 +1,24 @@
+# PoolDocAI Production Crawl Directives
+User-agent: *
+Allow: /
+Allow: /demo
+Allow: /pricing
+Allow: /how-it-works
+Allow: /faq
+Allow: /privacy
+Allow: /terms
+Allow: /waitlist
+
+# Disallow authenticated, administration, technician, and private portal routes
+Disallow: /admin
+Disallow: /admin.html
+Disallow: /app
+Disallow: /app.html
+Disallow: /technician
+Disallow: /technician.html
+Disallow: /learning-review
+Disallow: /learning-review.html
+Disallow: /accept-invite
+Disallow: /accept-invite.html
+
+Sitemap: https://pooldocai-secure-foundation.vercel.app/sitemap.xml

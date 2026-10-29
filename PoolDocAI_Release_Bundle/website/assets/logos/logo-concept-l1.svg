@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <!-- Concept L1: PD Precision Monogram (Utilitarian Engineering & Diagnostic Geometry) -->
+  <defs>
+    <linearGradient id="l1-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06182c"/>
+      <stop offset="100%" stop-color="#020a14"/>
+    </linearGradient>
+    <linearGradient id="l1-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded Base Tile -->
+  <rect width="512" height="512" rx="112" fill="url(#l1-bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="96" stroke="#0ea5e9" stroke-opacity="0.25" stroke-width="8"/>
+  
+  <!-- Interlocking Precision Monogram: P (Stem + Loop) & D (Stem + Outer Arch) -->
+  <!-- Left Stem 'P' -->
+  <rect x="112" y="112" width="56" height="288" rx="28" fill="#ffffff"/>
+  <!-- 'P' Loop with Precision Cutout -->
+  <path d="M168 112 H268 C318 112 352 144 352 196 C352 248 318 280 268 280 H168 Z" fill="url(#l1-cyan)"/>
+  <rect x="168" y="164" width="80" height="64" rx="16" fill="#06182c"/>
+  
+  <!-- 'D' Enclosing Precision Bracket -->
+  <path d="M260 220 H300 C364 220 400 256 400 306 C400 356 364 400 300 400 H180 C162 400 152 388 152 372 C152 356 162 344 180 344 H292 C324 344 344 326 344 306 C344 286 324 276 292 276 H260 Z" fill="#ffffff" fill-opacity="0.95"/>
+  
+  <!-- Diagnostic Calibration Dot / Sensor Node -->
+  <circle cx="208" cy="196" r="14" fill="#38bdf8"/>
+</svg>

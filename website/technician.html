@@ -1,11 +1,12 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0f2b46"><meta name="description" content="PoolDocAI technician field notes, voice dictation, repair steps and job close-out."><link rel="manifest" href="/technician.webmanifest"><link rel="icon" href="/technician-icon.svg" type="image/svg+xml"><title>PoolDocAI Technician</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#0f2b46"><meta name="description" content="PoolDocAI technician field notes, voice dictation, repair steps and job close-out."><link rel="manifest" href="/technician.webmanifest"><link rel="icon" href="/technician-icon.svg" type="image/svg+xml"><title>PoolDocAI Technician</title>
 <style>
 :root{color-scheme:light;--navy:#0f2b46;--blue:#0878b9;--line:#d8e2ec;--muted:#5b6b7a;--bg:#f3f7fb}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;color:#142536}header{background:var(--navy);color:white;padding:18px max(16px,calc((100vw - 900px)/2));}header strong{font-size:1.2rem}header p{margin:4px 0 0;color:#c9d9e7;font-size:.9rem}.wrap{max-width:900px;margin:auto;padding:16px}.card{background:white;border:1px solid var(--line);border-radius:16px;padding:18px;margin:0 0 14px;box-shadow:0 3px 14px #0f2b4608}h2{font-size:1.08rem;margin:0 0 12px}label{display:block;font-size:.88rem;font-weight:700;margin:12px 0 5px}input,textarea,select{width:100%;padding:12px;border:1px solid #b9c9d8;border-radius:10px;font:inherit;background:#fff;color:#142536}textarea{min-height:100px;resize:vertical}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}button,.btn{border:0;border-radius:10px;padding:11px 14px;font:700 .92rem system-ui;cursor:pointer;background:var(--blue);color:white}button.secondary{background:#e6eff6;color:var(--navy)}button.danger{background:#fff0ee;color:#9d2c22;border:1px solid #ffd0c9}.step{border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}.stephead{display:flex;justify-content:space-between;align-items:center}.small{font-size:.82rem;color:var(--muted)}#status{padding:10px 12px;border-radius:10px;background:#eaf3fb;color:#183b57;margin:10px 0}#status.error{background:#fff0ee;color:#8e261e}#status.ok{background:#e9f8ef;color:#155b36}.hidden{display:none!important}.footer{font-size:.8rem;color:var(--muted);padding:10px 4px 28px}.mic{background:#b42318}.status-pill{display:inline-block;background:#e7f5ec;color:#17633a;border-radius:20px;padding:4px 9px;font-size:.78rem;font-weight:700}@media(max-width:600px){.grid{grid-template-columns:1fr}.card{padding:14px}header{padding:16px}}
-</style></head>
-<body><header><strong>PoolDocAI · Technician Field Notes</strong><p>Record the job your way—even when no AI troubleshooting was used.</p><p><a href="/admin.html" style="color:#c9e9ff">Account Portal</a> · <a href="/app.html" style="color:#c9e9ff">Secure Troubleshooter</a></p></header>
+</style>  <link rel="stylesheet" href="/css/design-tokens.css" />
+</head>
+<body><header><strong>PoolDocAI · Technician Field Notes</strong><p>Record the job your way—even when no AI troubleshooting was used.</p><p><a href="/admin.html" style="color:#c9e9ff">Account Portal</a> · <a href="/app.html" style="color:#c9e9ff">Secure Troubleshooter</a></p><div id="notificationBellWrap" class="hidden" style="position:relative;display:inline-block;margin-left:12px;"><button id="notificationBellBtn" type="button" aria-label="Notifications" aria-expanded="false" aria-haspopup="true" style="background:transparent;border:none;cursor:pointer;color:white;font-size:18px;position:relative;padding:4px 8px;">🔔<span id="unreadNotificationBadge" class="hidden" style="position:absolute;top:0;right:2px;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:bold;padding:1px 5px;line-height:1;">0</span></button><div id="notificationInboxPanel" class="hidden" role="region" aria-label="Notifications Inbox" style="position:absolute;right:0;top:100%;width:320px;max-width:90vw;background:#ffffff;color:#1e293b;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.25);border:1px solid #cbd5e1;z-index:1000;padding:12px;margin-top:6px;text-align:left;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;"><div><strong style="font-size:14px;color:#0f2b46;display:block;">Notifications</strong><span id="notificationCompanyContext" class="small muted" style="font-size:10px;color:#64748b;display:block;"></span></div><div style="display:flex;gap:6px;"><button id="markAllReadBtn" type="button" class="secondary" style="font-size:11px;padding:3px 8px;">Mark all read</button><button id="closeNotificationInboxBtn" type="button" class="secondary" style="font-size:11px;padding:3px 6px;">✕</button></div></div><div id="notificationListWrap" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"><div id="notificationEmptyState" class="small" style="text-align:center;padding:16px 8px;color:#64748b;">No notifications.</div></div><div id="pushNotificationOptInWrap" style="padding:8px 4px 4px;border-top:1px solid #e2e8f0;margin-top:8px;display:flex;justify-content:space-between;align-items:center;"><span id="pushStatusLabel" style="font-size:11px;color:#475569;">Device push alerts: Disabled</span><button id="togglePushBtn" type="button" class="secondary" style="font-size:10px;padding:3px 8px;">Enable alerts</button></div></div></div></header>
 <main class="wrap">
 <div id="syncIndicator" role="status" aria-live="polite" style="position:sticky;top:58px;z-index:900;padding:12px;border:2px solid #9a6700;border-radius:10px;background:#fff7d6;color:#4b3500;font-weight:800;margin:10px 0">Sync status: checking local draft…</div><div id="status" role="status" aria-live="polite">Drafts stay on this device until you sign in and save the job to your company database.</div>
 <section class="card" id="accessCard"><h2>Technician sign in</h2><label for="techEmail">Work email</label><input id="techEmail" type="email" autocomplete="username" placeholder="you@company.com"><label for="techPassword">Password</label><input id="techPassword" type="password" autocomplete="current-password" placeholder="Your individual password"><div class="actions"><button id="unlockBtn" type="button">Sign in and enable saving</button><button id="installBtn" class="secondary hidden" type="button">Install app</button></div><p class="small">Use your individual PoolDocAI login. Saving is restricted to the company assigned to your account.</p></section>
@@ -20,22 +21,223 @@
 const SUPABASE_URL=window.POOLDOCAI_CONFIG?.supabaseUrl||'';
 const SUPABASE_ANON_KEY=window.POOLDOCAI_CONFIG?.publicAnonKey||'';
 const authClient=(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY&&!SUPABASE_ANON_KEY.startsWith('REPLACE_'))?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
-let authSession=null;
+let authSession=null,activeCompanyId=null,activeCompanyName='';
 const ENDPOINT=`${SUPABASE_URL}/functions/v1/clever-handler`;
 const $=id=>document.getElementById(id);let unlocked=false,voiceUsed=false,recognition=null,installPrompt=null,syncRunning=false,pendingQueueCount=0;
 const OUTBOX_DB='pooldocai-tech-outbox-v1',OUTBOX_STORE='jobs',OUTBOX_FALLBACK='pooldocai_tech_outbox_fallback',LAST_SYNC_KEY='pooldocai_tech_last_sync';
+
+async function loadTechNotifications(){
+  if(!authClient||!authSession)return;
+  if(!activeCompanyId){
+    console.warn('loadTechNotifications: activeCompanyId not set; failing closed.');
+    const wrap=$('notificationBellWrap');
+    if(wrap)wrap.classList.add('hidden');
+    const badge=$('unreadNotificationBadge');
+    if(badge)badge.classList.add('hidden');
+    const ctx=$('notificationCompanyContext');
+    if(ctx)ctx.textContent='No company selected';
+    const listWrap=$('notificationListWrap');
+    if(listWrap)listWrap.innerHTML='<div class="small" style="text-align:center;padding:16px 8px;color:#64748b;">No company selected.</div>';
+    return;
+  }
+  const ctx=$('notificationCompanyContext');
+  if(ctx)ctx.textContent=activeCompanyName?('Company: '+activeCompanyName):('Workspace: '+activeCompanyId.slice(0,8)+'…');
+  try{
+    const {data,error}=await authClient.rpc('pooldocai_get_user_notifications',{p_company_id:activeCompanyId,p_limit:30});
+    if(error){console.warn('Technician notification fetch error:',error);return;}
+    const notifs=data?.notifications||[];
+    const unread=Number(data?.unread_count||0);
+    const wrap=$('notificationBellWrap');
+    if(wrap)wrap.classList.remove('hidden');
+    const badge=$('unreadNotificationBadge');
+    if(badge){
+      badge.textContent=String(unread);
+      badge.classList.toggle('hidden',unread===0);
+    }
+    const listWrap=$('notificationListWrap');
+    if(!listWrap)return;
+    listWrap.innerHTML='';
+    if(!notifs.length){
+      const emptyDiv=document.createElement('div');
+      emptyDiv.className='small';
+      emptyDiv.style.cssText='text-align:center;padding:16px 8px;color:#64748b;';
+      emptyDiv.textContent='No notifications.';
+      listWrap.appendChild(emptyDiv);
+      return;
+    }
+    notifs.forEach(n=>{
+      const card=document.createElement('div');
+      card.style.cssText=`padding:8px;border-radius:8px;background:${n.read_at?'#f8fafc':'#f0fdf4'};border:1px solid ${n.read_at?'#e2e8f0':'#86efac'};font-size:12px;margin-bottom:6px;`;
+      const header=document.createElement('div');
+      header.style.cssText='display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;';
+      const titleEl=document.createElement('strong');
+      titleEl.style.color='#0f2b46';
+      titleEl.textContent=n.title||'';
+      const timeEl=document.createElement('span');
+      timeEl.style.cssText='font-size:10px;color:#64748b;';
+      timeEl.textContent=n.created_at?new Date(n.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+      header.appendChild(titleEl);
+      header.appendChild(timeEl);
+      card.appendChild(header);
+
+      const bodyEl=document.createElement('div');
+      bodyEl.style.cssText='color:#334155;margin-bottom:4px;word-break:break-word;';
+      bodyEl.textContent=n.body||'';
+      card.appendChild(bodyEl);
+
+      if(!n.read_at){
+        const actWrap=document.createElement('div');
+        actWrap.style.textAlign='right';
+        const markBtn=document.createElement('button');
+        markBtn.type='button';
+        markBtn.className='secondary';
+        markBtn.style.cssText='font-size:10px;padding:2px 6px;';
+        markBtn.textContent='Mark read';
+        markBtn.onclick=async()=>{
+          markBtn.disabled=true;
+          await authClient.rpc('pooldocai_mark_notification_read',{p_user_notification_id:n.user_notification_id});
+          await loadTechNotifications();
+        };
+        actWrap.appendChild(markBtn);
+        card.appendChild(actWrap);
+      }
+      listWrap.appendChild(card);
+    });
+  }catch(e){console.warn('loadTechNotifications error:',e);}
+}
+
+if($('notificationBellBtn'))$('notificationBellBtn').onclick=()=>{
+  const panel=$('notificationInboxPanel');
+  if(!panel)return;
+  const isOpen=!panel.classList.contains('hidden');
+  panel.classList.toggle('hidden',isOpen);
+  $('notificationBellBtn').setAttribute('aria-expanded',String(!isOpen));
+};
+if($('closeNotificationInboxBtn'))$('closeNotificationInboxBtn').onclick=()=>{
+  $('notificationInboxPanel')?.classList.add('hidden');
+  $('notificationBellBtn')?.setAttribute('aria-expanded','false');
+};
+if($('markAllReadBtn'))$('markAllReadBtn').onclick=async()=>{
+  if(!activeCompanyId){console.warn('markAllRead: no activeCompanyId; failing closed.');return;}
+  $('markAllReadBtn').disabled=true;
+  if(authClient)await authClient.rpc('pooldocai_mark_all_notifications_read',{p_company_id:activeCompanyId});
+  $('markAllReadBtn').disabled=false;
+  await loadTechNotifications();
+  void initPushSubscriptionControls();
+};
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+  return outputArray;
+}
+
+async function initPushSubscriptionControls() {
+  const toggleBtn = $('togglePushBtn');
+  const statusLabel = $('pushStatusLabel');
+  if (!toggleBtn || !statusLabel) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    statusLabel.textContent = 'Push alerts not supported';
+    toggleBtn.classList.add('hidden');
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    statusLabel.textContent = 'Push alerts blocked in browser';
+    toggleBtn.textContent = 'Blocked';
+    toggleBtn.disabled = true;
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      statusLabel.textContent = 'Device push alerts: Enabled';
+      toggleBtn.textContent = 'Disable alerts';
+    } else {
+      statusLabel.textContent = 'Device push alerts: Disabled';
+      toggleBtn.textContent = 'Enable alerts';
+    }
+  } catch (err) {
+    statusLabel.textContent = 'Device alerts: Unavailable';
+  }
+
+  toggleBtn.onclick = async () => {
+    if (!authClient || !authSession || !activeCompanyId) {
+      status('Sign in to configure device alerts for your company.', 'error');
+      return;
+    }
+    toggleBtn.disabled = true;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+        await authClient.rpc('pooldocai_unregister_push_subscription', { p_endpoint: sub.endpoint });
+        statusLabel.textContent = 'Device push alerts: Disabled';
+        toggleBtn.textContent = 'Enable alerts';
+        status('Push alerts disabled for this device.', 'ok');
+      } else {
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') {
+          statusLabel.textContent = 'Push alerts blocked';
+          toggleBtn.textContent = 'Blocked';
+          toggleBtn.disabled = true;
+          status('Notification permission was not granted.', 'error');
+          return;
+        }
+        const vapidKey = window.POOLDOCAI_CONFIG?.vapidPublicKey;
+        const subOptions = { userVisibleOnly: true };
+        if (vapidKey) { subOptions.applicationServerKey = urlBase64ToUint8Array(vapidKey); }
+        sub = await reg.pushManager.subscribe(subOptions).catch((e) => {
+          console.warn('Browser push subscription failed', e);
+          return null;
+        });
+        if (sub) {
+          const raw = sub.toJSON();
+          const p256dh = raw.keys?.p256dh || '';
+          const auth = raw.keys?.auth || '';
+          const { error: regErr } = await authClient.rpc('pooldocai_register_push_subscription', {
+            p_company_id: activeCompanyId,
+            p_endpoint: sub.endpoint,
+            p_p256dh: p256dh,
+            p_auth: auth,
+            p_user_agent: navigator.userAgent
+          });
+          if (regErr) {
+            console.warn('pooldocai_register_push_subscription error', regErr);
+            status('Device registered locally, but server registration failed: ' + regErr.message, 'error');
+          } else {
+            statusLabel.textContent = 'Device push alerts: Enabled';
+            toggleBtn.textContent = 'Disable alerts';
+            status('Device alerts enabled for this company.', 'ok');
+          }
+        } else {
+          status('Could not activate push on this browser.', 'error');
+        }
+      }
+    } catch (err) {
+      status('Push configuration error: ' + (err?.message || 'unknown'), 'error');
+    } finally {
+      toggleBtn.disabled = false;
+    }
+  };
+}
+
 function status(message,type=''){const el=$('status');el.textContent=message;el.className=type;}
 function openOutbox(){return new Promise((resolve,reject)=>{if(!('indexedDB'in window))return reject(new Error('IndexedDB unavailable'));const request=indexedDB.open(OUTBOX_DB,1);request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains(OUTBOX_STORE))db.createObjectStore(OUTBOX_STORE,{keyPath:'clientJobId'});};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error||new Error('Could not open local sync queue.'));});}
 async function outboxAll(){try{const db=await openOutbox();return await new Promise((resolve,reject)=>{const tx=db.transaction(OUTBOX_STORE,'readonly'),req=tx.objectStore(OUTBOX_STORE).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);tx.oncomplete=()=>db.close();});}catch{try{return JSON.parse(localStorage.getItem(OUTBOX_FALLBACK)||'[]')}catch{return []}}}
 async function outboxPut(item){try{const db=await openOutbox();await new Promise((resolve,reject)=>{const tx=db.transaction(OUTBOX_STORE,'readwrite');tx.objectStore(OUTBOX_STORE).put(item);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('Local queue write failed'));});db.close();return;}catch{const list=await outboxAll();const next=list.filter(x=>x.clientJobId!==item.clientJobId);next.push(item);localStorage.setItem(OUTBOX_FALLBACK,JSON.stringify(next));}}
 async function outboxDelete(clientJobId){try{const db=await openOutbox();await new Promise((resolve,reject)=>{const tx=db.transaction(OUTBOX_STORE,'readwrite');tx.objectStore(OUTBOX_STORE).delete(clientJobId);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();}catch{const list=await outboxAll();localStorage.setItem(OUTBOX_FALLBACK,JSON.stringify(list.filter(x=>x.clientJobId!==clientJobId)));}}
 async function updateSyncIndicator(message){const el=$('syncIndicator');if(!el)return;const queue=await outboxAll();pendingQueueCount=queue.length;const hasDraft=!!localStorage.getItem('pooldocai_tech_draft');const last=localStorage.getItem(LAST_SYNC_KEY);let text=message||'';if(!text){if(!navigator.onLine)text=`Offline — ${queue.length} job record${queue.length===1?'':'s'} waiting to sync. Keep this page installed and reconnect to send them.`;else if(!authSession&&queue.length)text=`${queue.length} job record${queue.length===1?'':'s'} waiting to sync. Sign in with the same technician account to resume upload.`;else if(queue.length)text=`${queue.length} job record${queue.length===1?'':'s'} waiting to sync. The queue is saved on this device.`;else if(hasDraft)text='A local draft is saved on this device only. Press Save job to queue/sync it to the company database.';else text=`Online. No jobs waiting to sync.${last?' Last successful sync: '+new Date(last).toLocaleString()+'.':''}`;}el.textContent=text;const warning=queue.length>0||hasDraft||!navigator.onLine;el.style.background=warning?'#fff7d6':'#e9f8ef';el.style.borderColor=warning?'#9a6700':'#287447';el.style.color=warning?'#4b3500':'#155b36';}
-async function queueJobForSync(data){const userId=authSession?.user?.id;if(!userId)throw new Error('Sign in before queueing a job for company sync.');const item={...data,clientJobId:data.clientJobId||crypto.randomUUID(),queueUserId:userId,queuedAt:new Date().toISOString(),attempts:0,lastError:null};await outboxPut(item);await updateSyncIndicator();return item;}
-async function syncPendingJobs(){if(syncRunning)return {synced:0,remaining:pendingQueueCount};if(!navigator.onLine||!authSession?.access_token){await updateSyncIndicator();return {synced:0,remaining:pendingQueueCount};}syncRunning=true;let synced=0,firstError='';try{const queue=(await outboxAll()).sort((a,b)=>String(a.queuedAt||'').localeCompare(String(b.queuedAt||'')));for(const item of queue){if(item.queueUserId&&item.queueUserId!==authSession.user.id){firstError='Some queued jobs belong to a different signed-in account. Sign out and use the original technician account to sync them.';continue;}const payload={...item};delete payload.queueUserId;delete payload.queuedAt;delete payload.attempts;delete payload.lastError;try{const response=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+authSession.access_token},body:JSON.stringify({...payload,action:'save_technician_job',authenticatedApp:true,sessionId:'tech-'+authSession.user.id})});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.code==='JOB_SYNC_CONFLICT'?`SYNC CONFLICT: ${result.error||'The saved server copy differs.'}`:(result.error||`Server returned ${response.status}`));await outboxDelete(item.clientJobId);synced++;localStorage.setItem(LAST_SYNC_KEY,new Date().toISOString());localStorage.removeItem('pooldocai_tech_draft');}catch(err){const updated={...item,attempts:Number(item.attempts||0)+1,lastError:String(err?.message||'Sync failed').slice(0,240),lastAttemptAt:new Date().toISOString()};await outboxPut(updated);firstError=updated.lastError;if(!navigator.onLine)break;}}
+async function queueJobForSync(data){const userId=authSession?.user?.id;const companyId=activeCompanyId;if(!userId)throw new Error('Sign in before queueing a job for company sync.');const item={...data,clientJobId:data.clientJobId||crypto.randomUUID(),queueUserId:userId,queueCompanyId:companyId,queuedAt:new Date().toISOString(),attempts:0,lastError:null};await outboxPut(item);await updateSyncIndicator();return item;}
+async function syncPendingJobs(){if(syncRunning)return {synced:0,remaining:pendingQueueCount};if(!navigator.onLine||!authSession?.access_token){await updateSyncIndicator();return {synced:0,remaining:pendingQueueCount};}if(authClient?.auth?.refreshSession){try{const {data:refreshed,error:refreshErr}=await authClient.auth.refreshSession();if(!refreshErr&&refreshed?.session){authSession=refreshed.session;}}catch(e){}}if(!authSession?.access_token){await updateSyncIndicator();return {synced:0,remaining:pendingQueueCount};}syncRunning=true;let synced=0,firstError='';try{const queue=(await outboxAll()).sort((a,b)=>String(a.queuedAt||'').localeCompare(String(b.queuedAt||'')));for(const item of queue){if(item.queueUserId&&item.queueUserId!==authSession.user.id){firstError='Some queued jobs belong to a different signed-in account. Sign out and use the original technician account to sync them.';continue;}if(item.queueCompanyId&&activeCompanyId&&item.queueCompanyId!==activeCompanyId){firstError='Some queued jobs belong to a different company workspace. Switch to the originating company to sync them.';continue;}const payload={...item};delete payload.queueUserId;delete payload.queueCompanyId;delete payload.queuedAt;delete payload.attempts;delete payload.lastError;try{const response=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+authSession.access_token},body:JSON.stringify({...payload,action:'save_technician_job',authenticatedApp:true,sessionId:'tech-'+authSession.user.id,companyId:item.queueCompanyId||activeCompanyId})});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.code==='JOB_SYNC_CONFLICT'?`SYNC CONFLICT: ${result.error||'The saved server copy differs.'}`:(result.error||`Server returned ${response.status}`));await outboxDelete(item.clientJobId);synced++;localStorage.setItem(LAST_SYNC_KEY,new Date().toISOString());localStorage.removeItem('pooldocai_tech_draft');}catch(err){const updated={...item,attempts:Number(item.attempts||0)+1,lastError:String(err?.message||'Sync failed').slice(0,240),lastAttemptAt:new Date().toISOString()};await outboxPut(updated);firstError=updated.lastError;if(!navigator.onLine)break;}}
   }finally{syncRunning=false;await updateSyncIndicator();}const remaining=(await outboxAll()).length;if(synced){status(`${synced} queued job record${synced===1?'':'s'} synced successfully.${remaining?` ${remaining} still waiting.`:''}`,'ok');}else if(firstError&&remaining){status(`Sync could not complete: ${firstError}. Your queued job stays saved on this device.`,'error');}return {synced,remaining,error:firstError};}
 window.addEventListener('online',()=>{void syncPendingJobs();});window.addEventListener('offline',()=>{void updateSyncIndicator();});window.addEventListener('storage',e=>{if([ 'pooldocai_tech_draft',OUTBOX_FALLBACK,LAST_SYNC_KEY ].includes(e.key))void updateSyncIndicator();});window.addEventListener('beforeunload',e=>{if(pendingQueueCount>0){e.preventDefault();e.returnValue='Some job records have not synced yet.';}});
-$('unlockBtn').addEventListener('click',async()=>{if(!authClient){status('Setup required: replace SUPABASE_ANON_KEY in technician.html with the public anon key. Never use the service-role key.','error');return;}const email=$('techEmail').value.trim(),password=$('techPassword').value;if(!email||!password){status('Enter your work email and password.','error');return;}const {data,error}=await authClient.auth.signInWithPassword({email,password});if(error){status(error.message,'error');return;}authSession=data.session;const {data:members,error:memberError}=await authClient.from('company_members').select('company_id,role,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,companies(status)').eq('user_id',authSession.user.id).eq('status','active');if(memberError||!members?.length){await authClient.auth.signOut();authSession=null;status('This login has no active company membership. Ask your company admin to provision access.','error');return;}const permitted=members.find(m=>['pilot','active'].includes(String(m.companies?.status||''))&&(m.role==='company_admin'||m.can_edit_job_notes===true));if(!permitted){await authClient.auth.signOut();authSession=null;status('Your company seat does not have permission to edit job notes. Ask your company admin to enable Edit job notes.','error');return;}unlocked=true;status('Signed in. Job records will be saved to your assigned company.','ok');$('accessCard').classList.add('hidden');void syncPendingJobs();});
-async function validateTechSession(sess){if(!sess||!authClient)return;authSession=sess;const {data:members,error}=await authClient.from('company_members').select('company_id,role,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,companies(status)').eq('user_id',sess.user.id).eq('status','active');if(error||!members?.length){authSession=null;status('This login has no active company membership. Ask your company admin to provision access.','error');return;}unlocked=true;$('accessCard').classList.add('hidden');status('Signed in. Job records will be saved to your assigned company.','ok');void syncPendingJobs();}
+$('unlockBtn').addEventListener('click',async()=>{if(!authClient){status('Setup required: replace SUPABASE_ANON_KEY in technician.html with the public anon key. Never use the service-role key.','error');return;}const email=$('techEmail').value.trim(),password=$('techPassword').value;if(!email||!password){status('Enter your work email and password.','error');return;}const {data,error}=await authClient.auth.signInWithPassword({email,password});if(error){status(error.message,'error');return;}authSession=data.session;const {data:members,error:memberError}=await authClient.from('company_members').select('company_id,role,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,companies(name,status)').eq('user_id',authSession.user.id).eq('status','active');if(memberError||!members?.length){await authClient.auth.signOut();authSession=null;activeCompanyId=null;status('This login has no active company membership. Ask your company admin to provision access.','error');return;}const permitted=members.find(m=>['pilot','active'].includes(String(m.companies?.status||''))&&(m.role==='company_admin'||m.can_edit_job_notes===true));if(!permitted){await authClient.auth.signOut();authSession=null;activeCompanyId=null;status('Your company seat does not have permission to edit job notes. Ask your company admin to enable Edit job notes.','error');return;}activeCompanyId=permitted.company_id;activeCompanyName=permitted.companies?.name||'';unlocked=true;status('Signed in. Job records will be saved to your assigned company.','ok');$('accessCard').classList.add('hidden');void syncPendingJobs();void loadTechNotifications();void initPushSubscriptionControls();});
+async function validateTechSession(sess){if(!sess||!authClient)return;authSession=sess;const {data:members,error}=await authClient.from('company_members').select('company_id,role,can_view_job_notes,can_edit_job_notes,can_upload_documents,can_review_documents,companies(name,status)').eq('user_id',sess.user.id).eq('status','active');if(error||!members?.length){authSession=null;activeCompanyId=null;status('This login has no active company membership. Ask your company admin to provision access.','error');return;}const permitted=members.find(m=>['pilot','active'].includes(String(m.companies?.status||''))&&(m.role==='company_admin'||m.can_edit_job_notes===true));if(!permitted){authSession=null;activeCompanyId=null;status('Your company seat does not have permission to edit job notes. Ask your company admin to enable Edit job notes.','error');return;}activeCompanyId=permitted.company_id;activeCompanyName=permitted.companies?.name||'';unlocked=true;$('accessCard').classList.add('hidden');status('Signed in. Job records will be saved to your assigned company.','ok');void syncPendingJobs();void loadTechNotifications();void initPushSubscriptionControls();}
 if(authClient)authClient.auth.getSession().then(({data})=>validateTechSession(data.session));
 function addStep(data={}){const wrap=document.createElement('div');wrap.className='step';wrap.innerHTML=`<div class="stephead"><strong class="stepTitle">Repair step</strong><button type="button" class="danger removeStep">Remove</button></div><label>Action performed</label><textarea class="stepAction" placeholder="e.g., inspected pump basket and verified flow"></textarea><div class="grid"><div><label>Part / material used</label><input class="stepParts" placeholder="Part number or none"></div><div><label>Result</label><input class="stepResult" placeholder="Test result or observation"></div></div>`;wrap.querySelector('.stepAction').value=data.action||'';wrap.querySelector('.stepParts').value=data.parts||'';wrap.querySelector('.stepResult').value=data.result||'';wrap.querySelector('.removeStep').addEventListener('click',()=>{wrap.remove();renumber();});$('steps').appendChild(wrap);renumber();}
 function renumber(){[...document.querySelectorAll('.step')].forEach((el,i)=>el.querySelector('.stepTitle').textContent=`Repair step ${i+1}`)}$('addStep').addEventListener('click',()=>addStep());addStep();
@@ -48,7 +250,7 @@ $('jobForm').addEventListener('submit',async e=>{e.preventDefault();const data=c
 $('syncPendingBtn').addEventListener('click',()=>{void syncPendingJobs();});
 $('newBtn').addEventListener('click',()=>{if(!confirm('Start a new job? Save a draft first if you need this information.'))return;$('jobForm').reset();$('steps').innerHTML='';addStep();voiceUsed=false;status('New job ready.');});
 const saved=localStorage.getItem('pooldocai_tech_draft');void updateSyncIndicator();if(saved){try{const d=JSON.parse(saved);for(const [id,key] of [['jobRef','jobRef'],['category','equipmentCategory'],['manufacturer','manufacturer'],['model','model'],['complaint','complaint'],['notes','diagnosticNotes'],['resolution','resolution'],['outcome','outcome'],['relatedCase','relatedCaseId']])if(d[key]!==undefined)$(id).value=d[key];if(d.repairSteps?.length){$('steps').innerHTML='';d.repairSteps.forEach(addStep);}voiceUsed=!!d.voiceTranscribed;status('A local draft was restored. Review it and save to the database when ready.','ok');}catch{}}
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').classList.remove('hidden')});$('installBtn').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('installBtn').classList.add('hidden')});if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/technician-sw.js').catch(()=>{}));
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').classList.remove('hidden')});$('installBtn').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('installBtn').classList.add('hidden')});if('serviceWorker'in navigator)window.addEventListener('load',()=>{navigator.serviceWorker.register('/technician-sw.js',{scope:'/'}).then(reg=>{console.log('[SW] Technician service worker registered:',reg.scope);void initPushSubscriptionControls();}).catch(err=>console.error('[SW] Technician service worker registration error:',err));});
 </script><script src="/js/core.js" defer></script>
 <script id="pooldocai_pageview_tracking">(function(){try{var k='pooldocai_analytics_session';var sid=sessionStorage.getItem(k);if(!sid){sid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random());sessionStorage.setItem(k,sid);}fetch(window.POOLDOCAI_CONFIG.supabaseUrl+'/functions/v1/clever-handler',{method:'POST',headers:{'Content-Type':'application/json','apikey':window.POOLDOCAI_CONFIG.publicAnonKey},keepalive:true,body:JSON.stringify({action:'public_page_view',pagePath:location.pathname,referrer:document.referrer,sessionId:sid})}).catch(function(){});}catch(e){}})();</script>
 </body></html>

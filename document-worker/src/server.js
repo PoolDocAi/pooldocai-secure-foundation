@@ -10,6 +10,8 @@ import WordExtractor from 'word-extractor';
 import * as cheerio from 'cheerio';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
+import { ResendEmailAdapter, UnconfiguredEmailAdapter, processEmailBatch } from './email-service.js';
+import { WebPushAdapter, UnconfiguredPushAdapter, processPushBatch } from './push-service.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const MAX_BYTES = Math.min(Number(process.env.MAX_DOWNLOAD_BYTES || 25 * 1024 * 1024), 25 * 1024 * 1024);
@@ -22,6 +24,15 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-3.8-flash';
 const GEMINI_EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
 const EMBEDDING_DIMENSIONS = 768;
+const RESEND_KEY = process.env.RESEND_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM_ADDRESS || 'PoolDocAI <notifications@pooldocai.com>';
+const emailAdapter = RESEND_KEY ? new ResendEmailAdapter(RESEND_KEY, EMAIL_FROM) : new UnconfiguredEmailAdapter();
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:security@pooldocai.com';
+const pushAdapter = (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
+  ? new WebPushAdapter({ vapidPublicKey: VAPID_PUBLIC_KEY, vapidPrivateKey: VAPID_PRIVATE_KEY, vapidSubject: VAPID_SUBJECT })
+  : new UnconfiguredPushAdapter();
 function utcMonthStartDate() { const now = new Date(); return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10); }
 if (!SUPABASE_URL || !SERVICE_KEY || !SECRET) throw new Error('Startup configuration error: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and DOC_WORKER_SECRET are required.');
 if (!/^https:\/\//i.test(SUPABASE_URL)) throw new Error('Startup configuration error: SUPABASE_URL must use HTTPS.');
@@ -72,9 +83,12 @@ async function estimateProviderCost(model, inputTokens, outputTokens = 0) {
   const normalizedOutput = Math.max(0, Number(outputTokens) || 0);
   if (!model || (!normalizedInput && !normalizedOutput)) return { estimatedCostUsd: null, costSource: 'not_priced' };
   try {
+    const rateLookupTime = new Date().toISOString();
     const { data: rates, error } = await db.from('pooldocai_model_rate_cards')
       .select('input_usd_per_million_tokens,output_usd_per_million_tokens')
-      .eq('provider', 'google_gemini').eq('model', model).eq('active', true).is('valid_to', null)
+      .eq('provider', 'google_gemini').eq('model', model).eq('active', true)
+      .lte('valid_from', rateLookupTime)
+      .or(`valid_to.is.null,valid_to.gt.${rateLookupTime}`)
       .order('valid_from', { ascending: false }).limit(1);
     const rate = rates?.[0];
     if (error || !rate || rate.input_usd_per_million_tokens == null || rate.output_usd_per_million_tokens == null) {
@@ -279,13 +293,168 @@ async function extractFile(buffer, filename, contentType) {
   throw new Error('Unsupported file type. Upload JPEG, PNG, HEIC/HEIF, WebP, TIFF, BMP, GIF, PDF, DOC, DOCX, TXT, Markdown, CSV, JSON, XML, or HTML.');
 }
 
+function extractModel(title, text, brand, category) {
+  const sample = `${title || ''} ${String(text || '').slice(0, 16000)}`.toLowerCase();
+
+  const knownFamilies = [
+    // Pumps
+    ['intelliflo_vsf', /\bintelliflo\s*(?:vsf|vs|2\s*vst|3\s*vfg)?\b/],
+    ['whisperflo', /\bwhisperflo(?:\s*vs)?\b/],
+    ['superflo', /\bsuperflo(?:\s*vs)?\b/],
+    ['super_pump', /\bsuper\s*pump(?:\s*vs)?\b/],
+    ['tri_star', /\btri[- ]?star(?:\s*vs)?\b/],
+    ['maxflo', /\bmax[- ]?flo(?:\s*vs)?\b/],
+    ['flo_pro', /\bflo[- ]?pro(?:\s*vs)?\b/],
+    ['epump', /\be[- ]?pump\b/],
+    ['stealth', /\bstealth(?:\s*pump)?\b/],
+    // Heaters
+    ['mastertemp', /\bmastertemp(?:\s*(?:125|250|300|400))?\b/],
+    ['max_e_therm', /\bmax[- ]?e[- ]?therm\b/],
+    ['h_series', /\b(?:universal\s+)?h[- ]series(?:\s*h?\d{3}[a-z]*)?\b/],
+    ['jxi', /\bjxi(?:\s*(?:200|260|400))?\b/],
+    ['crosswind', /\bcrosswind\b/],
+    // Salt / chlorinators
+    ['aquarite', /\baquarite(?:\s*(?:900|s3))?\b/],
+    ['intellichlor', /\bintellichlor(?:\s*(?:ic20|ic40|ic60))?\b/],
+    ['truclear', /\btruclear\b/],
+    ['aquapure', /\baquapure\b/],
+    // Filters
+    ['clean_and_clear', /\bclean\s*(?:&|and)\s*clear\b/],
+    ['swimclear', /\bswimclear\b/],
+    // Automation
+    ['intellicenter', /\bintellicenter\b/],
+    ['easytouch', /\beasytouch\b/],
+    ['omnilogic', /\bomnilogic\b/],
+    ['iaqualink', /\biaqualink\b/]
+  ];
+
+  for (const [canonical, regex] of knownFamilies) {
+    if (regex.test(sample)) {
+      return canonical;
+    }
+  }
+
+  const nameplateMatch = sample.match(/\b(?:model|mod\.?|model\s*number|series)\s*[:#\-\s]\s*([a-z0-9]{2,15}(?:[-_][a-z0-9]{1,10})*)\b/i);
+  if (nameplateMatch && nameplateMatch[1]) {
+    const raw = nameplateMatch[1].trim().toLowerCase();
+    if (!['number', 'no', 'information', 'guide', 'manual', 'overview', 'summary', 'specification'].includes(raw)) {
+      return raw.replace(/[^a-z0-9_-]/g, '_');
+    }
+  }
+
+  return null;
+}
+
 function classifyEquipment(title, text) {
   const sample = `${title || ''} ${String(text || '').slice(0, 12000)}`.toLowerCase();
   const brands = [['pentair', /\bpentair\b/], ['hayward', /\bhayward\b/], ['jandy/fluidra', /\bjandy\b|\bfluidra\b/], ['raypak', /\braypak\b/]];
   const categories = [['heater', /\bheater\b|\bheat pump\b|\bignition lockout\b/], ['pump', /\bpump\b|\bpriming\b|\bvariable[- ]speed\b/], ['filter', /\bfilter\b|\bbackwash\b/], ['salt system', /\bsalt cell\b|\bsalt system\b|\baquarite\b/], ['automation', /\bautomation\b|\bcontroller\b/], ['cleaner', /\bpool cleaner\b|\brobotic cleaner\b/], ['water chemistry', /\balkalinity\b|\bcalcium hardness\b|\bchlorine\b|\bcya\b|\bsaturation index\b/]];
   const expanded = [...categories, ['HVAC / furnace', /\bfurnace\b|\bair handler\b|\bcompressor\b|\bthermostat\b|\bevaporator\b|\bcondenser\b/], ['plumbing', /\bwater heater\b|\bdrain\b|\btoilet\b|\bwater pressure\b|\bpipe\b|\bsewer\b|\bbackflow\b|\bsump\b/]];
   const genericBrands = ['trane','carrier','lennox','rheem','goodman','navien','rinnai','moen','kohler','zurn'];
-  return { manufacturer: brands.find(([,re])=>re.test(sample))?.[0] || genericBrands.find(b=>new RegExp('\\b'+b+'\\b','i').test(sample)) || null, category: expanded.find(([,re])=>re.test(sample))?.[0] || null };
+  const manufacturer = brands.find(([,re])=>re.test(sample))?.[0] || genericBrands.find(b=>new RegExp('\\b'+b+'\\b','i').test(sample)) || null;
+  const category = expanded.find(([,re])=>re.test(sample))?.[0] || null;
+  const model = extractModel(title, text, manufacturer, category);
+  return { manufacturer, category, model };
+}
+
+function extractDocumentProvenance(title, text, originalFilename = '') {
+  const bodyText = String(text || '');
+  const bodySample = bodyText.slice(0, 30000);
+  const sample = `${title || ''} ${originalFilename || ''} ${bodySample}`.toLowerCase();
+
+  // 1. Manufacturer
+  let manufacturer = null;
+  if (/\bpentair\b/i.test(bodySample) || /\bpentair\b/i.test(title)) manufacturer = 'Pentair';
+  else if (/\bhayward\b/i.test(bodySample) || /\bhayward\b/i.test(title)) manufacturer = 'Hayward';
+  else if (/\bjandy\b|\bfluidra\b/i.test(bodySample) || /\bjandy\b|\bfluidra\b/i.test(title)) manufacturer = 'Jandy';
+  else if (/\braypak\b/i.test(bodySample) || /\braypak\b/i.test(title)) manufacturer = 'Raypak';
+
+  // 2. Family & Product & Model Normalized
+  let family = null;
+  let product = null;
+  let modelNormalized = null;
+
+  // IMPORTANT: Prioritize document body text over filename to avoid inheriting inaccurate filename cues.
+  // The SuperFlo High Performance Pump manual (P/N 350096) may have a misleading Drive filename suggesting
+  // "SuperFlo VS", but the document itself is the SuperFlo High Performance Pump guide (not SuperFlo VS/VST).
+  if (/\bsuperflo\b/i.test(bodySample) && /\bhigh\s*performance\s*pump\b/i.test(bodySample)) {
+    family = 'SuperFlo';
+    product = 'High Performance Pump';
+    modelNormalized = 'superflo';
+  } else if (/\bsuperflo\s*(?:vst|vs)\b/i.test(bodySample) && !/\bhigh\s*performance\b/i.test(bodySample)) {
+    family = 'SuperFlo';
+    product = 'SuperFlo VS/VST';
+    modelNormalized = 'superflo_vst';
+  } else if (/\bwhisperflo\b/i.test(bodySample)) {
+    family = 'WhisperFlo';
+    product = 'WhisperFlo High Performance Pump';
+    modelNormalized = 'whisperflo';
+  } else if (/\bintelliflo\b/i.test(bodySample)) {
+    family = 'IntelliFlo';
+    product = 'IntelliFlo VSF Variable Speed and Flow Pump';
+    modelNormalized = 'intelliflo_vsf';
+  } else {
+    modelNormalized = extractModel(title, text, manufacturer, 'pump');
+    family = modelNormalized ? modelNormalized.split('_')[0] : null;
+  }
+
+  // 3. Category
+  let category = 'pump';
+  if (/\b(?:filter|cartridge|sand|d\.?e\.)\b/i.test(sample) && !/\bpump\b/i.test(sample)) {
+    category = 'filter';
+  } else if (/\b(?:heater|heat pump)\b/i.test(sample)) {
+    category = 'heater';
+  } else if (/\b(?:salt cell|chlorinator)\b/i.test(sample)) {
+    category = 'salt system';
+  } else if (/\b(?:automation|controller)\b/i.test(sample)) {
+    category = 'automation';
+  }
+
+  // 4. Publication / Package Number & Revision & Publication Date
+  let publicationNumber = null;
+  let revision = null;
+  let publicationDate = null;
+
+  const pubMatch = bodySample.match(/\b(?:p\/n|part\s*(?:no\.?|number))\s*[:#\s]?\s*([0-9]{5,8})\b/i);
+  if (pubMatch) {
+    publicationNumber = `P/N ${pubMatch[1]}`;
+  }
+
+  const revMatch = bodySample.match(/\brev(?:\.|ision)?\s*[:#\s]?\s*([a-z0-9]{1,4})\b/i);
+  if (revMatch) {
+    revision = revMatch[1].toUpperCase();
+  }
+
+  const dateMatch = bodySample.match(/\b(0?[1-9]|1[0-2])[\/\-](0?[1-9]|[12]\d|3[01])[\/\-](\d{2}|\d{4})\b/);
+  if (dateMatch) {
+    const m = dateMatch[1].padStart(2, '0');
+    const d = dateMatch[2].padStart(2, '0');
+    let y = dateMatch[3];
+    if (y.length === 2) y = (parseInt(y, 10) > 50 ? '19' : '20') + y;
+    publicationDate = `${y}-${m}-${d}`;
+  }
+
+  // Canonical title
+  let canonicalTitle = null;
+  if (manufacturer && family && product) {
+    canonicalTitle = `${manufacturer} ${family} ${product} Installation and User's Guide`;
+  } else if (manufacturer && product) {
+    canonicalTitle = `${manufacturer} ${product} User's Guide`;
+  } else if (title) {
+    canonicalTitle = title.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
+  }
+
+  return {
+    manufacturer: manufacturer || 'Pentair',
+    family: family || 'SuperFlo',
+    product: product || 'High Performance Pump',
+    category,
+    modelNormalized: modelNormalized || 'superflo',
+    publicationNumber,
+    revision,
+    publicationDate,
+    canonicalTitle
+  };
 }
 
 async function queueManualForLearning(manual, chunks) {
@@ -302,7 +471,17 @@ async function queueManualForLearning(manual, chunks) {
   let queued = 0;
   for (let offset=0; offset<prepared.length; offset+=100) {
     const batch = prepared.slice(offset, offset+100);
-    const cases = batch.map(item => ({ tenant_id: manual.company_id, case_status: 'resolved', equipment_category: manual.document_type || 'manual', symptom_redacted: `Extracted reference from opted-in company document: ${scrub(manual.title).slice(0,160)}`, source_ids: item.source_ids, technician_verified: false, approved_for_learning: false }));
+    const cases = batch.map(item => ({
+      tenant_id: manual.company_id,
+      case_status: 'resolved',
+      equipment_category: manual.equipment_category || manual.document_type || 'manual',
+      manufacturer_normalized: manual.manufacturer_normalized || null,
+      model_normalized: manual.model_normalized || null,
+      symptom_redacted: `Extracted reference from opted-in company document: ${scrub(manual.title).slice(0,160)}`,
+      source_ids: item.source_ids,
+      technician_verified: false,
+      approved_for_learning: false
+    }));
     const { data: created, error: ce } = await db.from('diagnostic_cases').insert(cases).select('id,source_ids');
     if (ce || !created) { console.error('learning case batch insert failed', ce?.code); continue; }
     const queueRows = created.map(row => ({ case_id: row.id, tenant_id: manual.company_id, source_kind: 'company_manual', proposed_lesson_redacted: batch.find(item => item.marker === (row.source_ids || []).find(x => x.includes('#chunk-')))?.lesson || '', supporting_source_ids: row.source_ids, status: 'pending' })).filter(row => row.proposed_lesson_redacted.length >= 40);
@@ -318,12 +497,35 @@ async function processManual(manualId, processingJobId = null) {
   await db.from('company_manuals').update({ extraction_status: 'processing', extraction_error: null }).eq('id', manual.id);
   try {
     let extracted;
-    if (manual.source_url) extracted = await fetchWebpage(manual.source_url);
-    else {
-      const { data: file, error: downloadError } = await db.storage.from('company-manuals').download(manual.storage_path);
+    let contentSha256 = null;
+    if (manual.source_url) {
+      extracted = await fetchWebpage(manual.source_url);
+      contentSha256 = crypto.createHash('sha256').update(String(extracted.text || '')).digest('hex');
+    } else {
+      const storagePath = String(manual.storage_path || '').trim();
+      const expectedPrefix = `${manual.company_id}/`;
+      if (!storagePath || !storagePath.startsWith(expectedPrefix) || storagePath.includes('..') || storagePath.includes('\\')) {
+        throw new Error('Unauthorized storage path: file path must belong strictly to the owning company.');
+      }
+      const { data: file, error: downloadError } = await db.storage.from('company-manuals').download(storagePath);
       if (downloadError || !file) throw new Error('Could not read the private uploaded file.');
       const array = await file.arrayBuffer(); if (array.byteLength > MAX_BYTES) throw new Error('File exceeds the 25 MB extraction limit.');
+      contentSha256 = crypto.createHash('sha256').update(Buffer.from(array)).digest('hex');
       extracted = await extractFile(Buffer.from(array), manual.original_filename || manual.title, manual.content_type || 'application/octet-stream');
+    }
+    if (contentSha256) {
+      try {
+        const { data: dupData } = await db.rpc('pooldocai_check_manual_duplicate', {
+          p_company_id: manual.company_id,
+          p_sha256: contentSha256,
+          p_manual_id: manual.id
+        });
+        if (dupData && dupData[0]?.is_same_company_duplicate) {
+          console.warn(`Duplicate document detected for company ${manual.company_id}: SHA256 ${contentSha256}`);
+        }
+      } catch (dupErr) {
+        console.warn('Duplicate check skipped:', dupErr.message);
+      }
     }
     const raw = String(extracted.text || '').replace(/\u0000/g, '').trim();
     if (raw.length < 20) throw new Error('No usable text could be extracted. Check that the document is readable and not password-protected.');
@@ -333,17 +535,53 @@ async function processManual(manualId, processingJobId = null) {
     if (!chunks.length) throw new Error('No usable chunks could be produced from this document.');
     const { data: company } = await db.from('companies').select('industry_key').eq('id', manual.company_id).maybeSingle();
     const industryKey = String(company?.industry_key || manual.industry_key || 'pool');
+    const provenance = extractDocumentProvenance(manual.title || extracted.title, raw, manual.original_filename);
     const equipmentTags = classifyEquipment(manual.title || extracted.title, raw);
+    if (provenance.modelNormalized) equipmentTags.model = provenance.modelNormalized;
+    if (provenance.manufacturer) equipmentTags.manufacturer = provenance.manufacturer;
+    if (provenance.category) equipmentTags.category = provenance.category;
     let embeddings = [];
     let embeddingModel = null;
     try { embeddings = await embedDocumentChunks(chunks); embeddingModel = GEMINI_EMBEDDING_MODEL; }
     catch (embeddingError) { console.warn('Semantic embedding was unavailable; keyword retrieval will remain enabled.', String(embeddingError?.message || '').slice(0,180)); }
     await db.from('company_manual_chunks').delete().eq('manual_id', manual.id).eq('company_id', manual.company_id);
-    const rows = chunks.map((chunk, i) => ({ company_id: manual.company_id, manual_id: manual.id, industry_key: industryKey, chunk_index: i, title: String(extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: chunk.pageNumber, page_start: chunk.pageStart, page_end: chunk.pageEnd, content_text: chunk.content, content_redacted: scrub(chunk.content).slice(0, 1200), embedding: embeddings[i] ? `[${embeddings[i].join(',')}]` : null, embedding_model: embeddings[i] ? embeddingModel : null, embedded_at: embeddings[i] ? new Date().toISOString() : null }));
+    const rows = chunks.map((chunk, i) => ({ company_id: manual.company_id, manual_id: manual.id, industry_key: industryKey, chunk_index: i, title: String(provenance.canonicalTitle || extracted.title || manual.title).slice(0, 250), source_url: extracted.sourceUrl || manual.source_url || null, page_number: chunk.pageNumber, page_start: chunk.pageStart, page_end: chunk.pageEnd, content_text: chunk.content, content_redacted: scrub(chunk.content).slice(0, 1200), embedding: embeddings[i] ? `[${embeddings[i].join(',')}]` : null, embedding_model: embeddings[i] ? embeddingModel : null, embedded_at: embeddings[i] ? new Date().toISOString() : null }));
     for (let i=0; i<rows.length; i+=20) { const { error: chunkError } = await db.from('company_manual_chunks').insert(rows.slice(i,i+20)); if (chunkError) throw new Error(`Could not index document chunks (${chunkError.code}).`); }
-    const { error: updateError } = await db.from('company_manuals').update({ title: manual.title || extracted.title || 'Company document', industry_key: industryKey, manufacturer_normalized: equipmentTags.manufacturer, equipment_category: equipmentTags.category, extracted_char_count: raw.length, chunk_count: rows.length, extraction_status: 'ready', extraction_error: null, processed_at: new Date().toISOString() }).eq('id', manual.id);
+    const effectiveManufacturer = manual.manufacturer_normalized || equipmentTags.manufacturer || null;
+    const effectiveModel = manual.model_normalized || equipmentTags.model || null;
+    const effectiveCategory = manual.equipment_category || equipmentTags.category || 'manual';
+    const effectiveTitle = provenance.canonicalTitle || manual.title || extracted.title || 'Company document';
+    const { error: updateError } = await db.from('company_manuals').update({
+      title: effectiveTitle,
+      canonical_title: provenance.canonicalTitle || effectiveTitle,
+      source_publisher: provenance.manufacturer || effectiveManufacturer,
+      product_name: provenance.product || null,
+      model_family: provenance.family || null,
+      publication_number: provenance.publicationNumber || null,
+      revision: provenance.revision || null,
+      publication_date: provenance.publicationDate || null,
+      content_sha256: contentSha256,
+      source_locator: manual.storage_path ? `storage://${manual.storage_path}` : (manual.source_url || null),
+      industry_key: industryKey,
+      manufacturer_normalized: manual.manufacturer_normalized || equipmentTags.manufacturer,
+      model_normalized: manual.model_normalized || equipmentTags.model,
+      equipment_category: manual.equipment_category || equipmentTags.category,
+      extracted_char_count: raw.length,
+      chunk_count: rows.length,
+      extraction_status: 'ready',
+      extraction_error: null,
+      processed_at: new Date().toISOString()
+    }).eq('id', manual.id);
     if (updateError) throw new Error('Document was extracted but its status could not be saved.');
-    const queued = await queueManualForLearning({ ...manual, shared_learning_opt_in: Boolean(manual.shared_learning_opt_in) }, rows.map(r=>r.content_text));
+    const queued = await queueManualForLearning({
+      ...manual,
+      title: effectiveTitle,
+      industry_key: industryKey,
+      manufacturer_normalized: effectiveManufacturer,
+      model_normalized: effectiveModel,
+      equipment_category: effectiveCategory,
+      shared_learning_opt_in: Boolean(manual.shared_learning_opt_in)
+    }, rows.map(r=>r.content_text));
     const metricKey = processingJobId ? `document-job:${processingJobId}` : `document:${manual.id}:${crypto.randomUUID()}`;
     const ocrInputTokens = Number(extracted.usage?.promptTokenCount || extracted.usage?.prompt_token_count || 0);
     const ocrOutputTokens = Number(extracted.usage?.candidatesTokenCount || extracted.usage?.candidates_token_count || 0);
@@ -357,7 +595,25 @@ async function processManual(manualId, processingJobId = null) {
       const embeddingCost = await estimateProviderCost(GEMINI_EMBEDDING_MODEL, estimatedEmbeddingInputTokens, 0);
       await recordUsageOnce({ company_id: manual.company_id, user_id: manual.uploaded_by || null, event_type: 'document_embedding', units: embeddings.length, metric_type: 'embedding_chunks', quantity: embeddings.length, quantity_unit: 'embedded_chunk', provider: 'google_gemini', model: GEMINI_EMBEDDING_MODEL, input_tokens: estimatedEmbeddingInputTokens, output_tokens: null, estimated_cost_usd: embeddingCost.estimatedCostUsd, cost_source: embeddingCost.estimatedCostUsd === null ? 'not_priced' : 'rate_card_estimate', source_event_key: `${metricKey}:embeddings`, period_start: utcMonthStartDate(), metadata: { manual_id: manual.id, queue_job_id: processingJobId, embedded_chunks: embeddings.length, dimension: EMBEDDING_DIMENSIONS, input_token_count_is_estimate: true } });
     }
-    return { manualId: manual.id, status: 'ready', chunks: rows.length, embeddedChunks: embeddings.length, manufacturer: equipmentTags.manufacturer, equipmentCategory: equipmentTags.category, industryKey, extractedCharacters: raw.length, queuedForLearningReview: queued, referenceEnabled: manual.reference_enabled !== false, sharedLearningOptIn: Boolean(manual.shared_learning_opt_in) };
+    return {
+      manualId: manual.id,
+      status: 'ready',
+      chunks: rows.length,
+      embeddedChunks: embeddings.length,
+      manufacturer: effectiveManufacturer,
+      modelNormalized: effectiveModel,
+      equipmentCategory: effectiveCategory,
+      canonicalTitle: provenance.canonicalTitle || effectiveTitle,
+      publicationNumber: provenance.publicationNumber || null,
+      revision: provenance.revision || null,
+      publicationDate: provenance.publicationDate || null,
+      contentSha256,
+      industryKey,
+      extractedCharacters: raw.length,
+      queuedForLearningReview: queued,
+      referenceEnabled: manual.reference_enabled !== false,
+      sharedLearningOptIn: Boolean(manual.shared_learning_opt_in)
+    };
   } catch (error) {
     const message = String(error?.message || 'Document processing failed').slice(0,500);
     await db.from('company_manuals').update({ extraction_status: 'failed', extraction_error: message }).eq('id', manual.id);
@@ -370,7 +626,25 @@ async function createWebManual(body) {
   const safe = await safeUrl(rawUrl);
   const title = String(body.title || safe.url.hostname).slice(0,250);
   const { data: companyRow } = await db.from('companies').select('industry_key').eq('id', companyId).maybeSingle();
-  const { data, error } = await db.from('company_manuals').insert({ company_id: companyId, industry_key: companyRow?.industry_key || 'pool', uploaded_by: body.userId || null, title, storage_path: `${companyId}/web-${crypto.randomUUID()}.html`, content_type: 'text/html', file_size: 0, document_type: body.documentType || 'other', source_url: safe.url.toString(), original_filename: safe.url.hostname, reference_enabled: true, shared_learning_opt_in: body.sharedLearningOptIn === true, learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null, extraction_status: 'queued' }).select('*').single();
+  const { data, error } = await db.from('company_manuals').insert({
+    company_id: companyId,
+    industry_key: companyRow?.industry_key || 'pool',
+    uploaded_by: body.userId || null,
+    title,
+    storage_path: `${companyId}/web-${crypto.randomUUID()}.html`,
+    content_type: 'text/html',
+    file_size: 0,
+    document_type: body.documentType || 'other',
+    manufacturer_normalized: body.manufacturerNormalized || null,
+    model_normalized: body.modelNormalized || null,
+    equipment_category: body.equipmentCategory || null,
+    source_url: safe.url.toString(),
+    original_filename: safe.url.hostname,
+    reference_enabled: true,
+    shared_learning_opt_in: body.sharedLearningOptIn === true,
+    learning_consent_updated_at: body.sharedLearningOptIn === true ? new Date().toISOString() : null,
+    extraction_status: 'queued'
+  }).select('*').single();
   if (error) throw new Error(`Could not register webpage (${error.code}).`);
   const { data: job, error: queueError } = await db.rpc('pooldocai_enqueue_document_job', { p_manual_id: data.id, p_requested_by: body.userId || null, p_force: false });
   if (queueError || !job) throw new Error('Webpage was registered but could not be queued for extraction.');
@@ -503,6 +777,8 @@ const server = http.createServer(async (req,res) => {
         ok: healthy,
         service: 'pooldocai-document-worker',
         database: 'ok',
+        email_provider: RESEND_KEY ? 'resend' : 'unconfigured',
+        push_provider: (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) ? 'vapid' : 'unconfigured',
         queue,
         thresholdsMinutes: { oldQueued: queuedMinutes, stuckProcessing: stuckMinutes },
         checkedAt: nowIso
@@ -512,7 +788,9 @@ const server = http.createServer(async (req,res) => {
       return json(res, 503, { ok: false, service: 'pooldocai-document-worker', database: 'unavailable', code: 'QUEUE_HEALTH_CHECK_FAILED' });
     }
   }
-  if (req.method !== 'POST' || req.url !== '/process') return json(res,404,{error:'Not found'});
+  if (req.method !== 'POST' || req.url !== '/process') {
+    if (!(req.method === 'POST' && (req.url === '/email/process' || req.url === '/push/process'))) return json(res,404,{error:'Not found'});
+  }
   try {
     let body=''; for await (const part of req) { body += part; if (body.length > 100_000) throw new Error('Request too large.'); }
     if (REQUIRE_HMAC) {
@@ -524,6 +802,38 @@ const server = http.createServer(async (req,res) => {
       if (!timingSafeEqual(Buffer.from(signature.toLowerCase(),'hex'), Buffer.from(expected,'hex'))) return json(res,401,{error:'Unauthorized'});
     } else if (req.headers['x-pooldocai-worker-secret'] !== SECRET) return json(res,401,{error:'Unauthorized'});
     const payload = JSON.parse(body || '{}');
+    if (req.url === '/email/process') {
+      if (!RESEND_KEY) {
+        return json(res, 503, {
+          ok: false,
+          error: 'EMAIL_PROVIDER_UNCONFIGURED',
+          email_provider: 'unconfigured',
+          message: 'External email provider credentials are not configured.'
+        });
+      }
+      const result = await processEmailBatch(db, emailAdapter, {
+        workerId: payload.workerId || `render_worker_http_${process.pid}`,
+        batchSize: Number(payload.batchSize) || 10,
+        leaseSeconds: Number(payload.leaseSeconds) || 120
+      });
+      return json(res, 200, { ok: true, ...result });
+    }
+    if (req.url === '/push/process') {
+      if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+        return json(res, 503, {
+          ok: false,
+          error: 'PUSH_PROVIDER_UNCONFIGURED',
+          push_provider: 'unconfigured',
+          message: 'External push provider credentials are not configured.'
+        });
+      }
+      const result = await processPushBatch(db, pushAdapter, {
+        workerId: payload.workerId || `render_worker_push_http_${process.pid}`,
+        batchSize: Number(payload.batchSize) || 10,
+        leaseSeconds: Number(payload.leaseSeconds) || 120
+      });
+      return json(res, 200, { ok: true, ...result });
+    }
     if (payload.action === 'create_webpage') return json(res,200,{ok:true,...await createWebManual(payload)});
     if (payload.action !== 'process_manual' || !payload.manualId) return json(res,400,{error:'action=process_manual and manualId are required.'});
     return json(res,200,{ok:true,...await processManual(String(payload.manualId))});
@@ -553,8 +863,54 @@ async function pollQueue() {
   } catch (err) { console.error('Document queue polling failed', String(err?.message || 'unknown').slice(0, 250)); }
   finally { workerBusy = false; }
 }
+let emailBusy = false;
+async function pollEmailQueue() {
+  if (!RESEND_KEY) {
+    // Fail-closed: external sends disabled when provider unconfigured.
+    // Leaves all pending email queue rows safely intact for future delivery.
+    return;
+  }
+  if (emailBusy) return;
+  emailBusy = true;
+  try {
+    await processEmailBatch(db, emailAdapter, {
+      workerId: `render_worker_${process.pid}`,
+      batchSize: 10,
+      leaseSeconds: 120
+    });
+  } catch (err) {
+    console.error('Email delivery queue polling failed', String(err?.message || 'unknown').slice(0, 160));
+  } finally {
+    emailBusy = false;
+  }
+}
+let pushBusy = false;
+async function pollPushQueue() {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    // Fail-closed: external sends disabled when provider unconfigured.
+    // Leaves all pending push queue rows safely intact for future delivery.
+    return;
+  }
+  if (pushBusy) return;
+  pushBusy = true;
+  try {
+    await processPushBatch(db, pushAdapter, {
+      workerId: `render_worker_push_${process.pid}`,
+      batchSize: 10,
+      leaseSeconds: 120
+    });
+  } catch (err) {
+    console.error('Push delivery queue polling failed', String(err?.message || 'unknown').slice(0, 160));
+  } finally {
+    pushBusy = false;
+  }
+}
 setInterval(() => { void pollQueue(); }, 2500);
 void pollQueue();
 setInterval(() => { void pollWebhookQueue(); }, 5000);
 void pollWebhookQueue();
-server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable document and service-webhook queues enabled`));
+setInterval(() => { void pollEmailQueue(); }, 5000);
+void pollEmailQueue();
+setInterval(() => { void pollPushQueue(); }, 5000);
+void pollPushQueue();
+server.listen(PORT, '0.0.0.0', () => console.log(`PoolDocAI document worker listening on ${PORT}; durable document, service-webhook, email, and web-push queues enabled`));

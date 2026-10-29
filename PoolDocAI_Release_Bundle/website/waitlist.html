@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="index,follow">
   <title>Join the PoolDocAI Early-Access Pilot</title>
   <meta name="description" content="Join the PoolDocAI early-access waitlist and optionally apply to help shape the pilot for pool service companies." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏊%3C/text%3E%3C/svg%3E" />
@@ -162,19 +163,6 @@
 </head>
 <body data-site-page="waitlist" class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-600 selection:text-white">
 
-  <!-- TOP VALIDATION & WAITLIST BANNER -->
-  <div class="bg-sky-950 text-sky-100 text-xs sm:text-sm py-2.5 px-4 border-b border-sky-800/60">
-    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-3 py-1.5 rounded-2xl text-xs font-bold uppercase tracking-wider bg-emerald-400/15 text-emerald-200 border border-emerald-300/30">Live demo available</span>
-        <span class="font-medium">Try the interactive pool troubleshooter, or apply for the planned early-access pilot.</span>
-      </div>
-      <div class="flex items-center gap-4">
-        <a href="demo.html#interactive-demo" class="text-white hover:text-sky-200 font-semibold text-xs flex items-center gap-1">Try Live Demo &rarr;</a>
-        <a href="waitlist.html#interest-section" class="text-amber-300 hover:text-amber-200 font-semibold text-xs flex items-center gap-1">Join Pilot &rarr;</a>
-      </div>
-    </div>
-  </div>
 
   <!-- STICKY NAVIGATION HEADER -->
   <header class="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
@@ -199,8 +187,9 @@
       </nav>
 
       <div class="flex items-center gap-2">
-        <a href="demo.html#interactive-demo" class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-sky-700 border border-sky-200 hover:bg-sky-50 transition">Try Live Demo</a>
-        <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition">Join Pilot</a>
+        <a href="demo.html#interactive-demo" class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-sky-700 border border-sky-200 hover:bg-sky-50 transition">Try PoolDocAI Tech</a>
+        <a href="demo.html#open-homeowner-widget" class="hidden sm:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-slate-700 border border-slate-200 hover:bg-slate-50 transition">Try PoolDocAI Homeowner</a>
+        <a href="waitlist.html#interest-section" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 shadow-sm transition">Join Waitlist</a>
         <button id="mobileMenuBtn" type="button" aria-label="Toggle Menu" aria-expanded="false" aria-controls="mobileMenuPanel" class="xl:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 border border-slate-200 cursor-pointer">
           ☰
         </button>
@@ -211,10 +200,10 @@
     <div id="mobileMenuPanel" class="hidden xl:hidden bg-white border-t border-slate-200 px-4 py-3 space-y-2 text-sm font-medium text-slate-700">
       <a href="index.html#top" class="block py-2 hover:text-sky-600">Home</a>
       <a href="how-it-works.html#solution-section" class="block py-2 hover:text-sky-600">How It Works</a>
-      <a href="demo.html#interactive-demo" class="block py-2 hover:text-sky-600">Try the Demo</a>
-      <a href="pricing.html#pricing-roi-section" class="block py-2 hover:text-sky-600">Pricing</a>
-      <a href="faq.html#faq-section" class="block py-2 hover:text-sky-600">Help &amp; Safety</a>
-      <a href="/admin.html" class="block py-2 text-sky-600 font-bold">Account Login</a><a href="waitlist.html#interest-section" class="block py-2 text-sky-600 font-bold">Join the Pilot</a>
+      <a href="demo.html#interactive-demo" class="block py-2 hover:text-sky-600 font-medium">Try PoolDocAI Tech</a>
+      <a href="demo.html#open-homeowner-widget" class="block py-2 hover:text-sky-600 font-medium">Try PoolDocAI Homeowner</a>
+      <a href="/admin.html" class="block py-2 text-sky-600 font-bold">Account Login</a>
+      <a href="waitlist.html#interest-section" class="block py-2 text-sky-600 font-bold">Join Waitlist</a>
       <div class="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
         <button id="openPortalModalMobileBtn" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 underline underline-offset-2 cursor-pointer">Setup details</button>
       </div>
@@ -278,28 +267,27 @@
             <div class="space-y-3 text-xs">
               <div class="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5">
                 <div class="flex items-center justify-between">
-                  <span class="font-bold text-sky-300">1. Website Widget OR Textable Customer Links</span>
-                  <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 text-xs font-bold">PLANNED PILOT</span>
+                  <span class="font-bold text-emerald-300">1. Field Technician Diagnostic Copilot</span>
+                  <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-xs font-bold">Available to try now</span>
                 </div>
                 <p class="text-slate-300 leading-relaxed">
-                  The public demo provides <strong class="text-emerald-300">8 turns for Homeowner Triage and a separate 8 turns for the Field Tech Mobile App preview</strong>. Company-branded website chat rollout and customer-specific textable links are <strong class="text-amber-200">planned pilot capabilities</strong>, not activated by this public demo.
+                  The Field Tech Diagnostic Copilot preview is live in the workbench below with a dedicated 8-turn allowance. Technicians verify error codes, wiring, and OEM manuals on-site. Dedicated technician accounts and field notes PWA are available; proposed Tech-Only plans start at <strong class="text-white">$49/mo</strong>, with Complete plans starting at <strong class="text-white">$99/mo</strong>.
                 </p>
               </div>
 
               <div class="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5">
                 <div class="flex items-center justify-between">
-                  <span class="font-bold text-amber-300">2. Field Technician Mobile App</span>
-                  <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-xs font-bold">Available to try now</span>
+                  <span class="font-bold text-sky-300">2. Homeowner Intake &amp; Website Widget</span>
+                  <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 text-xs font-bold">Planned Pilot</span>
                 </div>
                 <p class="text-slate-300 leading-relaxed">
-                  The Field Tech Mobile App preview is available through the same live demo; it has its own separate 8-turn allowance. Dedicated technician accounts and a production mobile app are planned; proposed Tech-Only plans start at <strong class="text-white">$49/mo</strong>, with Complete plans starting at <strong class="text-white">$99/mo</strong>.
+                  Public demo: up to 8 turns for customer triage via the bottom-right toggle. Company-branded website chat widgets and customer-specific textable intake links are <strong class="text-amber-200">planned pilot capabilities</strong>.
                 </p>
               </div>
-
               <div class="p-3.5 rounded-xl bg-emerald-950/50 border border-emerald-500/30 flex items-center justify-between gap-2">
                 <div>
-                  <div class="font-bold text-emerald-300">Separate Homeowner &amp; Tech Allowances</div>
-                  <div class="text-slate-300 text-xs">Busy weekend customer chats never use up your Monday technicians' sessions.</div>
+                  <div class="font-bold text-emerald-300">Pooled Monthly Diagnostic Sessions</div>
+                  <div class="text-slate-300 text-xs">Single company allowance shared across customer triage and field troubleshooting on Complete plans.</div>
                 </div>
                 <a href="pricing.html#pricing-roi-section" class="px-3 py-1.5 rounded-lg bg-emerald-400 text-slate-950 font-bold text-xs shrink-0 hover:bg-emerald-300 transition">
                   View Pricing &rarr;
@@ -424,7 +412,7 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="max-w-3xl mx-auto text-center space-y-3">
         <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Live Conversational PoolDocAI Troubleshooter</span>
-        <h2 class="text-2xl sm:text-4xl font-extrabold">Have a Natural Troubleshooting Conversation with PoolDocAI</h2>
+        <h2 class="text-2xl sm:text-4xl font-extrabold">Have a Natural Conversation with PoolDocAI</h2>
         <p class="text-slate-300 text-xs sm:text-base">
           Start with a symptom or choose one of the eight categories below. PoolDocAI guides the intake, runs an illustrative water-balancing calculator, and prepares a Pre-Job Summary for review. This is a demo; it does not book or dispatch a technician.
         </p>
@@ -443,7 +431,7 @@
       </div>
       <div class="mt-3 text-center space-y-1" aria-live="polite">
         <p id="publicDemoTurnMeter" class="text-sm font-bold text-sky-200">Homeowner Triage demo: 8 of 8 turns remaining (0/8 used).</p>
-        <p class="text-xs text-slate-400">Homeowner Triage and Field Tech Mobile App each have a separate allowance of 8 turns in this browser session.</p>
+        <p class="text-xs text-slate-400">Public demo: up to 8 interactive turns for this demo mode.</p>
       </div>
 
       <!-- Expanded 2-Column Conversational Interface -->
@@ -495,8 +483,8 @@
                   id="liveDemoSendBtn"
                   type="submit"
                   class="px-6 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-sm shadow-lg transition shrink-0 cursor-pointer"
-                >
-                  Ask PoolDoc &rarr;
+                 aria-label="Send message">
+                  Send &rarr;
                 </button>
               </form>
             </div>
@@ -507,11 +495,11 @@
         <div class="lg:col-span-4 bg-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col justify-between min-h-[220px] sm:min-h-[320px] lg:min-h-[750px]">
           <div class="space-y-3">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <span class="text-xs sm:text-sm font-extrabold text-amber-300 uppercase tracking-wider">📋 Pre-Job Summary Preview</span>
+              <span class="text-xs sm:text-sm font-extrabold text-amber-300 uppercase tracking-wider">📋 Diagnostic Summary</span>
               <div class="flex items-center gap-2"><span class="hidden sm:inline text-xs px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-semibold">Updates During Chat</span><button id="toggleDispatchSummaryBtn" type="button" aria-expanded="false" class="lg:hidden text-xs font-semibold text-sky-300 underline underline-offset-2">Show summary</button></div>
             </div>
             <p class="text-xs text-slate-400 leading-relaxed">
-              Updates automatically as PoolDocAI triages the symptom, confirms (or marks unknown) the make and model, logs water chemistry readings, and prepares the parts/chemical list for your technician.
+              Updates automatically as PoolDocAI analyzes observed symptoms, confirms equipment make/model from field manuals, verifies chemistry readings, and organizes diagnostic findings, ruled-out steps, and parts to verify.
             </p>
             <div id="dispatchNoteContent" class="space-y-3 text-xs sm:text-sm text-slate-300 pt-2">
               <!-- Populated by renderDispatchNote() -->
@@ -519,7 +507,7 @@
           </div>
 
           <div class="mt-4 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-slate-400 leading-relaxed">
-            <strong class="text-sky-300">Pre-Job Summary Preview:</strong> Checks completed in this demo are summarized under <em>Confirmed Checks</em>. When troubleshooting reaches its limit or you click <strong>Request Technician / Call Licensed Pro</strong>, you can submit a demo inquiry with the summary for review. The public demo does not contact a local service company or create a real dispatch or appointment.
+            <strong class="text-sky-300">Diagnostic Summary:</strong> Equipment checks completed in this session are summarized under <em>Confirmed Checks</em> and available for your field record. This summary updates during the demo. Saving Job Notes requires a signed-in technician account; the public demo does not store a company job record.
           </div>
         </div>
 
@@ -547,7 +535,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="text-lg font-extrabold text-slate-900">Complete Track</h3><span class="text-xs font-bold rounded-full px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200">Included in the planned pilot</span></div>
             <p class="text-sm text-slate-600 mt-1">For companies that want homeowner intake plus technician tools.</p>
             <p class="text-xl font-extrabold text-slate-900 mt-3">Starts at $99/mo <span class="text-xs font-normal text-slate-500">proposed pricing</span></p>
-            <ul class="mt-3 space-y-1.5 text-sm text-slate-700"><li>• Public demo: troubleshooting and Pre-Job Summary preview</li><li>• Planned: company-branded homeowner chat setup and separate homeowner/tech allowances</li><li>• Planned—not live: customer-specific text links and dispatch workflow</li></ul>
+            <ul class="mt-3 space-y-1.5 text-sm text-slate-700"><li>• Public demo: troubleshooting and Pre-Job Summary preview</li><li>• Planned: company-branded homeowner chat setup and pooled diagnostic session allowance</li><li>• Planned—not live: customer-specific text links and dispatch workflow</li></ul>
           </article>
           <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="text-lg font-extrabold text-slate-900">Tech-Only Track</h3><span class="text-xs font-bold rounded-full px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200">Preview available now</span></div>
@@ -573,7 +561,7 @@
           </div>
         </div>
 
-        <div class="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status"><strong>Early-access pricing — checkout is not enabled.</strong> Amounts are proposed plan prices. Paid subscription checkout, seat add-ons, session top-ups, and overage billing remain disabled pending billing integration. Monthly allowances are pooled diagnostic sessions, not separate homeowner/technician quotas.</div>
+        <div class="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status"><strong>Early-access pricing — checkout is not enabled.</strong> Amounts are proposed plan prices. Paid subscription checkout, seat add-ons, session top-ups, and overage billing remain disabled pending billing integration. Monthly allowances are pooled diagnostic sessions across included modes.</div>
 
         <!-- TRACK A: COMPLETE TRACK -->
         <div id="completeTrackPricingBlock" class="mt-10 space-y-4">
@@ -657,8 +645,7 @@
                 <div class="text-2xl font-extrabold">Custom <span class="text-xs font-normal text-slate-400">(~$750+/mo)</span></div>
                 <p class="text-xs text-slate-400">Future-development / custom tier for 16+ technician fleets and multi-location operations. 16–24 seats require a custom seat block; 25+ seats may use a bundled enterprise block after scope and pricing are confirmed.</p>
                 <ul class="pt-3 space-y-2 text-xs text-slate-300 border-t border-slate-800">
-                  <li>✔ <strong>2,000+</strong> Homeowner Sessions/mo</li>
-                  <li>✔ <strong>3,500+</strong> Field Tech Sessions/mo</li>
+                  <li>✔ <strong>Custom pooled</strong> monthly session allowance (confirmed in written quote)</li>
                   <li>✔ <strong>25+ Bundled Tech Seats</strong> &amp; dedicated onboarding</li>
                 </ul>
               </div>
@@ -739,7 +726,7 @@
                 <div class="text-2xl font-extrabold text-slate-900">$269<span class="text-xs font-normal text-slate-500">/mo</span></div>
                 <p class="text-xs text-slate-500">For 7–15 technicians.</p>
                 <ul class="pt-2.5 space-y-1.5 text-xs text-slate-700 border-t border-slate-100">
-                  <li>✔ <strong>2,000</strong> Tech Sessions/mo</li>
+                  <li>✔ <strong>2,000</strong> pooled diagnostic sessions/mo</li>
                   <li>✔ <strong>15 Bundled Tech Seats</strong></li>
                   <li>✔ Shared job history is a planned production capability</li>
                 </ul>
@@ -756,7 +743,7 @@
                 <div class="text-xl font-extrabold">Custom <span class="text-xs font-normal text-slate-400">(~$550+/mo)</span></div>
                 <p class="text-xs text-slate-400">Future-development / custom tier for 16+ technician fleets; final seat blocks and availability require a quote.</p>
                 <ul class="pt-2.5 space-y-1.5 text-xs text-slate-300 border-t border-slate-800">
-                  <li>✔ <strong>3,500+</strong> Tech Sessions/mo</li>
+                  <li>✔ <strong>Custom pooled</strong> diagnostic session allowance (confirmed in written quote)</li>
                   <li>✔ <strong>25+ Bundled Seats</strong></li>
                 </ul>
               </div>
@@ -870,7 +857,7 @@
                   <option value="49">Legacy Tech-Only — existing accounts only (1 Seat • 200 pooled sessions)</option>
                   <option value="79">Tech Solo / Route — $79/mo (2 Seats • 250 pooled sessions)</option>
                   <option value="149">Tech Pro Team — $149/mo (6 Seats • 750 pooled sessions)</option>
-                  <option value="269">Tech Fleet — $269/mo (15 Seats • 2,000 Tech Sessions)</option>
+                  <option value="269">Tech Fleet — $269/mo (15 Seats • 2,000 pooled sessions)</option>
                   <option value="550">Tech Enterprise — custom (illustrative baseline $550/mo; seat count and quote vary)</option>
                 </optgroup>
               </select>
@@ -1051,8 +1038,8 @@
         <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">How does PoolDocAI handle routine maintenance precautions?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">Some checks may require you to acknowledge a caution before continuing. An acknowledgement does not make a task safe for every person or equipment model. Follow the manufacturer’s procedure, and do not proceed if a step involves gas, electricity, pressurized filters, or another hazard you are not qualified to handle.</p></details>
         <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">How does PoolDocAI show where an answer comes from?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">When available, PoolDocAI can show the name or link of a reference associated with its guidance. Open the reference and confirm that it applies to your exact equipment model; AI summaries and source descriptions may be incomplete.</p></details>
         <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">What if I only want a Field Technician app?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">The Tech-Only Track is designed for businesses that want technician-focused troubleshooting without homeowner chat. Plans are Tech Starter ($49/mo), Tech Solo / Route ($79/mo), Tech Pro Team ($149/mo), and Tech Fleet ($269/mo). Ask about early-access availability and onboarding for your team.</p></details>
-        <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">Are homeowner sessions and technician sessions separate?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">Yes. Complete plans are designed with separate monthly allowances for homeowner sessions and technician sessions, so customer troubleshooting does not use up your technicians’ session allowance.</p></details>
-        <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">How does the planned +25 bonus-session offer work?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">The proposed pilot offer is coming soon: it may provide 25 bonus technician sessions after 15 verified job close-outs in a billing cycle. This is not active in the public demo and would be subject to the pilot’s close-out verification rules.</p></details>
+        <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">How are monthly diagnostic sessions counted?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">Each plan includes one monthly allowance. On Complete plans, homeowner and technician diagnostics both count toward that shared total. Tech-Only plans cover technician diagnostics.</p></details>
+        <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">How does the planned +25 bonus-session offer work?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">The proposed pilot offer is coming soon: it may provide 25 bonus diagnostic sessions added to your company’s single pooled monthly allowance after 15 verified job close-outs in a billing cycle. This is not active in the public demo and would be subject to the pilot’s close-out verification rules.</p></details>
         <details class="faq-item p-5 bg-white rounded-2xl border border-slate-200 shadow-sm"><summary class="cursor-pointer font-bold text-slate-900">How are waitlist and demo details used?</summary><p class="text-slate-600 mt-3 text-xs sm:text-sm leading-relaxed">Information you submit is used to review your waitlist or demo request, follow up about early access, and generate troubleshooting responses. PoolDocAI does not sell waitlist contact details. See the <button type="button" data-open-privacy-modal class="text-sky-700 underline underline-offset-2 font-semibold">Privacy &amp; Data Handling Policy</button> for more detail.</p></details>
       </div>
     </div>
@@ -1121,8 +1108,8 @@
     <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4" role="document">
       <div class="flex items-center justify-between border-b border-slate-200 pb-3 gap-3"><h3 id="privacyModalTitle" class="font-extrabold text-lg text-slate-900">Privacy, Data Handling &amp; Terms of Use</h3><button id="closePrivacyModalBtn" type="button" aria-label="Close privacy and terms policy" class="text-slate-400 hover:text-slate-700 text-xl font-bold">&times;</button></div>
       <div class="space-y-4 text-xs sm:text-sm text-slate-700 leading-relaxed">
-        <p><strong>Information collected and why.</strong> Waitlist and Founders Program forms may collect your name, company, work email, phone number, role, truck count, product preferences, and optional feedback. Demo service inquiries may include your name, phone, email, and conversation summary. This information is used to manage registrations and inquiries, assess early-access interest, and respond to requests.</p>
-        <p><strong>Service providers.</strong> Formspree processes waitlist and demo inquiry submissions. Supabase hosts the troubleshooting request service, and the AI model provider configured for the live troubleshooting service (currently planned as Google Gemini) processes submitted troubleshooting text to generate responses. The configured provider should be confirmed before launch. These providers may process submitted information to deliver their services under their respective terms and privacy practices. PoolDocAI does not sell waitlist contact details.</p>
+        <p><strong>Information collected and why.</strong> Waitlist and Founders Program forms may collect your name, company, work email, phone number, role, truck count, product preferences, and optional feedback. This information is used to manage registrations and inquiries, assess early-access interest, and respond to requests.</p>
+        <p><strong>Service providers.</strong> Formspree processes waitlist and Founders Program interest submissions. Supabase hosts the troubleshooting request service, and the AI model provider configured for the live troubleshooting service (currently planned as Google Gemini) processes submitted troubleshooting text to generate responses. The configured provider should be confirmed before launch. These providers may process submitted information to deliver their services under their respective terms and privacy practices. PoolDocAI does not sell waitlist contact details.</p>
         <p><strong>Retention and requests.</strong> Information is retained for as long as reasonably needed to manage inquiries, administer early access, maintain service records, and meet applicable legal obligations, subject to each provider’s retention practices. To ask a question or request deletion, reply to a PoolDocAI registration email and identify the email address you used. Before production launch, the operating business’s legal name and a monitored privacy-contact email must be provided here.</p>
         <p><strong>Data minimization.</strong> Do not enter passwords, payment card details, or sensitive personal information in the troubleshooter. Information submitted to an AI service may be processed to generate the requested response.</p>
         <p><strong>Demo limitations.</strong> The public demo does not create a real service appointment, dispatch a repair truck, place a parts order, or guarantee a response verified by a licensed technician. Real emergencies require emergency services or the appropriate utility.</p>
@@ -1141,7 +1128,9 @@
     // =========================================================================
     const TROUBLESHOOTER_ENDPOINT = `${window.POOLDOCAI_CONFIG.supabaseUrl}/functions/v1/clever-handler`;
     const SUPABASE_ANON_KEY = window.POOLDOCAI_CONFIG.publicAnonKey;
-    const WAITLIST_ENDPOINT = 'https://formspree.io/f/xzedoqqq';
+    const WAITLIST_ENDPOINT = 'https://formspree.io/f/mrpppgkw';
+    const FOUNDERS_SALES_ENDPOINT = 'https://formspree.io/f/mdeeeodk';
+    const GENERAL_CONTACT_ENDPOINT = 'https://formspree.io/f/xjyyyvov';
     const PUBLIC_DEMO_TURN_LIMIT = 8;
     // Homeowner and field-tech demos each receive their own 8-turn allowance per browser tab/session.
     // Distinct opaque session IDs ensure the server-side quota is independently enforced for each mode.
@@ -3070,7 +3059,7 @@
         `📋 **Request a Pool Service Technician / Call a Licensed Professional**`,
         `Here is your complete **Pre-Job Summary** and step-by-step instructions to prepare for the technician's arrival:`,
         `**1. Pre-Job Summary:**\n• **Equipment / Context:** ${equipLabel}\n• **Reported Issue:** ${primaryIssue}\n• **Completed & Ruled-Out Checks (${sessionContext.ruledOut.length}):**\n${checksSummaryText}${waterResultsLine ? `\n\n${waterResultsLine}` : ''}`,
-        `**2. How to Prepare for the Visit:**\n• **Step 1 — Secure the Equipment:** ${safetyPrepStep}\n• **Step 2 — Snap 2 Quick Photos:** Take a clear photo of the equipment **model/serial nameplate label** and a wide photo of the **equipment pad / plumbing** (plus any active error code on the display).\n• **Step 3 — Clear Pad Access:** Unlock side gates, secure pets indoors, and clear any items blocking access to the equipment pad and breaker sub-panel.\n• **Step 4 — Send Your Pre-Job Summary Below:** Enter your **Name, Phone Number, and Email Address** below so the licensed technician receives this summary and brings the right parts on the first visit:`
+        `**2. How to Prepare for the Visit:**\n• **Step 1 — Secure the Equipment:** ${safetyPrepStep}\n• **Step 2 — Snap 2 Quick Photos:** Take a clear photo of the equipment **model/serial nameplate label** and a wide photo of the **equipment pad / plumbing** (plus any active error code on the display).\n• **Step 3 — Clear Pad Access:** Unlock side gates, secure pets indoors, and clear any items blocking access to the equipment pad and breaker sub-panel.\n• **Step 4 — Connect With Your Service Company:** In a full PoolDocAI deployment, this Pre-Job Summary is automatically routed to your pool service company's private dispatch queue. In this public preview, live technician dispatch is disabled; you can save or share the summary above directly with your local professional, or join our early-access waitlist below.`
       ].join('\n\n');
 
       return {
@@ -3080,7 +3069,7 @@
         type: 'service_request_form',
         choices: [],
         dispatchNote: {
-          customer: 'Awaiting Contact Info (Technician / Licensed Pro Handoff)',
+          customer: 'Pre-Job Summary (Non-Dispatch Public Demo)',
           equipment: equipLabel,
           issue: primaryIssue,
           stepsCompleted: `Escalated to Licensed Pro (${sessionContext.ruledOut.length} checks recorded)`,
@@ -3541,7 +3530,7 @@
     }
 
     async function requestSupabaseTroubleshootingTurn(userText, action = 'troubleshoot', displayText = '', retryLevel = 0) {
-      if (retryLevel === 0) { if (publicDemoTurns() >= PUBLIC_DEMO_TURN_LIMIT) { showDemoWaitlistNotice(`You have used all 8 turns in the ${currentSurfaceMode === 'tech' ? 'Field Tech Mobile App' : 'Homeowner Triage'} demo. The other demo mode has its own separate 8-turn allowance.`); return; } sessionStorage.setItem(publicDemoCountKey(), String(publicDemoTurns()+1)); updatePublicDemoTurnMeter(); activePublicDemoTurnId=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random()); }
+      if (retryLevel === 0) { if (publicDemoTurns() >= PUBLIC_DEMO_TURN_LIMIT) { showDemoWaitlistNotice(`You have used all 8 turns in the ${currentSurfaceMode === 'tech' ? 'Field Tech Mobile App' : 'Homeowner Triage'} demo. Please join the waitlist for full production access.`); return; } sessionStorage.setItem(publicDemoCountKey(), String(publicDemoTurns()+1)); updatePublicDemoTurnMeter(); activePublicDemoTurnId=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+'-'+Math.random()); }
       const shownText = displayText || userText;
       lastTurnRequest = { userText, action, displayText };
       const sendBtn = document.getElementById('liveDemoSendBtn');
@@ -3733,7 +3722,7 @@
           // Homeowner mode keeps the clear customer-facing service handoff.
           const equipmentLabel = getSessionEquipmentLabel(' • ');
           const clearServiceReply = replyText && !/technician is the recommended next step/i.test(replyText)
-            ? \`**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**\n\n${replyText}\`
+            ? `**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**\n\n${replyText}`
             : (replyText || '**A POOL SERVICE TECHNICIAN IS THE RECOMMENDED NEXT STEP.**');
           const turn = {
             userMsg: shownText,
@@ -3741,7 +3730,7 @@
             aiReply: clearServiceReply,
             citation: getSupabaseCitation(payload),
             technicianRecommended: true,
-            choices: [{ label: '📞 REQUEST A POOL SERVICE TECHNICIAN', action: 'escalate' }],
+            choices: [{ label: '📋 Prepare a service summary', action: 'escalate' }],
             type: 'technician_recommended',
             equipment: equipmentLabel
           };
@@ -3753,7 +3742,7 @@
         if (requiresTechnician && currentSurfaceMode === 'tech') {
           // Do not let a generic backend escalation end field diagnosis. Be transparent
           // about the source gap and give the technician a safe observation to report.
-          replyText = \`**FIELD-TECH DIAGNOSTIC CONTINUATION**\n\nThe response did not verify a reliable model-specific next repair procedure. I will not treat a generic service recommendation as the end of technician-mode diagnosis.\n\n${getLocalTroubleshootingFallback(userText)}\n\nReport the visible readings/status and retry the next diagnostic step. Do not bypass a genuine safety stop.\`;
+          replyText = `**FIELD-TECH DIAGNOSTIC CONTINUATION**\n\nThe response did not verify a reliable model-specific next repair procedure. I will not treat a generic service recommendation as the end of technician-mode diagnosis.\n\n${getLocalTroubleshootingFallback(userText)}\n\nReport the visible readings/status and retry the next diagnostic step. Do not bypass a genuine safety stop.`;
         }
 
         const metadataOnlyResult = isMetadataOnlyKbResponse(payload);
@@ -3784,7 +3773,7 @@
               ? { label: '🧪 Enter Water Chemistry', prompt: 'Enter water chemistry for my green pool.' }
               : { label: '🧪 Open Water Balancing Calculator', prompt: 'Open the water balancing calculator for my pool.' });
           }
-          if (!objChoices.some(choice => /switch equipment|new issue/i.test(String(choice.label || ''))) {
+          if (!objChoices.some(choice => /switch equipment|new issue/i.test(String(choice.label || '')))) {
             objChoices.push({ label: '🔄 Switch Equipment / New Issue', action: 'switch_new_issue' });
           }
         }
@@ -3816,8 +3805,8 @@
           userMsg: shownText,
           backendMsg: userText,
           aiReply: techMode
-            ? \`⚠️ **LIVE LOOKUP UNAVAILABLE AFTER RETRY**\n\n${fallback}\n\nThis is a non-invasive observation, not a verified model-specific repair procedure. The live manual/web lookup did not complete after one retry. Report the observations above and retry the next step when the connection is available; no generic service handoff has been added to technician mode.\`
-            : \`⚠️ **LIVE TROUBLESHOOTING CONNECTION INTERRUPTED**\n\n${fallback}\n\nThe live manual/web lookup did not finish on this turn. The observation above is general safety guidance, not a verified model-specific procedure. You can retry, or choose the large technician-service option if you need hands-on help.\`,
+            ? `⚠️ **LIVE LOOKUP UNAVAILABLE AFTER RETRY**\n\n${fallback}\n\nThis is a non-invasive observation, not a verified model-specific repair procedure. The live manual/web lookup did not complete after one retry. Report the observations above and retry the next step when the connection is available; no generic service handoff has been added to technician mode.`
+            : `⚠️ **LIVE TROUBLESHOOTING CONNECTION INTERRUPTED**\n\n${fallback}\n\nThe live manual/web lookup did not finish on this turn. The observation above is general safety guidance, not a verified model-specific procedure. You can retry, or choose the large technician-service option if you need hands-on help.`,
           citation: 'Connection status: Live source verification did not complete',
           serviceHelpAvailable: !techMode,
           choices: techMode
@@ -3849,7 +3838,7 @@
         clearTimeout(timeoutId);
         if (sendBtn) {
           sendBtn.disabled = false;
-          sendBtn.textContent = 'Ask PoolDoc →';
+          sendBtn.textContent = 'Send →';
         }
       }
     }
@@ -4139,7 +4128,7 @@
             { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
           ]
         });
-        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Water Loss / Leak Intake', issue: q, stepsCompleted: 'Intake Step 1: Leak location', actionTaken: 'Asked user to identify the likely leak location before model-specific checks.', parts: 'Pending leak location and make/model', status: 'Leak location triage' });
+        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Water Loss / Leak Intake', issue: q, stepsCompleted: 'Intake Step 1: Leak location', actionTaken: 'Asked user to identify the likely leak location before model-specific checks.', parts: 'Pending leak location and make/model', status: 'Identifying leak location' });
         return;
       }
       if (/\b(fixed it|that fixed it|that worked|it started|running now|problem solved|all set|working now)\b/i.test(lower)) {
@@ -4269,7 +4258,7 @@
             { label: '📋 Request Technician / Call Licensed Pro', action: 'escalate' }
           ]
         });
-        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Pump / Motor', issue: q, stepsCompleted: 'Intake Step 1: Pump symptom', actionTaken: 'Recorded equipment category and requested symptom selection.', parts: 'Pending symptom and make/model', status: 'Pump symptom triage' });
+        renderInteractiveConversation({ customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session', equipment: 'Pool Pump / Motor', issue: q, stepsCompleted: 'Intake Step 1: Pump symptom', actionTaken: 'Recorded equipment category and requested symptom selection.', parts: 'Pending symptom and make/model', status: 'Identifying pump symptom' });
         return;
       }
 
@@ -4352,7 +4341,7 @@
           stepsCompleted: 'Intake Step 1: Confirming Make (Brand)',
           actionTaken: `Recorded symptom (${sessionContext.subType || q}); requesting make/brand confirmation.`,
           parts: 'Awaiting Make confirmation',
-          status: 'Triaging Make (Brand)'
+          status: 'Identifying equipment brand'
         });
         return;
       }
@@ -4367,7 +4356,7 @@
         });
         renderInteractiveConversation({
           customer: currentSurfaceMode === 'tech' ? 'Field Tech Pad Session' : 'Homeowner Live Session',
-          status: 'Triaging Exact Model'
+          status: 'Identifying exact model'
         });
         return;
       }
@@ -4393,7 +4382,7 @@
           stepsCompleted: 'Intake Step 2: Confirming Model',
           actionTaken: `Confirmed make ${sessionContext.brand}; awaiting model selection.`,
           parts: `Awaiting ${sessionContext.brand} model`,
-          status: 'Triaging Model'
+          status: 'Identifying your equipment'
         });
         return;
       }
@@ -4401,86 +4390,56 @@
       await requestSupabaseTroubleshootingTurn(q, 'troubleshoot');
     }
 
-    // Submit the in-chat Service Technician / Licensed Pro Request form to Formspree
-    async function submitInChatServiceRequest(formEl) {
-      const nameVal = formEl.querySelector('[name="sr_name"]')?.value.trim() || '';
-      const phoneVal = formEl.querySelector('[name="sr_phone"]')?.value.trim() || '';
-      const emailVal = formEl.querySelector('[name="sr_email"]')?.value.trim() || '';
-      const ackChecked = formEl.querySelector('[name="sr_waitlist_ack"]')?.checked || false;
-      const submitBtn = formEl.querySelector('button[type="submit"]');
-      const errBox = formEl.querySelector('.sr-form-error');
-
-      if (!nameVal || !phoneVal || !emailVal || !ackChecked) {
-        if (errBox) {
-          errBox.textContent = 'Please enter your Name, Phone Number, Email Address, and check the acknowledgement box.';
-          errBox.classList.remove('hidden');
+    // In-chat service technician request submission guard:
+    // Public demo mode does not dispatch technicians or transmit PII to external form providers.
+        function copyPreJobSummaryToClipboard(btn) {
+      const container = btn?.closest?.('.in-chat-demo-dispatch-notice');
+      const feedback = container?.querySelector?.('.copy-summary-feedback');
+      let textToCopy = '';
+      if (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
+        for (let i = conversationHistory.length - 1; i >= 0; i--) {
+          const turn = conversationHistory[i];
+          if (turn && turn.type === 'service_request_form' && turn.aiReply) {
+            textToCopy = turn.aiReply;
+            break;
+          }
         }
-        return;
       }
+      if (!textToCopy) {
+        const bodyEl = document.getElementById('walkthroughBody');
+        textToCopy = bodyEl ? (bodyEl.innerText || bodyEl.textContent || '') : '';
+      }
+      if (!textToCopy) textToCopy = 'PoolDocAI Pre-Job Summary';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          if (feedback) {
+            feedback.textContent = '✓ Pre-Job Summary copied to clipboard! You can share this directly with your service professional.';
+            feedback.classList.remove('hidden');
+          }
+        }).catch(() => {
+          if (feedback) {
+            feedback.textContent = '✓ Pre-Job Summary ready to copy from the conversation above.';
+            feedback.classList.remove('hidden');
+          }
+        });
+      } else if (feedback) {
+        feedback.textContent = '✓ Pre-Job Summary ready to copy from the conversation above.';
+        feedback.classList.remove('hidden');
+      }
+    }
 
-      if (errBox) errBox.classList.add('hidden');
+    async function submitInChatServiceRequest(formEl) {
+      const errBox = formEl?.querySelector?.('.sr-form-error');
+      const submitBtn = formEl?.querySelector?.('button[type="submit"]');
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Submitting Demo Request...';
       }
-
-      const eqSummary = getSessionEquipmentLabel(' • ');
-      const transcriptSummary = conversationHistory
-        .filter(t => t.userMsg || t.aiReply)
-        .slice(-10)
-        .map((t, i) => `Turn ${i + 1}: User="${String(t.userMsg || '').slice(0, 180)}" | PoolDocAI="${String(t.aiReply || '').slice(0, 220)}"`)
-        .join(' || ')
-        .slice(0, 4000);
-
-      try {
-        const res = await fetch(WAITLIST_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({
-            request_type: 'In-Chat Technician / Licensed Pro Request + Pre-Job Summary',
-            name: nameVal,
-            phone: phoneVal,
-            email: emailVal,
-            equipment_context: eqSummary,
-            reported_symptom: sessionContext.symptom || 'Equipment Troubleshooting',
-            ruled_out_checks: sessionContext.ruledOut.join(' -> ') || 'None',
-            pre_job_summary_transcript: transcriptSummary,
-            waitlist_and_info_acknowledged: true,
-            _gotcha: formEl.querySelector('[name="_gotcha"]')?.value || ''
-          })
-        });
-        if (!res.ok) throw new Error('Submission failed');
-
-        conversationHistory.push({
-          userMsg: `Demo request recorded: ${nameVal} • ${phoneVal} • ${emailVal}`,
-          aiReply: `✅ **DEMO PREVIEW RECORDED:** Thank you, **${nameVal}**. In a live company deployment, this Pre-Job Summary is routed to your dispatch queue. Your contact info has been saved to the PoolDocAI waitlist. **No appointment or dispatch was created by this demo.**`, 
-          citation: "Outcome: Demo preview recorded; no actual dispatch",
-          outcomeBanner: "DEMO PREVIEW RECORDED — No appointment or dispatch was created.",
-          choices: []
-        });
-        renderInteractiveConversation({
-          customer: `${nameVal} (${phoneVal} • ${emailVal})`,
-          equipment: eqSummary,
-          issue: sessionContext.symptom || 'Demo service inquiry',
-          stepsCompleted: `${conversationHistory.length} turns included in demo summary`,
-          actionTaken: `Recorded demo inquiry and summary for ${nameVal}; no technician was contacted or dispatched.`,
-          parts: 'For review only — no parts ordered',
-          status: "DEMO PREVIEW — No appointment or dispatch created"
-        });
-        openWaitlistSuccessPopup(
-          'Demo Request Recorded',
-          `Thank you, ${nameVal}. Your contact information and demo inquiry were saved to the PoolDocAI waitlist. No appointment or dispatch was created.`
-        );
-      } catch (e) {
-        if (errBox) {
-          errBox.textContent = 'Connection error sending request. Please check your connection and try again.';
-          errBox.classList.remove('hidden');
-        }
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Submit Demo Request & Join Waitlist →';
-        }
+      const noticeMsg = 'Public demo notice: Live technician dispatch is disabled. To request early access or company onboarding, please join the waitlist below.';
+      if (errBox) {
+        errBox.textContent = noticeMsg;
+        errBox.classList.remove('hidden');
       }
+      console.warn('In-chat service request submission blocked in public demo: no tenant dispatch queue exists.');
     }
 
     function sourceBadgeHtml(citation) {
@@ -4529,17 +4488,17 @@
         if (isCritical) {
           specialControlHtml = `<div class="mt-3 p-3 rounded-xl bg-rose-950 border border-rose-500/60 text-xs text-rose-200 space-y-1"><div>🚫 <strong>Non-bypassable safety stop:</strong> Do not approach or touch equipment, wiring, switches, gas valves, or breakers while a hazard may be present. Move to a safe location and contact emergency services or the appropriate utility/professional.</div><span class="inline-block px-2 py-0.5 rounded bg-rose-800 text-white font-bold text-xs">SAFETY STOP — NO OVERRIDE</span></div>`;
         } else if (showLargeTechnicianCta) {
-          specialControlHtml = `<section role="status" aria-live="polite" class="mt-4 p-5 sm:p-7 rounded-2xl border-4 border-amber-300 bg-amber-950 text-white shadow-xl space-y-4"><div class="inline-flex items-center rounded-lg bg-amber-300 px-3 py-2 text-base sm:text-lg font-black uppercase tracking-wide text-slate-950">${serviceCtaIsRecommended ? 'THIS IS THE RECOMMENDED NEXT STEP' : 'LIVE TROUBLESHOOTING IS UNAVAILABLE'}</div><h3 class="text-3xl sm:text-4xl font-black leading-tight">${serviceCtaIsRecommended ? 'REQUEST A POOL SERVICE TECHNICIAN' : 'NEED HELP FROM A TECHNICIAN?'}</h3><p class="text-base sm:text-lg leading-relaxed text-white">${serviceCtaIsRecommended ? 'PoolDocAI could not verify a reliable next procedure from the available manuals and live search. A qualified pool service technician should inspect this issue rather than guess at a repair.' : 'The live troubleshooting connection did not finish. You can keep to the safe observation above, retry the question, or prepare a service summary for a qualified professional.'}</p><button type="button" data-followup-action="escalate" data-followup-label="Request a Pool Service Technician" class="demo-followup-btn w-full min-h-[80px] px-5 py-5 rounded-xl bg-amber-300 hover:bg-amber-200 text-slate-950 border-4 border-white font-black text-xl sm:text-2xl leading-tight cursor-pointer focus:outline-none focus:ring-4 focus:ring-white">📞 REQUEST A POOL SERVICE TECHNICIAN</button><p class="text-sm sm:text-base text-amber-100">This prepares a Pre-Job Summary. The public demo does not dispatch a technician or create an appointment.</p></section>`;
+          specialControlHtml = `<section role="status" aria-live="polite" class="mt-4 p-4 sm:p-5 rounded-2xl border border-sky-400/40 bg-slate-900 text-white shadow-lg space-y-3"><div class="flex items-center gap-2"><span class="inline-flex items-center rounded-md bg-sky-500/20 text-sky-300 px-2.5 py-1 text-xs font-bold uppercase tracking-wider">${serviceCtaIsRecommended ? 'Recommended Next Step' : 'Live Troubleshooting Limit'}</span></div><h3 class="text-lg sm:text-xl font-bold leading-snug">${serviceCtaIsRecommended ? 'Get Help From a Pool Professional' : 'Need Help From a Pool Professional?'}</h3><p class="text-xs sm:text-sm leading-relaxed text-slate-300">${serviceCtaIsRecommended ? 'PoolDocAI could not verify a reliable next procedure from available equipment manuals. We recommend having a qualified pool service technician inspect this issue rather than guessing at a repair.' : 'The live troubleshooting connection did not finish. You can keep to the safe observation above, retry the question, or prepare a service summary for a qualified professional.'}</p><button type="button" data-followup-action="escalate" data-followup-label="Prepare a service summary" class="demo-followup-btn w-full min-h-[44px] px-4 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white border border-sky-400 font-bold text-sm leading-tight cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-300">📋 Prepare a service summary</button><p class="text-xs text-slate-400">Prepares a service summary of observed checks. The public demo does not dispatch a technician or create an appointment.</p></section>`;
         } else if (isDrainChoice && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="drainSelectCheckbox" type="checkbox" class="mt-0.5 w-4 h-4 accent-amber-400" /><span>Select the optional partial-drain estimate for professional review. Selecting this option is not an instruction or authorization to start draining.</span></label><button id="openDrainRiskReviewBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Continue to Draining Risk Review</button><div class="text-xs text-amber-100">If you do not want to drain, choose “I don't want to drain my pool” below to continue with the rest of the balancing instructions.</div></div>`;
         } else if (isDrainAck && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="drainRiskAckCheckbox" type="checkbox" class="mt-0.5 w-4 h-4 accent-amber-400" /><span>I understand and accept that draining can cause serious structural/hydrostatic damage, and I will not begin without a qualified pool professional confirming it is safe for this pool and site.</span></label><button id="confirmDrainReviewBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Acknowledge Risks &amp; Show Estimate</button><div class="text-xs text-amber-100">This acknowledgement does not establish that draining is safe and is not a substitute for professional assessment.</div></div>`;
         } else if (isCaution && isLatest && cautionIsHighRisk) {
-          specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/50 space-y-2 text-xs text-rose-100"><strong>Homeowner safety hold:</strong> This step appears to involve gas, electricity, pressurized equipment, or another high-risk repair. A checkbox cannot make it safe. Do not attempt this step in homeowner mode.<div class="flex flex-wrap gap-2"><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sky-200 font-bold cursor-pointer">Show a safer alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Request a licensed professional" class="demo-followup-btn px-3 py-2 rounded-lg bg-sky-600 text-white font-bold cursor-pointer">Request a licensed professional</button></div></div>`;
+          specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/50 space-y-2 text-xs text-rose-100"><div class="font-bold flex items-center gap-1.5"><span aria-hidden="true">⚠️</span><span>${/\b(?:gas|burner|ignition|pilot|propane|natural gas)\b/i.test(cautionRiskText) ? 'Gas Safety Notice' : /\b(?:electric|voltage|breaker|live wire|wiring|panel|capacitor|motor wiring)\b/i.test(cautionRiskText) ? 'Electrical Safety Notice' : /\b(?:pressure|pressurized|filter tank|filter lid|clamp ring|pressure vessel)\b/i.test(cautionRiskText) ? 'Pressure Safety Notice' : 'Safety Notice'}:</span></div><p>${/\b(?:gas|burner|ignition|pilot|propane|natural gas)\b/i.test(cautionRiskText) ? 'This procedure involves gas supply, valves, or ignition components. Do not attempt gas repairs in homeowner mode. If you smell gas, leave the area immediately and contact your gas utility or 911.' : /\b(?:electric|voltage|breaker|live wire|wiring|panel|capacitor|motor wiring)\b/i.test(cautionRiskText) ? 'This procedure involves electrical wiring, panels, or live components. Do not open electrical enclosures or touch wiring. You can safely observe external indicator lights from a dry location.' : /\b(?:pressure|pressurized|filter tank|filter lid|clamp ring|pressure vessel)\b/i.test(cautionRiskText) ? 'This procedure involves pressurized filtration equipment. Never loosen clamp rings while the system is under pressure. A qualified pool technician should service pressurized tanks.' : 'This procedure involves high-risk equipment servicing. The demo will not display internal repair steps in homeowner mode. Choose a safe non-invasive observation, skip this step, or prepare a service summary for a qualified professional.'}</p><div class="flex flex-wrap gap-2 pt-1"><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn min-h-[44px] px-3.5 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sky-200 font-bold cursor-pointer">Show a safer alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Prepare a service summary" class="demo-followup-btn min-h-[44px] px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer">Prepare a service summary</button></div></div>`;
         } else if (isCaution && isLatest) {
           specialControlHtml = `<div class="mt-3 p-3.5 rounded-xl bg-amber-950/60 border border-amber-500/40 space-y-3"><label class="flex items-start gap-2.5 text-xs text-amber-100 font-semibold cursor-pointer"><input id="demoCautionCheckbox" type="checkbox" class="w-4 h-4 rounded accent-amber-400 cursor-pointer" /><span>I understand the caution and have reviewed the non-invasive check described above. I will skip it if I am unsure.</span></label><div class="flex flex-wrap items-center gap-2"><button id="demoCautionContinueBtn" type="button" disabled class="px-4 py-2 rounded-lg bg-slate-800 text-slate-500 font-bold text-xs cursor-not-allowed">Show Cautionary Guidance &rarr;</button><button type="button" data-followup-action="skip_step" data-followup-label="Show a safer alternative" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-slate-800 text-sky-200 border border-slate-600 font-bold text-xs cursor-pointer">Skip this check / Show an alternative</button><button type="button" data-followup-action="escalate" data-followup-label="Request Technician / Call Licensed Pro" class="demo-followup-btn px-3.5 py-2 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold text-xs cursor-pointer">Request Technician / Call Licensed Pro</button></div><div id="demoUnlockedCautionStep" class="hidden p-3 rounded-lg bg-emerald-950/80 border border-emerald-500/40 text-xs text-emerald-200 whitespace-pre-line">${escapeHtml(step.unlockedStep || '')}</div></div>`;
         } else if (isServiceForm && isLatest) {
-          specialControlHtml = `<form class="in-chat-service-request-form mt-3.5 p-4 rounded-2xl bg-slate-950 border border-sky-500/50 space-y-3"><input type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true" class="hidden" /><div class="text-xs font-extrabold text-sky-300 uppercase tracking-wider">📋 Demo Request — Record a Pre-Job Summary</div><div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5"><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Full Name *</label><input type="text" name="sr_name" required autocomplete="name" placeholder="Jane Doe" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Phone Number *</label><input type="tel" name="sr_phone" required autocomplete="tel" placeholder="(555) 234-5678" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div><div><label class="block text-xs font-bold uppercase text-slate-400 mb-1">Email Address *</label><input type="email" name="sr_email" required autocomplete="email" placeholder="jane@example.com" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" /></div></div><label class="flex items-start gap-2.5 text-xs text-slate-200 cursor-pointer pt-1"><input type="checkbox" name="sr_waitlist_ack" required class="mt-0.5 w-4 h-4 rounded accent-sky-400 cursor-pointer" /><span><strong>I would like to join the PoolDocAI waitlist / request more information.</strong> This public demo records an inquiry only; it does not contact a local repair company or dispatch a technician. *</span></label><div class="sr-form-error hidden text-xs text-rose-400 font-semibold" role="alert"></div><button type="submit" class="w-full py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs sm:text-sm cursor-pointer">Submit Demo Request &amp; Join Waitlist &rarr;</button></form>`;
+          specialControlHtml = `<div class="in-chat-demo-dispatch-notice mt-3.5 p-4 rounded-2xl bg-slate-950 border border-sky-500/50 space-y-3"><div class="flex items-center gap-2"><span class="inline-flex items-center rounded-md bg-amber-500/20 text-amber-300 px-2 py-0.5 text-xs font-bold uppercase tracking-wider">Demo Preview — Non-Dispatch</span></div><div class="text-xs sm:text-sm font-bold text-white">📋 Pre-Job Summary Generated (Public Demo Mode)</div><p class="text-xs text-slate-300 leading-relaxed">Live technician dispatch and customer service-request submission are disabled in this public demonstration. In a production company deployment, customer pre-job summaries are transmitted securely to that company's private, tenant-isolated dispatch queue.</p><p class="text-xs text-slate-400 leading-relaxed">You can copy or share this pre-job summary directly with your local licensed service professional, or join the early-access waitlist below.</p><div class="pt-1 flex flex-wrap items-center gap-2"><button type="button" onclick="copyPreJobSummaryToClipboard(this)" class="copy-prejob-summary-btn inline-flex items-center justify-center px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs transition cursor-pointer">📋 Copy Pre-Job Summary to Clipboard</button><a href="#pilotInterestForm" class="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition cursor-pointer">Join Early Access Waitlist &darr;</a></div><div class="copy-summary-feedback hidden text-xs text-emerald-400 font-semibold" role="status"></div></div>`;
         }
         const homeownerHighRiskInstruction = currentSurfaceMode !== 'tech' && /(?:\b(?:open|remove|touch|test|repair|replace|adjust|disconnect|reconnect|bypass|jump|bridge|measure|work on)\b.{0,55}\b(?:gas line|gas valve|electrical panel|live wire|voltage|capacitor|pressurized filter|filter lid|ignition|burner|refrigerant|wiring|breaker|pump motor wiring)\b)/i.test(cautionRiskText);
         const dangerousChemicalMixInstruction = isDangerousChemicalMixInstruction(cautionRiskText);
@@ -4547,7 +4506,7 @@
         const visibleAiReply = dangerousChemicalMixInstruction
           ? 'Chemical safety hold: this response appears to instruct mixing or combining incompatible pool chemicals. Do not follow that instruction. Keep products separate, follow each product label, and consult a qualified pool professional for a safe treatment sequence.'
           : blockHomeownerInstruction
-            ? 'Homeowner safety hold: this response appears to include instructions for gas, electrical, pressurized equipment, or another high-risk repair. The demo will not show those repair instructions in homeowner mode. Do not attempt the repair; choose a non-invasive observation, skip this step, or contact a qualified professional.'
+            ? 'Safety Notice: This response appears to include instructions for gas, electrical, pressurized equipment, or another high-risk repair. The demo will not display high-risk repair instructions in homeowner mode. Do not attempt the repair; choose a non-invasive observation, skip this step, or prepare a service summary for a qualified professional.'
             : (step.aiReply || '');
         const formattedAiReply = escapeHtml(visibleAiReply).replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
         return `<div data-conversation-index="${index}" class="space-y-3 border-b border-slate-900/80 pb-4 last:border-b-0">${step.userMsg ? `<div class="ml-auto max-w-[88%] p-3.5 rounded-2xl bg-sky-600/20 border border-sky-500/40"><div class="text-xs font-bold uppercase text-sky-300">${currentSurfaceMode === 'tech' ? 'Field Technician' : 'You (Homeowner)'}</div><p class="text-white mt-1 text-xs sm:text-sm">${escapeHtml(step.userMsg)}</p></div>` : ''}<div class="mr-auto max-w-[94%] p-4 rounded-2xl ${isCritical ? 'bg-rose-950/80 border border-rose-500/60' : 'bg-slate-900 border border-slate-700/80'}"><div class="text-xs font-bold uppercase ${isCritical ? 'text-rose-300' : 'text-emerald-400'}">PoolDocAI</div><p class="text-slate-100 mt-1.5 whitespace-pre-line leading-relaxed text-xs sm:text-sm">${formattedAiReply}</p>${specialControlHtml}${sourceBadgeHtml(step.citation)}</div>${step.outcomeBanner ? `<div class="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-xs text-emerald-200 font-semibold">${escapeHtml(step.outcomeBanner)}</div>` : ''}</div>`;
@@ -4981,10 +4940,10 @@
         return;
       }
       const votes = [...document.querySelectorAll('input[name="priorityVote"]:checked')].map(e => e.value).join(', ') || '—';
-      if (!WAITLIST_ENDPOINT) { showFormMessage('foundersFormError', 'The Founders Program form is not connected yet. Please contact the site owner.', true); return; }
+      if (!FOUNDERS_SALES_ENDPOINT) { showFormMessage('foundersFormError', 'The Founders Program form is not connected yet. Please contact the site owner.', true); return; }
       btn.disabled = true; btn.textContent = 'Sending Founders Program Interest…';
       try {
-        const response = await fetch(WAITLIST_ENDPOINT, {
+        const response = await fetch(FOUNDERS_SALES_ENDPOINT, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({
             form_type: 'founders_program_interest', name: getFormValue('leadName'), company: getFormValue('leadCompany'), email: getFormValue('leadEmail'),
