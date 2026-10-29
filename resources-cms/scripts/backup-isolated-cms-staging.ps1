@@ -16,7 +16,8 @@ foreach($name in @('pg_dump','pg_restore')){
   if(-not (Get-Command $name -ErrorAction SilentlyContinue)){throw "$name missing; install PostgreSQL 17+ client tools."}
 }
 $Version=((& pg_dump --version) -join ' ')
-if($LASTEXITCODE -ne 0 -or $Version -notmatch '(\d+)\.\d+' -or [int]$Matches[1] -lt 17){
+$VersionMatch=[regex]::Match($Version,'(\d+)\.\d+')
+if($LASTEXITCODE -ne 0 -or -not $VersionMatch.Success -or [int]$VersionMatch.Groups[1].Value -lt 17){
   throw 'pg_dump must be PostgreSQL 17 or newer.'
 }
 $Root=[IO.Path]::GetFullPath($Destination)
