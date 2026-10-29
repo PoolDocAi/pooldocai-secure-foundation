@@ -141,6 +141,8 @@ const MISSPELLINGS = Object.freeze({
   "vavle": "valve",
   "vavles": "valves",
   "waterr": "water",
+  "wat": "what",
+  "poo": "pool",
   "watre": "water",
   "wateer": "water",
   "wier": "weir",
@@ -214,9 +216,11 @@ export function spellingSuggestions(article, limit=30) {
           id:'spelling-'+field.replace('.','-')+'-'+start,
           kind:'spelling',field,start,before,after,
           context:segment.value.slice(Math.max(0,match.index-60),Math.min(segment.value.length,match.index+before.length+70)),
-          why:exact
-            ? 'Possible spelling mistake: "'+before+'" is commonly written "'+after+'". Confirm it fits the sentence.'
-            : 'This word looks one typing error away from "'+after+'", but may be intentional. Check the exact passage before approving.',
+          why:before.toLowerCase()==='poo'
+            ? 'Possible missing final "l": "poo" may have been intended as "pool". However, "poo" can correctly refer to feces in contamination guidance. Check this highlighted sentence and approve only if "pool" is intended.'
+            : exact
+              ? 'Possible spelling mistake: "'+before+'" is commonly written "'+after+'". Confirm it fits the sentence.'
+              : 'This word looks one typing error away from "'+after+'", but may be intentional. Check the exact passage before approving.',
           requiresSourceCheck:false
         });
         if(proposals.length>=limit)return proposals;

@@ -114,3 +114,53 @@ test('conservative one-edit suggestions catch uncatalogued pool typos without al
   assert.equal(approved.changed.body,'<p>Check equipment and fiilter before using the Pentair IntelliChlor system.</p>');
   assert.equal(source.body,'<p>Check equpment and fiilter before using the Pentair IntelliChlor system.</p>');
 });
+
+
+test('owner-reported Wat/What and poo/pool are highlighted without automatically editing',()=>{
+  const a={...article,
+    title:'Wat should you do if the poo is cloudy?',
+    body:'<p>Wat causes a cloudy poo?</p><p>Remove dog poo from the swimming pool safely.</p><p>Poodles and poolside are normal words.</p>',
+    seo:{description:'How to examine a cloudy poo without changing the original article.'}
+  };
+  const original=structuredClone(a);
+  const report=reviewArticle({id,version:6,editable:a},[]);
+  const proposed=report.proposals.filter(p=>p.kind==='spelling');
+  const what=proposed.find(p=>p.field==='title'&&p.before==='Wat');
+  const titlePoo=proposed.find(p=>p.field==='title'&&p.before==='poo');
+  const bodyPoo=proposed.find(p=>p.field==='body'&&p.before==='poo');
+  const fecalPoo=proposed.find(p=>p.field==='body'&&p.context.includes('dog poo'));
+  assert.ok(what&&titlePoo&&bodyPoo&&fecalPoo);
+  assert.equal(what.after,'What');assert.equal(titlePoo.after,'pool');
+  assert.ok(fecalPoo.why.includes('feces'),'Ambiguous real word requires explicit context warning');
+  assert.ok(report.findings.some(f=>f.area==='spelling'&&f.highlight==='Wat'&&f.field==='title'));
+  assert.ok(report.findings.some(f=>f.area==='spelling'&&f.highlight==='poo'));
+  assert.ok(!proposed.some(p=>p.before==='Poodles'||p.before==='poolside'));
+  assert.deepEqual(a,original,'Read-only screening must never mutate the article');
+
+  const approved=applyApprovedProposals(a,[{id:what.id},{id:titlePoo.id}]);
+  assert.equal(approved.changed.title,'What should you do if the pool is cloudy?');
+  assert.equal(approved.changed.body,a.body,'None of the unapproved body suggestions may change');
+  assert.equal(approved.changed.seo.description,a.seo.description);
+  assert.deepEqual(approved.applied.map(x=>x.id),[what.id,titlePoo.id]);
+  assert.deepEqual(a,original);
+
+  const onlyOnePoo=applyApprovedProposals(a,[{id:bodyPoo.id}]);
+  assert.ok(onlyOnePoo.changed.body.includes('cloudy pool?'));
+  assert.ok(onlyOnePoo.changed.body.includes('dog poo'),'Legitimate fecal reference must remain unedited');
+  assert.equal(onlyOnePoo.changed.title,a.title);
+});
+
+test('Wat and poo suggestions use whole-word boundaries and do not change URLs or attributes',()=>{
+  const a={...article,
+    body:'<p>Wat is a poo filter?</p><a href="https://example.test/poo/Wat">Read about pool filters</a><p>The poodle sat poolside.</p>',
+    seo:{description:'A draft explaining how to identify filter operating issues around a residential swimming pool.'}
+  };
+  const proposals=reviewProposals(a).filter(p=>p.kind==='spelling');
+  assert.ok(proposals.some(p=>p.before==='Wat'&&p.field==='body'&&p.after==='What'));
+  assert.ok(proposals.some(p=>p.before==='poo'&&p.field==='body'&&p.after==='pool'));
+  assert.ok(proposals.every(p=>p.field!=='body'||p.context.indexOf('https://example.test')===-1));
+  assert.ok(!proposals.some(p=>p.before==='poodle'||p.before==='poolside'));
+  const approved=applyApprovedProposals(a,proposals.filter(p=>p.before==='Wat'||p.before==='poo').map(p=>({id:p.id})));
+  assert.ok(approved.changed.body.includes('<p>What is a pool filter?</p>'));
+  assert.ok(approved.changed.body.includes('href="https://example.test/poo/Wat"'));
+});
