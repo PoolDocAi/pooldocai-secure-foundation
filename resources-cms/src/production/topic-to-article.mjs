@@ -55,7 +55,7 @@ export function composeTopicArticle({request,draft,researchSources,categoryId}) 
     if(!Array.isArray(section.paragraphs)||section.paragraphs.length<2||section.paragraphs.length>8)error('Section is missing finished prose');
     const paragraphs=section.paragraphs.map(p=>{
       const paragraph=clean(p,2200);
-      if(wordCount(paragraph)<18)error('Article sections need complete explanatory paragraphs');
+      if(wordCount(paragraph)<18)error('Article sections need complete explanatory paragraphs, not an outline or placeholder');
       return paragraph;
     });
     if(!Array.isArray(section.sourceIds)||section.sourceIds.length===0||section.sourceIds.length>6)error('Each substantive section needs cited research');
