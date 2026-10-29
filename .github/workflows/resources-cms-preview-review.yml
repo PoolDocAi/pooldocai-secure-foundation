@@ -120,3 +120,42 @@ jobs:
       # Full delivery E2E must be executed against the protected complete package.
       - name: Record required private-package delivery gate
         run: echo "::notice::Dynamic marketing-site delivery E2E remains unverified; complete approved marketing source and private renderer required before production release."
+
+  cms-topic-pg17-native:
+    name: PostgreSQL 17 disposable queue rollback and role boundary
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: cms_fixture
+          POSTGRES_USER: bootstrap
+          POSTGRES_PASSWORD: synthetic-bootstrap-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bootstrap -d cms_fixture"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      CMS_PG17_DISPOSABLE: '1'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGDATABASE: cms_fixture
+    steps:
+      - name: Checkout guarded Staging candidate and isolated fixtures
+        uses: actions/checkout@v4
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install local PostgreSQL test client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+      - name: Rehearse ROLLBACK, commit in disposable fixture, verify owner boundaries
+        working-directory: resources-cms
+        run: node scripts/topic-queue-pg17-native-fixture.mjs

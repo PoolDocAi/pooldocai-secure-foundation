@@ -59,3 +59,9 @@ The SQL envelope checks exactly one managed non-inheriting role membership; forb
 ## Separate paid-generation activation switch
 
 The queue and the billable provider now have **independent, default-off server-side flags**. `CMS_TOPIC_QUEUE_ENABLED=1` exposes only owner-authenticated topic management; even if a server-side Gemini key is present, the generation API remains disabled unless `CMS_TOPIC_GENERATION_ENABLED=1` is *also* set in protected Staging Preview. If the paid-generation flag is enabled without the queue, a private server-side key, or the exact reviewed Staging target, startup fails closed. This is **not a verified dollar spend ceiling**: separate provider billing limits, usage reconciliation, independent pricing and owner approval remain mandatory. No hosted variables were changed.
+
+## Native PostgreSQL 17 isolated permission test
+
+The review workflow also runs a **separate PostgreSQL 17 disposable container** seeded with synthetic tables, 35 fake articles, 32 fake editorial holds, and the relevant `supabase_admin` grantor-membership structure. The test script `scripts/topic-queue-pg17-native-fixture.mjs` refuses execution unless pointed at a specifically named localhost fixture and requires the explicit CI fixture flag. It exercises the assembled SQL once with **ROLLBACK**, verifies no objects or permission drift, then exercises **COMMIT only in the disposable container**, verifies the generated functions are owned by the restricted role and temporary grants are gone, checks owner JWT simulation and viewer/inactive-owner/anon/direct-table/session-spoof denials, and verifies re-application fails closed.
+
+This substantially strengthens validation of real PostgreSQL 17 role semantics, but it is **not** a live Supabase Staging test, is not proof of real user/device JWT behavior, and does not authorize Staging or Production DDL.
