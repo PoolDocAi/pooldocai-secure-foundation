@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGeminiArticleGenerator,groundedSources} from '../src/production/gemini-article-generator.mjs';
+import {createGeminiArticleGenerator,groundedSources,ARTICLE_MODEL_TIMEOUTS_MS} from '../src/production/gemini-article-generator.mjs';
 import {validResearchUrl} from '../src/production/research-url.mjs';
 import {readRuntimeConfig} from '../src/production/runtime.mjs';
 import {compatibilityRoute} from '../src/production/compat-api.mjs';
@@ -60,4 +60,12 @@ test('topic mutation routes require Origin and CSRF before data or generator acc
   const r=await route(new Request('https://cms.example/api/topics',{method:'POST',headers,body:'{}'}));assert.equal(r.status,403);
  }
  assert.equal(touched,0);
+});
+
+test('the longer private generation route still reserves 30 seconds for durable database completion',()=>{
+ assert.equal(ARTICLE_MODEL_TIMEOUTS_MS.requestCeiling,120000);
+ assert.equal(ARTICLE_MODEL_TIMEOUTS_MS.research,35000);
+ assert.equal(ARTICLE_MODEL_TIMEOUTS_MS.write,55000);
+ assert(ARTICLE_MODEL_TIMEOUTS_MS.research+ARTICLE_MODEL_TIMEOUTS_MS.write <=
+  ARTICLE_MODEL_TIMEOUTS_MS.requestCeiling-30000);
 });

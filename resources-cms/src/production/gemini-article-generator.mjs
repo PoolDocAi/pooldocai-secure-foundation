@@ -3,6 +3,9 @@ import {validResearchUrl} from './research-url.mjs';
 
 const err=(message,status=503)=>Object.assign(new Error(message),{status});
 const MODEL='gemini-2.5-flash';
+// The dedicated Vercel creation function is capped at 120s. Two sequential
+// model calls reserve at least 30s for authentication, DB writes and response.
+export const ARTICLE_MODEL_TIMEOUTS_MS=Object.freeze({research:35000,write:55000,requestCeiling:120000});
 const outputText=data=>(data?.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought&&typeof p.text==='string').map(p=>p.text).join('\n').trim();
 export function groundedSources(result) {
   const candidate=result?.candidates?.[0],metadata=candidate?.groundingMetadata;
@@ -80,7 +83,7 @@ export function createGeminiArticleGenerator({apiKey,fetchImpl=fetch,model=MODEL
       contents:[{role:'user',parts:[{text:researchPrompt}]}],
       tools:[{google_search:{}}],
       generationConfig:{temperature:0.25,maxOutputTokens:2800,thinkingConfig:{thinkingBudget:0}}
-    },13000);
+    },ARTICLE_MODEL_TIMEOUTS_MS.research);
     const sourceList=groundedSources(research);
     const notes=outputText(research).slice(0,14000);
     if(sourceList.length<2||notes.length<100)throw err('Insufficient grounded research; no article was created',422);
@@ -102,7 +105,7 @@ export function createGeminiArticleGenerator({apiKey,fetchImpl=fetch,model=MODEL
     const generated=await call({
       contents:[{role:'user',parts:[{text:prompt}]}],
       generationConfig:{temperature:0.35,responseMimeType:'application/json',maxOutputTokens:6500,thinkingConfig:{thinkingBudget:0}}
-    },13000);
+    },ARTICLE_MODEL_TIMEOUTS_MS.write);
     const response=outputText(generated);
     if(response.length>50000||!response.startsWith('{'))throw err('Generated article did not meet the complete-draft contract',422);
     let draft;try{draft=JSON.parse(response);}catch{throw err('Generated article was not valid structured content',422);}
