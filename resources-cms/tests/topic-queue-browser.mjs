@@ -68,7 +68,7 @@ try{browser=await chromium.launch({headless:true,...(process.env.CMS_CHROMIUM?{e
   const compare=page.locator('#revision-comparison');
   assert.match(await compare.innerText(),/Changed fields/);
   assert.match(await compare.innerText(),/Reviewer clarified the summary/);
-  assert.match(await compare.innerText(),/Reviewed text & safety caveat/);
+  assert.match(await compare.innerText(),/Reviewed text &amp; safety caveat/);
   assert.equal(await compare.locator('img').count(),0,'Saved HTML must not be interpreted as image markup');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
   await page.locator('#compare-from').selectOption('00000000-0000-4000-8000-000000000092');
