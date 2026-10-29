@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "checkboxes": 10,
+  "mobileWidth": 390,
+  "keyboard": true,
+  "labelTouchTarget": true,
+  "noOverflow": true,
+  "blankPrintBoxes": true,
+  "networkRequests": 0,
+  "hostedDraftsCreated": 0
+}
