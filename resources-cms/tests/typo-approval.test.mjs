@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spellingSuggestions} from '../src/production/editorial-typos.mjs';
+import {languageSuggestions,longSentenceFindings} from '../src/production/editorial-language.mjs';
 import {reviewProposals,applyApprovedProposals} from '../src/production/review-proposals.mjs';
 import {reviewArticle} from '../src/production/editorial-review.mjs';
 import {compatibilityRoute} from '../src/production/compat-api.mjs';
@@ -163,4 +164,96 @@ test('Wat and poo suggestions use whole-word boundaries and do not change URLs o
   const approved=applyApprovedProposals(a,proposals.filter(p=>p.before==='Wat'||p.before==='poo').map(p=>({id:p.id})));
   assert.ok(approved.changed.body.includes('<p>What is a pool filter?</p>'));
   assert.ok(approved.changed.body.includes('href="https://example.test/poo/Wat"'));
+});
+
+
+test('read-only reviewer highlights repeated words, common grammar and spacing issues',()=>{
+  const sample={...article,
+    title:'How to to read results',
+    summary:'The valve is is open.',
+    body:'<p>You could of checked the the pressure. Water  is clear.</p><p>Use a algae brush only after reviewing the pool guide.</p>'};
+  const before=structuredClone(sample);
+  const suggestions=languageSuggestions(sample);
+  const find=(before,field)=>suggestions.find(p=>p.before.toLowerCase()===before.toLowerCase()&&p.field===field);
+  assert.ok(find('to to','title'));
+  assert.ok(find('is is','summary'));
+  assert.ok(find('the the','body'));
+  assert.ok(find('could of','body'));
+  assert.ok(find('  ','body'));
+  assert.ok(find('a algae','body'));
+  assert.ok(suggestions.every(p=>p.kind==='editorial-text'&&p.start>=0&&p.after&&p.why));
+  const report=reviewArticle({id,version:7,editable:sample},[]);
+  for(const group of ['repetition','grammar','formatting'])assert.ok(report.findings.some(x=>x.area===group&&x.highlight));
+  assert.equal(report.publicationGranted,false);
+  assert.deepEqual(sample,before);
+});
+
+test('approves only selected grammar and punctuation-independent spacing suggestions',()=>{
+  const sample={...article,
+    body:'<p>You could of tested the the  filter. Check a algae sample.</p>'};
+  const original=structuredClone(sample);
+  const proposals=reviewProposals(sample);
+  const would=proposals.find(p=>p.kind==='editorial-text'&&p.before==='could of');
+  const repeat=proposals.find(p=>p.kind==='editorial-text'&&p.before==='the the');
+  const articleFix=proposals.find(p=>p.kind==='editorial-text'&&p.before==='a algae');
+  const whitespace=proposals.find(p=>p.kind==='editorial-text'&&p.before==='  ');
+  assert.ok(would&&repeat&&articleFix&&whitespace);
+  const changed=applyApprovedProposals(sample,[{id:would.id},{id:articleFix.id}]);
+  assert.equal(changed.changed.body,'<p>You could have tested the the  filter. Check an algae sample.</p>');
+  assert.equal(changed.applied.length,2);
+  assert.deepEqual(sample,original);
+  const rest=applyApprovedProposals(sample,[{id:repeat.id},{id:whitespace.id}]);
+  assert.equal(rest.changed.body,'<p>You could of tested the filter. Check a algae sample.</p>');
+});
+
+test('overlapping approved suggestions reject atomically; a single one succeeds',()=>{
+  const sample={...article,body:'<p>Review teh teh reading before editing.</p>'};
+  const proposals=reviewProposals(sample);
+  const repeated=proposals.find(x=>x.kind==='editorial-text'&&x.before==='teh teh');
+  const typo=proposals.find(x=>x.kind==='spelling'&&x.before==='teh');
+  assert.ok(repeated&&typo);
+  assert.throws(()=>applyApprovedProposals(sample,[{id:repeated.id},{id:typo.id}]),e=>e?.status===409&&/overlap/i.test(e.message));
+  const one=applyApprovedProposals(sample,[{id:repeated.id}]);
+  assert.equal(one.changed.body,'<p>Review teh reading before editing.</p>');
+  assert.equal(sample.body,'<p>Review teh teh reading before editing.</p>');
+});
+
+test('grammar suggestions never modify text inside HTML attributes or source URLs',()=>{
+  const sample={...article,body:'<a href="https://example.test/the-the/could-of">Read source</a><p>It is is important to log observations.</p>'};
+  const suggestions=languageSuggestions(sample);
+  assert.equal(suggestions.filter(x=>x.kind==='editorial-text').length,1);
+  const selected=suggestions[0];
+  assert.equal(selected.before,'is is');
+  const updated=applyApprovedProposals(sample,[{id:selected.id}]);
+  assert.equal(updated.changed.body,'<a href="https://example.test/the-the/could-of">Read source</a><p>It is important to log observations.</p>');
+});
+
+test('long technical prose is highlighted for review but never auto-rewritten',()=>{
+  const long=Array.from({length:65},(_,i)=>i%4===0?'Circulation':i%4===1?'and':i%4===2?'filtration':'matter').join(' ')+'.';
+  const sample={...article,body:'<p>'+long+'</p>'};
+  const before=structuredClone(sample);
+  const findings=longSentenceFindings(sample);
+  assert.equal(findings.length,1);
+  assert.equal(findings[0].severity,'needs-human-review');
+  assert.equal(findings[0].field,'body');
+  assert.deepEqual(sample,before);
+  const p=reviewProposals(sample);
+  assert.ok(!p.some(x=>x.kind==='editorial-text'&&x.before===long));
+});
+
+test('conflicting approvals through the API produce no revision write',async()=>{
+  const original={...article,body:'<p>Review teh teh test results.</p>'};
+  const current={id,version:10,state:'draft',editable:original};
+  let writes=0;
+  const route=compatibilityRoute({
+    db:{read:async()=>current,list:async()=>[current],command:async()=>{writes++;throw Error('unexpected database write');}},
+    identity:async()=>({id:'synthetic-owner'}),memberRole:async()=> 'owner',origin
+  });
+  const report=await (await post(route,'automated-review',{version:10})).json();
+  const grammar=report.proposals.find(p=>p.kind==='editorial-text'&&p.before==='teh teh');
+  const spelling=report.proposals.find(p=>p.kind==='spelling'&&p.before==='teh');
+  assert.ok(grammar&&spelling);
+  const denial=await post(route,'apply-review',{version:10,checksum:report.checksum,approvals:[{id:grammar.id},{id:spelling.id}]});
+  assert.equal(denial.status,409);
+  assert.equal(writes,0);
 });
