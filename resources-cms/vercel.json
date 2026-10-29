@@ -4,6 +4,9 @@
   "functions": {
     "api/resources.mjs": {
       "maxDuration": 30
+    },
+    "api/topic-generate.mjs": {
+      "maxDuration": 120
     }
   },
   "rewrites": [
@@ -38,6 +41,10 @@
     {
       "source": "/admin/",
       "destination": "/api/resources?__cms_path=/admin/"
+    },
+    {
+      "source": "/api/topics/:id/create-article",
+      "destination": "/api/topic-generate?__cms_path=/api/topics/:id/create-article"
     },
     {
       "source": "/api/:path*",

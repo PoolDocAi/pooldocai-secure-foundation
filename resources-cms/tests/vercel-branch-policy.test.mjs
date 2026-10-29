@@ -29,6 +29,7 @@ test('routing, build targets, and security headers are unaffected',()=>{
   assert.ok(root.headers.some(h=>h.source==='/learning-review'));
   assert.equal(cms.outputDirectory,'public');
   assert.equal(cms.functions?.['api/resources.mjs']?.maxDuration,30);
+  assert.equal(cms.functions?.['api/topic-generate.mjs']?.maxDuration,120);
   assert.ok(cms.rewrites.some(r=>r.source==='/admin/login'));
   assert.ok(cms.rewrites.some(r=>r.source==='/api/:path*'));
   assert.ok(cms.headers.some(h=>h.source==='/admin/:path*'));
