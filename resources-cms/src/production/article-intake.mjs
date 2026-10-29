@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { inflateRawSync, crc32 } from 'node:zlib';
-import { marked } from 'marked';
+import markedBundle from '../generated/marked.cjs';
+const { marked } = markedBundle;
 import { normalizeArticleCommand } from './validation.mjs';
 
 export const MAX_ARTICLE_FILE = 1024 * 1024;
