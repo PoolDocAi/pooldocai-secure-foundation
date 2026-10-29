@@ -45,11 +45,19 @@ export function composeTopicArticle({request,draft,researchSources,categoryId}) 
   if(!Array.isArray(draft.faqs)||draft.faqs.length<2||draft.faqs.length>8)error('Article FAQ is missing');
   const takeaways=draft.keyTakeaways.map(x=>clean(x,350));
   const usedIds=new Set();
+  const sectionHeadings=new Set();
   const sectionMarkup=draft.sections.map(section=>{
     if(!section||typeof section!=='object')error('Invalid article section');
     const heading=clean(section.heading,150);
+    const normalizedHeading=heading.normalize('NFKC').toLowerCase().replace(/\s+/g,' ');
+    if(sectionHeadings.has(normalizedHeading))error('Duplicate article section heading');
+    sectionHeadings.add(normalizedHeading);
     if(!Array.isArray(section.paragraphs)||section.paragraphs.length<2||section.paragraphs.length>8)error('Section is missing finished prose');
-    const paragraphs=section.paragraphs.map(p=>clean(p,2200));
+    const paragraphs=section.paragraphs.map(p=>{
+      const paragraph=clean(p,2200);
+      if(wordCount(paragraph)<18)error('Article sections need complete explanatory paragraphs');
+      return paragraph;
+    });
     if(!Array.isArray(section.sourceIds)||section.sourceIds.length===0||section.sourceIds.length>6)error('Each substantive section needs cited research');
     const citations=[...new Set(section.sourceIds.map(x=>clean(x,32)))];
     for(const id of citations){if(!sources.has(id))error('AI article cited an unknown source');usedIds.add(id);}
@@ -57,9 +65,15 @@ export function composeTopicArticle({request,draft,researchSources,categoryId}) 
       '<p>Sources: '+citations.map(id=>'<a href="'+esc(sources.get(id).url)+'">'+esc(sources.get(id).label)+'</a>').join('; ')+'</p></section>';
   }).join('');
   if(usedIds.size<2)error('Article must use more than one independent source');
+  const faqQuestions=new Set();
   const faqMarkup=draft.faqs.map(f=>{
     if(!f||typeof f!=='object')error('Invalid FAQ');
-    return '<h3>'+esc(clean(f.question,180))+'</h3><p>'+esc(clean(f.answer,900))+'</p>';
+    const question=clean(f.question,180),answer=clean(f.answer,900);
+    const normalizedQuestion=question.normalize('NFKC').toLowerCase().replace(/\s+/g,' ');
+    if(faqQuestions.has(normalizedQuestion))error('Duplicate article FAQ question');
+    faqQuestions.add(normalizedQuestion);
+    if(wordCount(answer)<18)error('FAQ answers need complete explanations');
+    return '<h3>'+esc(question)+'</h3><p>'+esc(answer)+'</p>';
   }).join('');
   const seo=draft.seo;
   if(!seo||typeof seo!=='object')error('Missing complete search metadata');
