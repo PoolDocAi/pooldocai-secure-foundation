@@ -13,6 +13,7 @@ import {catalogSitemap,addPublicCapabilities} from '../platform/catalog.mjs';
 import {platformRoutes,platformPath} from '../platform/routes.mjs';
 import {SupabasePlatformAdapter} from './platform-adapter.mjs';
 import {requireOrigin,requireCsrf} from './auth.mjs';
+import {createGeminiArticleGenerator} from './gemini-article-generator.mjs';
 const adminHtml = readFileSync(new URL("../../public/admin.html", import.meta.url), "utf8");
 
 const html = (value, status = 200, extra = {}) => new Response(value, { status, headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", ...extra } });
@@ -41,7 +42,12 @@ export function createProductionApp(runtime = productionRuntime()) {
   const upload = mediaUploadRoute({ identity, db, storage, origin: config.origin });
   const media = mediaReadRoute({ identity, db, storage });
   const approvedImports = config.approvedImportCatalogPath ? JSON.parse(readFileSync(config.approvedImportCatalogPath,"utf8")) : null;
-  const compat = compatibilityRoute({ db, identity, memberRole, origin: config.origin, uploadRoute: upload, approvedImports, ownerPublishing: config.ownerPublishing === true });
+  const topicPipeline={queueEnabled:config.features?.topicQueue===true,generator:
+    config.features?.topicQueue && config.editorialGeminiKey
+      ? createGeminiArticleGenerator({apiKey:config.editorialGeminiKey})
+      : null};
+  const compat = compatibilityRoute({ db, identity, memberRole, origin: config.origin,
+    uploadRoute: upload, approvedImports, ownerPublishing: config.ownerPublishing === true,topicPipeline });
   const health = healthRoute({ db });
   const platformAdapter=new SupabasePlatformAdapter(db);
   const platform=platformRoutes({features:config.features||{},adapter:platformAdapter,origin:config.origin,identity:async request=>{const u=await identity(request);return {...u,role:await memberRole(u)};},guardWrite:async request=>{requireOrigin(request,config.origin);requireCsrf(request);}});

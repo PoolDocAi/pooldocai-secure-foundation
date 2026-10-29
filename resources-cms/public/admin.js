@@ -131,7 +131,7 @@ document.addEventListener("keydown", (event) => {
 });
 mobileViewport.addEventListener("change", () => closeMobileNavigation());
 closeMobileNavigation();
-const cmsPages = new Set(["dashboard", "library", "taxonomy", "media", "seo", "knowledge", "settings"]);
+const cmsPages = new Set(["dashboard", "library", "topics", "taxonomy", "media", "seo", "knowledge", "settings"]);
 let historyPosition = 0, undoingHistory = false;
 history.replaceState({ cmsPage: page, cmsPosition: historyPosition }, "", location.href);
 let navigationQueue = Promise.resolve();
@@ -166,6 +166,7 @@ async function changePage(next, { fromHistory = false, position = historyPositio
   await refresh();
   if (page === "dashboard") await dashboard();
   if (page === "library") library();
+  if (page === "topics") await topicQueuePage();
   if (page === "taxonomy") taxonomies();
   if (page === "media") await mediaLibrary();
   if (page === "seo") seoManager();
@@ -370,6 +371,91 @@ function drawTable() {
       }),
   );
 }
+async function topicQueuePage() {
+  if(!isOwner()){
+    main.innerHTML=title('Article topics','Only the studio owner can manage the editorial topic queue.');
+    return;
+  }
+  if(!me.topicQueueEnabled){
+    main.innerHTML=title('Article topics','Topic queue is not enabled in this protected environment.')+
+      '<section class="panel"><h2>Coming to this Studio</h2><p>The private database migration and feature flag must pass Staging review before topics can be saved. No article has been generated or published.</p></section>';
+    return;
+  }
+  const rows=await api('/api/topics');
+  main.innerHTML=title('Article topics',
+    'Add topics, select one, then generate a complete private article for editorial review.',
+    '<button class="primary" id="topic-add">+ Add topic</button>')+
+    '<section class="panel"><h2>Choose a topic</h2>'+
+    '<label for="topic-choice">Saved topics</label><select id="topic-choice" style="max-width:100%;width:100%">'+
+    '<option value="">Select a topic</option>'+
+    rows.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.topic)+' ('+esc(r.status)+')</option>').join('')+
+    '</select><p id="topic-notes" class="muted">Select a queued topic. The generated article opens in the existing editor.</p>'+
+    '<button id="topic-create" class="primary" disabled>Create article</button>'+
+    (!me.topicGenerationEnabled?'<p class="muted">Generation is disabled until the server-only AI key, cost budget and protected Staging preview have been configured.</p>':'')+
+    '</section><section class="panel"><h2>Topic queue</h2><div class="table-wrap"><table class="library"><thead><tr><th>Topic</th><th>Status</th><th>Actions</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td><strong>'+esc(r.topic)+'</strong><small>'+esc(r.brief||'')+'</small></td><td>'+
+      badge(r.status)+'</td><td><div class="row-actions">'+
+      (r.status==='drafted'?'<button type="button" data-topic-open="'+esc(r.articleId)+'">Open draft</button>':'')+
+      (r.status==='queued'?'<button type="button" data-topic-pick="'+esc(r.id)+'">Select</button><button type="button" data-topic-archive="'+esc(r.id)+'">Archive</button>':'')+
+      (r.status==='generating'?'<button type="button" data-topic-recover="'+esc(r.id)+'">Recover stalled job</button>':'')+
+      '</div></td></tr>').join('')+
+    '</tbody></table></div></section>';
+  const selected=()=>rows.find(r=>r.id===$('#topic-choice').value);
+  const update=()=>{
+    const r=selected();
+    $('#topic-create').disabled=!r||r.status!=='queued'||!me.topicGenerationEnabled;
+    $('#topic-notes').textContent=r?r.brief||'No additional topic notes.':'Select a saved topic to begin.';
+  };
+  $('#topic-choice').onchange=update;
+  $('#topic-add').onclick=()=>modal(
+    '<h2>Add article topic</h2><form id="topic-add-form">'+
+    '<label>Topic<input name="topic" required minlength="6" maxlength="180" autofocus></label>'+
+    '<label>Editorial notes (optional)<textarea name="brief" maxlength="1200" rows="4" placeholder="Questions to cover, equipment context or safety concerns"></textarea></label>'+
+    '<label>Audience<select name="audience"><option value="both">Homeowners and professionals</option><option value="homeowners">Homeowners</option><option value="professionals">Technicians</option></select></label>'+
+    '<button class="primary" type="submit">Add to topic queue</button></form>',()=>{
+      $('#topic-add-form').onsubmit=async event=>{
+        event.preventDefault();
+        const button=event.target.querySelector('button[type=submit]');button.disabled=true;
+        try{
+          await api('/api/topics',{method:'POST',body:Object.fromEntries(new FormData(event.target))});
+          dialog.close();await topicQueuePage();toast('Topic added to the queue');
+        }catch(error){toast(error.message,true);button.disabled=false;}
+      };
+    });
+  $('#topic-choice').forEach(()=>{});
+  $('[data-topic-pick]').forEach(b=>b.onclick=()=>{
+    $('#topic-choice').value=b.dataset.topicPick;update();$('#topic-choice').focus();
+  });
+  $('[data-topic-open]').forEach(b=>b.onclick=()=>openEditor(b.dataset.topicOpen).catch(e=>toast(e.message,true)));
+  $('[data-topic-archive]').forEach(b=>b.onclick=async()=>{
+    const r=rows.find(x=>x.id===b.dataset.topicArchive);
+    if(!r||!confirm('Archive this topic without deleting any article?'))return;
+    b.disabled=true;
+    try{await api('/api/topics/'+r.id+'/archive',{method:'POST',body:{version:r.version}});
+      await topicQueuePage();toast('Topic archived');}
+    catch(error){toast(error.message,true);b.disabled=false;}
+  });
+  $('[data-topic-recover]').forEach(b=>b.onclick=async()=>{
+    const r=rows.find(x=>x.id===b.dataset.topicRecover);
+    if(!r||!confirm('Recover this stalled generation? Only attempts older than three minutes can be recovered.'))return;
+    b.disabled=true;
+    try{await api('/api/topics/'+r.id+'/recover',{method:'POST',body:{version:r.version}});
+      await topicQueuePage();toast('Stalled topic released');}
+    catch(error){toast(error.message,true);b.disabled=false;}
+  });
+  $('#topic-create').onclick=async()=>{
+    const r=selected();if(!r||r.status!=='queued')return;
+    const button=$('#topic-create');button.disabled=true;button.textContent='Researching and writing...';
+    $('#topic-notes').textContent='Creating a complete sourced draft. Please keep this page open.';
+    try{
+      const result=await api('/api/topics/'+r.id+'/create-article',{method:'POST',body:{version:r.version}});
+      await refresh();await openEditor(result.articleId);
+      toast('Complete private draft created. Review all technical claims and sources before approving.');
+    }catch(error){toast(error.message,true);await topicQueuePage();}
+  };
+  update();
+}
+
 function newArticle() {
   modal(
     `<h2>Start a new resource</h2><form id="new-form"><label>Article title<input name="title" required maxlength="180" autofocus></label><label>URL slug<input name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*"><small>Lowercase words with hyphens. Categories never change this URL.</small></label><label>Primary category<select name="categoryId">${opt(taxonomy.filter((t) => t.kind === "category" && !t.archived))}</select></label><button class="primary">Create private draft</button></form>`,

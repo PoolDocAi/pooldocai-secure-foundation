@@ -8,6 +8,7 @@ import {parseArticleFile} from './article-intake.mjs';
 import {reviewArticle} from './editorial-review.mjs';
 import {reviewProposals,applyApprovedProposals} from './review-proposals.mjs';
 import {articleChecksum} from './article-intake.mjs';
+import {handleTopicApi} from './topic-queue-api.mjs';
 
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function body(request, maximum = 250_000) {
@@ -56,12 +57,13 @@ function status(error) {
 }
 
 
-export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute, approvedImports=null, ownerPublishing=false }) {
+export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute, approvedImports=null, ownerPublishing=false,topicPipeline=null }) {
   return async (request) => {
     try {
       const url = new URL(request.url), path = url.pathname;
       if (request.method !== "GET") { requireOrigin(request, origin); requireCsrf(request); }
       const user = await identity(request), role = await memberRole(user);
+      if(path==='/api/topics'||path.startsWith('/api/topics/')) return handleTopicApi({request,db,user,role,topicPipeline});
       if (path === '/api/article-upload' && request.method === 'POST') {
         if (!['owner','editor'].includes(role)) return json({error:'Editor required'},403);
         const incoming = await body(request,1_450_000), intake = parseArticleFile(incoming);
@@ -70,7 +72,7 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
         const row = await db.read(user,id);
         return json({article:formatted(row),source:intake.source,notices:intake.notices,review:reviewArticle(row,await db.list(user,{limit:200}))},201);
       }
-      if (path === "/api/me" && request.method === "GET") return json({ id: user.id, email: user.email || "", role, ownerPublishing, approvedCollectionInstalled:Array.isArray(approvedImports), csrf: parseCookies(request.headers.get("cookie"))[CSRF_COOKIE] || null });
+      if (path === "/api/me" && request.method === "GET") return json({ id: user.id, email: user.email || "", role, ownerPublishing, topicQueueEnabled:topicPipeline?.queueEnabled===true,topicGenerationEnabled:!!topicPipeline?.generator, approvedCollectionInstalled:Array.isArray(approvedImports), csrf: parseCookies(request.headers.get("cookie"))[CSRF_COOKIE] || null });
       if(path === "/api/approved-resources") {
         if(role!=="owner") return json({error:"Owner required"},403);
         if(!Array.isArray(approvedImports))return json({error:"Private approved collection is not installed"},503);

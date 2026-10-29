@@ -18,9 +18,10 @@ export function readRuntimeConfig(env = process.env) {
     supabaseUrl: env.SUPABASE_URL,
     publishableKey: env.SUPABASE_PUBLISHABLE_KEY,
     origin,
-    features:{folders:env.CMS_FOLDERS_ENABLED==='1',taxonomy:env.CMS_TAXONOMY_V3==='1',discovery:env.CMS_DISCOVERY_V3==='1',analytics:env.CMS_ANALYTICS_ENABLED==='1',assistant:env.CMS_ASSISTANT_ENABLED==='1'},
+    features:{folders:env.CMS_FOLDERS_ENABLED==='1',taxonomy:env.CMS_TAXONOMY_V3==='1',discovery:env.CMS_DISCOVERY_V3==='1',analytics:env.CMS_ANALYTICS_ENABLED==='1',assistant:env.CMS_ASSISTANT_ENABLED==='1',topicQueue:env.CMS_TOPIC_QUEUE_ENABLED==='1'},
     ownerPublishing: env.CMS_OWNER_PUBLISHING === "1",
     approvedImportCatalogPath: env.CMS_APPROVED_IMPORT_CATALOG || null,
+    editorialGeminiKey:env.CMS_GEMINI_API_KEY || null,
     recoveryOwnerId: env.CMS_RECOVERY_OWNER_ID,
     recoveryOwnerEmail: env.CMS_RECOVERY_OWNER_EMAIL,
   };
