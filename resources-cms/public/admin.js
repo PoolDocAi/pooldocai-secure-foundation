@@ -925,14 +925,73 @@ function preview(id) {
     },
   );
 }
+// Compare immutable snapshots without applying or restoring them. All revision
+// values are rendered as escaped text, never executable article HTML.
+function revisionComparisonMarkup(older, newer) {
+  const fields = [
+    ['title', 'Article title'],
+    ['summary', 'Summary'],
+    ['body', 'Article body (saved HTML)'],
+    ['slug', 'URL slug'],
+    ['categoryId', 'Primary category'],
+    ['tagIds', 'Topic tags'],
+    ['audience', 'Audience'],
+    ['author', 'Author'],
+    ['manufacturer', 'Manufacturer'],
+    ['model', 'Equipment model'],
+    ['equipmentCategory', 'Equipment category'],
+    ['sources', 'Sources and citations'],
+    ['relatedIds', 'Related resources'],
+    ['seo', 'SEO metadata'],
+    ['featured', 'Featured resource']
+  ];
+  const asText = value => {
+    if(value===undefined||value===null)return '(empty)';
+    if(typeof value==='string')return value || '(empty)';
+    return JSON.stringify(value, null, 2);
+  };
+  const changed = fields.filter(([key]) =>
+    JSON.stringify(older.data?.[key] ?? null) !== JSON.stringify(newer.data?.[key] ?? null));
+  if(!changed.length)return '<p class="muted">No field differences between these saved snapshots.</p>';
+  return '<h3>Changed fields ('+changed.length+')</h3>'+
+    '<p class="muted">Read-only comparison of saved snapshots. Article HTML is displayed as text, not rendered. No content, approval or publication is changed.</p>'+
+    changed.map(([key,label]) =>
+      '<section class="revision-compare-field"><h4>'+esc(label)+'</h4>'+
+      '<div class="revision-compare-columns">'+
+      '<div><strong>Revision '+esc(String(older.version))+'</strong><pre>'+esc(asText(older.data?.[key]))+'</pre></div>'+
+      '<div><strong>Revision '+esc(String(newer.version))+'</strong><pre>'+esc(asText(newer.data?.[key]))+'</pre></div>'+
+      '</div></section>'
+    ).join('');
+}
 async function showRevisions() {
   try {
     if(dirty) throw Error("Save Draft explicitly before opening revision history.");
     const rows = await api(`/api/content/${current.id}/revisions`);
     modal(
-      `<h2>Revision history</h2><p>Restoring creates a new draft revision. It does not publish or restore knowledge eligibility.</p>${rows.map((r) => `<div class="revision-item"><div><strong>Revision ${r.version}</strong> · ${esc(r.reason)}<br><small>${esc(date(r.created_at))} · ${esc(r.data.title)}</small></div>${canWrite() ? `<button data-restore-revision="${r.id}">Restore Version</button>` : ""}</div>`).join("")}`,
+      `<h2>Revision history</h2><p>Restoring creates a new draft revision. It does not publish or restore knowledge eligibility.</p>`+
+      (rows.length>1?'<section class="revision-compare-tool"><h3>Compare saved revisions</h3><div class="revision-compare-picker">'+
+        '<label>Earlier snapshot<select id="compare-from">'+rows.map((r,i)=>'<option value="'+esc(r.id)+'" '+(i===1?'selected':'')+'>Revision '+esc(String(r.version))+'</option>').join('')+'</select></label>'+
+        '<label>Later snapshot<select id="compare-to">'+rows.map((r,i)=>'<option value="'+esc(r.id)+'" '+(i===0?'selected':'')+'>Revision '+esc(String(r.version))+'</option>').join('')+'</select></label>'+
+        '<button type="button" id="compare-revisions">Compare selected</button></div>'+
+        '<div id="revision-comparison" aria-live="polite"></div></section>':
+        '<p class="muted">Compare will be available after a second revision is saved.</p>')+
+      rows.map((r) => `<div class="revision-item"><div><strong>Revision ${r.version}</strong> · ${esc(r.reason)}<br><small>${esc(date(r.created_at))} · ${esc(r.data.title)}</small></div>${canWrite() ? `<button data-restore-revision="${r.id}">Restore Version</button>` : ""}</div>`).join(""),
       () => {
-        $$("[data-restore-revision]").forEach(
+        const compareButton=$('#compare-revisions');
+        if(compareButton) compareButton.onclick=()=>{
+          const older=rows.find(row=>row.id===$('#compare-from').value);
+          const newer=rows.find(row=>row.id===$('#compare-to').value);
+          const target=$('#revision-comparison');
+          if(!older||!newer||older.id===newer.id) {
+            target.innerHTML='<p role="alert">Choose two different saved revisions to compare.</p>';
+            return;
+          }
+          target.innerHTML=revisionComparisonMarkup(
+            older.version<=newer.version?older:newer,
+            older.version<=newer.version?newer:older
+          );
+        };
+        $("[data-restore-revision]").forEach(
           (b) =>
             (b.onclick = async () => {
               if (!confirm("Restore this version as a working draft?")) return;
