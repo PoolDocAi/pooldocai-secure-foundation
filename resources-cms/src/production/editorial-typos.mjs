@@ -148,6 +148,39 @@ const MISSPELLINGS = Object.freeze({
 });
 const FIELD_ORDER = ['title','summary','body','seo.title','seo.description'];
 const textTokens = /\b[A-Za-z][A-Za-z]{2,}\b/g;
+// A small conservative glossary supplements exact known misspellings for
+// one-edit near matches. This is not an exhaustive language dictionary.
+const GLOSSARY = new Set((
+  'above across active add added adding adjust adjusted adjustment after again against algae algaecide alkalinity amount analysis area around ask automation available backwash backwashing bacteria balance balanced baseline before below best between body booster both bromine buildup calcium calibrate calibration cartridge cartridges chemical chemicals check checked checking chlorine chlorinator chlorinators circulation circulate circulating clear cleaner cleaners cleaning cloudy cold color combined commercial common compare condition connection contamination control controller correct corrosion cover covers daily damage debris decrease design detail device diagnosis diagnostic difference direction dirty disinfection dissolved dosage dose drain drainage electrical elements energy enough ensure equal equipment estimate evaporation every examine expected explain fail failure faulty feature filter filtered filtering filtration filters fittings flow flowing frequently full function gas gasket gauges gauge general green guide guidelines hardness hazardous heater heated heating help high homeowner homeowners hose hoses hours hydraulic identify identify image important improve increase inlet inlets initial inspect inspection install installation installed instructions issue issues keep knowledge learn learning leak leaking level levels light limit limited location low maintenance manual manuals manufacturer manufacturers material measure measured measurement measures method mixing model models monitor monitoring motor motors necessary normal notice observation observations operating operator output over overflow owner owners parts passes perform performance periodic plumbing pool pools position possible power pressure pressures prevent procedure process production pump pumps qualified quality quick reading readings ready recommend recommended record recorded recording recovery reference references regulator regulate replace replacement request require required requirements resource resources result results retain return review reviewer revision revisions rinse rinsing routine run running safety salt sanitize sanitizer sanitizers sanitizing scale schedule screening search season seasonal separate service servicing setting settings show signal size skim skimmer skimmers slow solution source sources specific speed speeds spring stabilize stabilizer stabilizers stages start starting stop stopped storage suction summary support surface system systems tank tanks temperature temperatures test tested testing tests technician technicians technical time total treatment trouble troubleshooting trouble value values valve valves verify verified version voltage volume wash waste water watery weekly winter winterizing wiring working works write writing'
+).split(/\s+/));
+
+function oneEditAway(a,b) {
+  if(a===b || Math.abs(a.length-b.length)>1)return false;
+  if(a.length===b.length){
+    const at=[];
+    for(let i=0;i<a.length;i++)if(a[i]!==b[i])at.push(i);
+    return at.length===1||(at.length===2&&at[1]===at[0]+1&&a[at[0]]===b[at[1]]&&a[at[1]]===b[at[0]]);
+  }
+  const shorter=a.length<b.length?a:b,longer=a.length<b.length?b:a;
+  let i=0,j=0,diffs=0;
+  while(i<shorter.length&&j<longer.length) {
+    if(shorter[i]===longer[j]){i++;j++;}
+    else{j++;if(++diffs>1)return false;}
+  }
+  return true;
+}
+function nearMiss(word) {
+  if(word.length<6||word.length>18||GLOSSARY.has(word))return null;
+  let candidate=null;
+  for(const term of GLOSSARY) {
+    if(term[0]!==word[0]||Math.abs(term.length-word.length)>1)continue;
+    if(!oneEditAway(word,term))continue;
+    if(candidate)return null; // Ambiguous suggestions require manual review.
+    candidate=term;
+  }
+  return candidate;
+}
+
 
 function caseLike(original, replacement) {
   if (original === original.toUpperCase()) return replacement.toUpperCase();
@@ -170,14 +203,17 @@ export function spellingSuggestions(article, limit=30) {
     for (const segment of parts(article,field)) {
       for (const match of segment.value.matchAll(textTokens)) {
         const before=match[0];
-        const correction=MISSPELLINGS[before.toLowerCase()];
+        const exact=MISSPELLINGS[before.toLowerCase()];
+        const correction=exact || (before===before.toLowerCase()?nearMiss(before):null);
         if (!correction) continue;
         const after=caseLike(before,correction),start=segment.start+match.index;
         proposals.push({
           id:'spelling-'+field.replace('.','-')+'-'+start,
           kind:'spelling',field,start,before,after,
           context:segment.value.slice(Math.max(0,match.index-60),Math.min(segment.value.length,match.index+before.length+70)),
-          why:'Possible spelling mistake: "'+before+'" is commonly written "'+after+'". Review the wording and approve only if it fits this sentence.',
+          why:exact
+            ? 'Possible spelling mistake: "'+before+'" is commonly written "'+after+'". Confirm it fits the sentence.'
+            : 'This word looks one typing error away from "'+after+'", but may be intentional. Check the exact passage before approving.',
           requiresSourceCheck:false
         });
         if(proposals.length>=limit)return proposals;
