@@ -55,7 +55,8 @@ try {
     await page.locator('#automated-review').click();
     await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
     assert.equal(commands.filter(x=>x==='save').length,savesBefore,'Review alone must never save');
-    await page.locator('[data-proposal="seo-description"]').check();
+    await page.locator('[data-proposal="seo-description"]').click();
+    assert.equal(await page.locator('[data-proposal="seo-description"]').getAttribute('aria-pressed'),'true');
     page.once('dialog',d=>d.accept());
     await page.locator('#apply-review').click();
     await page.waitForFunction(() => document.querySelector('#seo-description')?.value.length >= 90, null, {timeout:10000}).catch(async err => {
@@ -73,7 +74,30 @@ try {
     await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
     assert.match(await page.locator('#dialog-content').innerText(),/Saved version 3/);
     await page.locator('.dialog-close').click();
-    assert.equal(await page.locator('#seo-description').inputValue(),'Human written description preserved after article changes.'); assert.equal([...rows.values()].at(-1).editable.seo.description,'Human written description preserved after article changes.'); const axe=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();assert.deepEqual(axe.violations.map(v=>v.id),[]);
+    assert.equal(await page.locator('#seo-description').inputValue(),'Human written description preserved after article changes.');
+    assert.equal([...rows.values()].at(-1).editable.seo.description,'Human written description preserved after article changes.');
+    assert.equal(await page.locator('#save').evaluate(el=>el.closest('section.panel')?.querySelector('h2')?.textContent),'Editorial workflow');
+    // Add two deliberate misspellings, then approve only one of them.
+    await page.locator('#body').evaluate(el=>{
+      el.insertAdjacentHTML('beforeend','<p>Check teh watre before proceeding.</p>');
+      el.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    page.once('dialog',d=>d.accept());
+    await page.locator('#save').click();
+    await page.locator('#automated-review').click();
+    await page.getByRole('heading',{name:'Automated article review',exact:true}).waitFor();
+    const typoButtons=page.locator('[data-proposal^="spelling-body-"]');
+    assert.ok(await typoButtons.count()>=2,'Expected both typo suggestions');
+    const first=typoButtons.first();
+    await first.click();
+    assert.equal(await first.getAttribute('aria-pressed'),'true');
+    assert.equal(await typoButtons.nth(1).getAttribute('aria-pressed'),'false');
+    page.once('dialog',d=>d.accept());
+    await page.locator('#apply-review').click();
+    await page.waitForFunction(()=>document.querySelector('#body')?.textContent?.includes('Check the watre'),null,{timeout:10000});
+    assert.match([...rows.values()].at(-1).editable.body,/Check the watre/);
+    assert.doesNotMatch([...rows.values()].at(-1).editable.body,/Check the water/);
+    const axe=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();assert.deepEqual(axe.violations.map(v=>v.id),[]);
     checks.push(`${width}px: upload -> private draft -> evidence/fixes -> report download -> edit/save -> new version review; accessibility passed`);
     await context.close();
   }
