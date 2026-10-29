@@ -90,8 +90,8 @@ try{
    'ROLLBACK;'
  ].join('\n');
  const actions=psql('authenticator',ownerActionSql);
- assert.match(actions,/"status":"queued"/);
- assert.match(actions,/"status":"generating"/);
+ assert.match(actions,/"status":\s*"queued"/);
+ assert.match(actions,/"status":\s*"generating"/);
  assert.equal(psql('bootstrap',"SELECT count(*) FROM resources_cms.topic_queue"),'8');
  assert.equal(psql('bootstrap',"SELECT count(*) FROM resources_cms.topic_generation_attempts"),'0');
  for(const id of ['00000000-0000-4000-8000-000000000002',
