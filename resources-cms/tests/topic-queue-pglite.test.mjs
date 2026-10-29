@@ -39,6 +39,7 @@ test('queue seeds eight owned editorial requests without publishing or overwriti
   assert.equal(rows.length,8);
   assert(rows.some(x=>x.topic==='Weekly care of your pool'));
   assert(rows.every(x=>x.status==='queued'&&Number.isInteger(x.version)));
+  await pg.exec('RESET ROLE');
   assert.equal((await pg.query("SELECT COUNT(*)::integer n FROM resources_cms.articles")).rows[0].n,0);
   assert.equal((await pg.query("SELECT has_table_privilege('anon','resources_cms.topic_queue','SELECT') AS anon")).rows[0].anon,false);
  }finally{await pg.close();}
