@@ -1,4 +1,4 @@
-import sanitizeHtml from 'sanitize-html';
+import sanitizeHtml from '../generated/sanitize-html.cjs';
 
 // Extractive authoring only: complete source sentences, no model or factual verification.
 export function descriptionProposal(article) {
