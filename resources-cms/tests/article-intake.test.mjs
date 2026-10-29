@@ -73,6 +73,28 @@ test('file upload creates exactly one draft command, returns review and never in
   const review=await f.request(`/api/content/${data.article.id}/automated-review`,{version:1});assert.equal(review.status,200);assert.equal(review.headers.get('cache-control'),'no-store');assert.deepEqual(f.commands,['create']);
   assert.equal((await f.request(`/api/content/${data.article.id}/automated-review`,{version:0})).status,409);
 });
+
+test('uploaded file identity is deterministic and repeated imports cannot create duplicate CMS articles',async()=>{
+ const first=input('weekly.md','# Weekly pool care\\n\\nTest circulation and log results.');
+ const repeat=input('weekly-reuploaded.md','# Weekly pool care\\n\\nTest circulation and log results.');
+ const a=parseArticleFile(first),b=parseArticleFile(repeat);
+ assert.equal(a.article.slug,b.article.slug);
+ assert.equal(a.source.sha256,b.source.sha256);
+ assert.match(a.article.slug,/-[a-f0-9]{12}$/);
+ const f=fixture();
+ const created=await f.request('/api/article-upload',first);
+ assert.equal(created.status,201);
+ const saved=await created.json();
+ const second=await f.request('/api/article-upload',repeat);
+ assert.equal(second.status,409);
+ assert.equal((await second.json()).existingArticleId,saved.article.id);
+ assert.deepEqual(f.commands,['create']);
+ assert.equal(f.rows.size,1);
+ const distinct=await f.request('/api/article-upload',input('different.md','# Weekly pool care\\n\\nUse an independently reviewed troubleshooting process.'));
+ assert.equal(distinct.status,201);
+ assert.equal(f.rows.size,2);
+ assert.deepEqual(f.commands,['create','create']);
+});
 test('upload denies viewers/reviewers, wrong origin, missing CSRF; malformed JSON never echoes private input',async()=>{
   for(const role of ['viewer','reviewer']){const f=fixture(role);assert.equal((await f.request('/api/article-upload',input('test.txt','Private'))).status,403);assert.deepEqual(f.commands,[]);}
   const f=fixture();
