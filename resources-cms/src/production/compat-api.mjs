@@ -6,7 +6,8 @@ import {validateApprovedImport} from "./approved-import.mjs";
 import {sanitize,safeURL} from '../content.mjs';
 import {parseArticleFile} from './article-intake.mjs';
 import {reviewArticle} from './editorial-review.mjs';
-import {populateDescription} from './seo-description.mjs';
+import {reviewProposals,applyApprovedProposals} from './review-proposals.mjs';
+import {articleChecksum} from './article-intake.mjs';
 
 const json = (value, status = 200, headers = {}) => Response.json(value, { status, headers: { "Cache-Control": "no-store", ...headers } });
 async function body(request, maximum = 250_000) {
@@ -54,17 +55,6 @@ function status(error) {
   return 500;
 }
 
-async function fillImportedDescription(db,user,id) {
-  let row = await db.read(user,id);
-  if (row?.state === 'draft' && !row.editable?.seo?.description) {
-    const generated = populateDescription(row.editable);
-    if (generated.seo.description) {
-      await db.command(user,id,row.version,'save',generated,randomUUID());
-      row = await db.read(user,id);
-    }
-  }
-  return row;
-}
 
 export function compatibilityRoute({ db, identity, memberRole, origin, uploadRoute, approvedImports=null, ownerPublishing=false }) {
   return async (request) => {
@@ -89,7 +79,7 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
           const incoming=await body(request),selected=approvedImports.find(e=>e.source.identity===incoming.sourceIdentity&&e.source.sha256===incoming.sourceChecksum);
           if(!selected)return json({error:"Approved source not found"},404);
           const entry=validateApprovedImport(selected,approvedImports),result=await db.ownerImport(user,entry);
-          return json(formatted(await fillImportedDescription(db,user,result.id)),200);
+          return json(formatted(await db.read(user,result.id)),200);
         }
       }
       if (path === "/api/content" && request.method === "GET") {
@@ -103,7 +93,7 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
           if(role!=="owner")return json({error:"Owner required"},403);
           if(!Array.isArray(approvedImports))return json({error:"Private approved collection is not installed"},503);
           const entry=validateApprovedImport(incoming,approvedImports),result=await db.ownerImport(user,entry);
-          return json(formatted(await fillImportedDescription(db,user,result.id)),200);
+          return json(formatted(await db.read(user,result.id)),200);
         }
         if (path === "/api/import" && incoming.format !== "pooldocai-resource-v1") throw Object.assign(new Error("Invalid import format"), { status: 422 });
         const id = randomUUID();
@@ -114,19 +104,23 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
       if (content) {
         const [, id, action] = content;
         if (action === 'automated-review' && request.method === 'POST') {
-          const incoming = await body(request,8192); let row = await db.read(user,id);
-          if (!row) return json({error:'Not found'},404);
-          if (!Number.isInteger(incoming.version) || incoming.version !== row.version) return json({error:'Revision conflict; save and review the current version'},409);
-          let savedArticle;
-          if (['owner','editor'].includes(role) && row.state === 'draft' && !row.editable?.seo?.description) {
-            const generated = populateDescription(row.editable);
-            if (generated.seo.description) {
-              await db.command(user,id,row.version,'save',generated,randomUUID());
-              row = await db.read(user,id); savedArticle = formatted(row);
-            }
-          }
-          const peers = await db.list(user,{limit:200});
-          return json({...reviewArticle(row,peers),...(savedArticle?{savedArticle}:{})});
+          const incoming=await body(request,8192), row=await db.read(user,id);
+          if(!row)return json({error:'Not found'},404);
+          if(!Number.isInteger(incoming.version)||incoming.version!==row.version)return json({error:'Revision changed; review the saved version again'},409);
+          const peers=await db.list(user,{limit:200});
+          return json(reviewArticle(row,peers));
+        }
+        if (action === 'apply-review' && request.method === 'POST') {
+          if(!['owner','editor'].includes(role))return json({error:'Editor required'},403);
+          const incoming=await body(request,16384), row=await db.read(user,id);
+          if(!row)return json({error:'Not found'},404);
+          if(row.state!=='draft')return json({error:'Only protected drafts can receive reviewed corrections'},409);
+          if(!Number.isInteger(incoming.version)||incoming.version!==row.version||incoming.checksum!==articleChecksum(row.editable))return json({error:'Draft changed since review; run the screener again'},409);
+          const proposals=reviewProposals(row.editable);
+          const {changed,applied}=applyApprovedProposals(row.editable,incoming.approvals,proposals);
+          const payload=normalizeArticleCommand('save',changed,row.editable);
+          await db.command(user,id,row.version,'save',payload,randomUUID());
+          return json({article:formatted(await db.read(user,id)),applied});
         }
         if (!action && request.method === "GET") return json(formatted(await db.read(user, id)));
         if (!action && request.method === "PUT") {

@@ -1,5 +1,4 @@
 import { sanitize, safeURL } from "../content.mjs";
-import {populateDescription} from './seo-description.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -40,7 +39,7 @@ export function normalizeArticleCommand(action, input = {}, previous = {}) {
   if (!["homeowners", "professionals", "both"].includes(audience)) reject("Invalid audience");
   const discovery=input.discovery;
   if(discovery&&(typeof discovery!=='object'||Array.isArray(discovery)||['primaryTopicId','guideTypeId','audienceTagId'].some(k=>discovery[k]&&!tagIds.includes(discovery[k]))))reject('Discovery selections must be selected tags');
-  return populateDescription({
+  return {
     ...(discovery?{discovery:{primaryTopicId:discovery.primaryTopicId||null,guideTypeId:discovery.guideTypeId||null,audienceTagId:discovery.audienceTagId||null}}:{}),
     manufacturer: short(input.manufacturer, 120),
     model: short(input.model, 120),
@@ -65,5 +64,5 @@ export function normalizeArticleCommand(action, input = {}, previous = {}) {
     relatedIds: Array.isArray(input.relatedIds) ? input.relatedIds.filter((id) => UUID.test(String(id))).slice(0, 12) : [],
     featured: Boolean(input.featured),
     publishedAt: input.publishedAt || null,
-  }, input.body);
+  };
 }
