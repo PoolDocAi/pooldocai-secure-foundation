@@ -59,6 +59,11 @@ jobs:
       - name: Install isolated browser
         working-directory: resources-cms
         run: npx playwright install --with-deps chromium
+      - name: Verify restricted ten-step diagnostic checklist and secure HTML sanitizer
+        working-directory: resources-cms
+        run: |
+          node --test tests/restricted-checklist.test.mjs
+          node tests/restricted-checklist-browser.mjs
       - name: Test article upload and revision review screens with synthetic data
         working-directory: resources-cms
         run: |

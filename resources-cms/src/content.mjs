@@ -16,6 +16,8 @@ export function safeURL(s, internal = true) {
   );
 }
 export function sanitize(body) {
+  const checklistId = value => /^diagnostic-step-(?:[1-9]|10)$/.test(value || "");
+  const seenChecklistInputs = new Set();
   return sanitizeHtml(body, {
     allowedTags: [
       "p",
@@ -50,6 +52,8 @@ export function sanitize(body) {
       "sup",
       "pre",
       "code",
+      "input",
+      "label",
     ],
     allowedAttributes: {
       a: ["href", "title"],
@@ -59,14 +63,37 @@ export function sanitize(body) {
       div: ["class"],
       th: ["scope", "colspan", "rowspan"],
       td: ["colspan", "rowspan"],
+      input: ["type", "id", "class"],
+      label: ["for", "class"],
     },
     allowedClasses: {
       aside: ["callout", "safety-callout"],
       div: ["callout", "safety-callout"],
+      input: ["cms-checklist-input"],
+      label: ["cms-checklist-step"],
     },
     allowedSchemes: ["https"],
     allowProtocolRelative: false,
     transformTags: {
+      // Only the ten approved diagnostic controls survive. Reconstruct every
+      // attribute: no names, values, defaults, handlers, forms or persistence.
+      input: (tag, attrs) => {
+        if (attrs.type !== "checkbox" || !checklistId(attrs.id) || seenChecklistInputs.has(attrs.id)) {
+          return { tagName: "span", attribs: {} };
+        }
+        seenChecklistInputs.add(attrs.id);
+        return { tagName: "input", attribs: { type: "checkbox", id: attrs.id, class: "cms-checklist-input" } };
+      },
+      label: (tag, attrs) => checklistId(attrs.for)
+        ? { tagName: "label", attribs: { for: attrs.for, class: "cms-checklist-step" } }
+        : { tagName: "span", attribs: {} },
+      "*": (tag, attrs) => {
+        if (tag !== "input" && checklistId(attrs.id)) {
+          const { id, ...rest } = attrs;
+          return { tagName: tag, attribs: rest };
+        }
+        return { tagName: tag, attribs: attrs };
+      },
       a: (tag, attrs) => ({
         tagName: "a",
         attribs: {
