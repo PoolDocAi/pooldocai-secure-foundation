@@ -25,6 +25,10 @@ const reviewMatch = handlerSource.match(/if\s*\(\["review_learning_case",\s*"lis
 assert.ok(reviewMatch, "Found review_learning_case block in clever-handler");
 let reviewCode = stripTs(reviewMatch[1]);
 
+const grantConsentMatch = handlerSource.match(/if\s*\(action\s*===\s*"grant_case_learning_consent"\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Technician close-out/);
+assert.ok(grantConsentMatch, "Found grant_case_learning_consent block in clever-handler");
+let grantConsentCode = stripTs(grantConsentMatch[1]);
+
 const saveJobMatch = handlerSource.match(/if\s*\(action\s*===\s*"save_technician_job"\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Authenticated troubleshooter/);
 assert.ok(saveJobMatch, "Found save_technician_job block in clever-handler");
 let saveJobCode = stripTs(saveJobMatch[1]);
@@ -64,6 +68,7 @@ function createHarness() {
     ]),
     technician_job_records: new Map(),
     diagnostic_cases: new Map(),
+    case_learning_consents: new Map(),
     diagnostic_case_steps: [],
     learning_review_queue: new Map(),
     shared_learning_knowledge: new Map(),
@@ -229,6 +234,12 @@ function createHarness() {
                         }
                         return { data: null, error: null };
                       }
+                      if (table === "case_learning_consents") {
+                        for (const row of store.case_learning_consents.values()) {
+                          if (row[col1] === val1 && row[col2] === val2) return { data: { ...row }, error: null };
+                        }
+                        return { data: null, error: null };
+                      }
                       return { data: null, error: null };
                     }
                   };
@@ -261,9 +272,10 @@ function createHarness() {
           const rows = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows];
           const results = [];
           for (const row of rows) {
-            const id = row.id || `gen_${Math.random().toString(36).substring(2, 9)}`;
+            const id = row.id || require("node:crypto").randomUUID();
             const saved = { ...row, id };
             if (table === "diagnostic_cases") store.diagnostic_cases.set(id, saved);
+            if (table === "case_learning_consents") store.case_learning_consents.set(`${row.case_id}:${row.purpose}`, saved);
             if (table === "technician_job_records") store.technician_job_records.set(id, saved);
             if (table === "diagnostic_case_steps") store.diagnostic_case_steps.push(saved);
             if (table === "learning_review_queue") store.learning_review_queue.set(id, saved);
@@ -287,8 +299,12 @@ function createHarness() {
         update(updates) {
           const updateObj = {
             eq(col, val) {
-              if (table === "diagnostic_cases") {
+              if (table === "diagnostic_cases" && col === "id") {
                 const row = store.diagnostic_cases.get(val);
+                if (row) Object.assign(row, updates);
+              }
+              if (table === "case_learning_consents" && col === "case_id") {
+                const row = store.case_learning_consents.get(`${val}:shared_diagnostic_learning`);
                 if (row) Object.assign(row, updates);
               }
               if (table === "learning_review_queue") {
@@ -349,6 +365,8 @@ function createHarness() {
     let codeToRun = "";
     if (actionName === "review_learning_case" || actionName === "list_learning_review_queue") {
       codeToRun = reviewCode;
+    } else if (actionName === "grant_case_learning_consent") {
+      codeToRun = grantConsentCode;
     } else if (actionName === "save_technician_job") {
       codeToRun = saveJobCode;
     } else if (actionName === "capture_learning_case") {
@@ -742,7 +760,7 @@ async function runLearningConsentTests() {
   }
 
   // -------------------------------------------------------------------------
-  // Test 4: Server-Side Contributor Terms Verification in save_technician_job (P0 D)
+  // Test 4: Server-Side Contributor Terms & Explicit Case Consent in save_technician_job (P0 D)
   // -------------------------------------------------------------------------
   {
     const harness = createHarness();
@@ -778,7 +796,8 @@ async function runLearningConsentTests() {
     assert.equal(harness.store.learning_review_queue.size, 0, "Unverified contributor job must NOT enter review queue");
     console.log("PASS: Test 4a - Technician job sharing fails closed to company-private when contributor terms absent (P0 D verified).");
 
-    // 4b: Technician has valid contributor terms on file and company is opted in
+    // 4b: Technician has valid contributor terms on file and company is opted in:
+    // Initial save_technician_job keeps new case private until explicit grant_case_learning_consent transition.
     const resConsentedJob = await harness.executeAction("save_technician_job", {
       body: {
         authenticatedApp: true,
@@ -799,12 +818,29 @@ async function runLearningConsentTests() {
 
     assert.equal(resConsentedJob.status, 200);
     const jobCase2 = [...harness.store.diagnostic_cases.values()].pop();
-    assert.equal(jobCase2.case_learning_opt_in, true);
-    assert.equal(jobCase2.learning_terms_version, "2026-10-v1");
-    assert.equal(harness.store.learning_review_queue.size, 1, "Verified job enters review queue");
-    console.log("PASS: Test 4b - Verified technician job with active terms enters review queue.");
+    assert.equal(jobCase2.case_learning_opt_in, false, "Initial job save must not auto-opt-in without explicit case consent transition");
+    assert.equal(harness.store.learning_review_queue.size, 0);
 
-    // 4c: Technician has valid terms, but company is OPTED OUT
+    const resExplicitGrant2 = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: jobCase2.id,
+        purpose: "shared_diagnostic_learning",
+        consentVersion: "2026-10-case-learning-v1",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: "usr_consented_tech",
+      authenticatedCompanyId: "comp_opted_in",
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    assert.equal(resExplicitGrant2.status, 200);
+    assert.equal(jobCase2.case_learning_opt_in, true);
+    assert.equal(jobCase2.learning_terms_version, "2026-10-case-learning-v1");
+    assert.equal(harness.store.learning_review_queue.size, 1, "Verified job enters review queue after explicit case consent transition");
+    console.log("PASS: Test 4b - Verified technician job with active terms and explicit case consent transition enters review queue.");
+
+    // 4c: Technician has valid terms and grants case consent, but company is OPTED OUT
     const resCompanyOptedOutJob = await harness.executeAction("save_technician_job", {
       body: {
         authenticatedApp: true,
@@ -815,7 +851,7 @@ async function runLearningConsentTests() {
         complaint: "Heater won't fire",
         resolution: "Replaced igniter.",
         repairSteps: [{ action: "Replaced igniter", result: "Fires cleanly" }],
-        caseLearningOptIn: true
+        caseLearningOptIn: false
       },
       authenticatedUserId: "usr_consented_tech",
       authenticatedCompanyId: "comp_opted_out", // diagnostic_learning_opt_in = false
@@ -825,6 +861,20 @@ async function runLearningConsentTests() {
 
     assert.equal(resCompanyOptedOutJob.status, 200);
     const jobCase3 = [...harness.store.diagnostic_cases.values()].pop();
+    const resGrantOptedOut = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: jobCase3.id,
+        purpose: "shared_diagnostic_learning",
+        consentVersion: "2026-10-case-learning-v1",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: "usr_consented_tech",
+      authenticatedCompanyId: "comp_opted_out",
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    assert.equal(resGrantOptedOut.status, 200);
     assert.equal(jobCase3.case_learning_opt_in, true);
     // Queue should still only have 1 item from 4b
     assert.equal(harness.store.learning_review_queue.size, 1, "Opted-out company job must not enter review queue");

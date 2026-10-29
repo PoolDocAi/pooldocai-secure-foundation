@@ -233,6 +233,7 @@ const store = {
     }
   ],
   diagnostic_cases: new Map(),
+  case_learning_consents: new Map(),
   diagnostic_case_steps: [],
   technician_job_records: new Map(),
   learning_review_queue: new Map(),
@@ -394,6 +395,18 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
       if (func === "pooldocai_publish_company_notification") {
         return { data: "notif_" + Math.random(), error: null };
       }
+      if (func === "pooldocai_withdraw_case_learning_consent") {
+        const caseRow = store.diagnostic_cases.get(params.p_case_id);
+        if (caseRow) {
+          caseRow.case_learning_opt_in = false;
+          caseRow.approved_for_learning = false;
+        }
+        const consentRow = store.case_learning_consents.get(\`\${params.p_case_id}:shared_diagnostic_learning\`);
+        if (consentRow) {
+          consentRow.consent_status = "withdrawn";
+        }
+        return { data: { ok: true, case_id: params.p_case_id, status: "consent_withdrawn" }, error: null };
+      }
       return { data: null, error: null };
     },
     from: (table: string) => {
@@ -424,10 +437,12 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
           const rows = Array.isArray(data) ? data : [data];
           const inserted: any[] = [];
           for (const row of rows) {
-            const id = row.id || "gen_" + Math.random().toString(36).slice(2, 10);
+            const id = row.id || crypto.randomUUID();
             const fullRow = { id, ...row, created_at: new Date().toISOString() };
             if (currentTable === "diagnostic_cases") {
               store.diagnostic_cases.set(id, fullRow);
+            } else if (currentTable === "case_learning_consents") {
+              store.case_learning_consents.set(\`\${fullRow.case_id}:\${fullRow.purpose}\`, fullRow);
             } else if (currentTable === "diagnostic_case_steps") {
               store.diagnostic_case_steps.push(fullRow);
             } else if (currentTable === "technician_job_records") {
@@ -514,9 +529,16 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
           } else if (currentTable === "diagnostic_cases") {
             const c = queryFilter.id ? store.diagnostic_cases.get(queryFilter.id) : null;
             results = c ? [c] : [];
+          } else if (currentTable === "case_learning_consents") {
+            const key = \`\${queryFilter.case_id}:\${queryFilter.purpose}\`;
+            const row = store.case_learning_consents.get(key);
+            results = row ? [row] : [];
           } else if (currentTable === "learning_review_queue") {
-            const q = queryFilter.id ? store.learning_review_queue.get(queryFilter.id) : null;
-            results = q ? [q] : [];
+            results = [...store.learning_review_queue.values()].filter(q =>
+              (!queryFilter.id || q.id === queryFilter.id) &&
+              (!queryFilter.case_id || q.case_id === queryFilter.case_id) &&
+              (!queryFilter.tenant_id || q.tenant_id === queryFilter.tenant_id)
+            );
           } else if (currentTable === "shared_learning_knowledge") {
             results = [...store.shared_learning_knowledge.values()];
             if (inFilter && inFilter.col === "id") {
@@ -1370,7 +1392,7 @@ async function runTestSuite() {
   {
     console.log("\\n--- TEST 5: Learning Consent Lifecycle ---");
 
-    // 5A: Learning consent granted with valid server-side terms
+    // 5A: Learning consent granted via private job save + explicit grant_case_learning_consent transition
     const initialQueueCount = store.learning_review_queue.size;
     const reqSaveJob = new Request("https://pooldocai.test/api/clever-handler", {
       method: "POST",
@@ -1391,10 +1413,28 @@ async function runTestSuite() {
 
     const resSaveJob = await capturedHandler!(reqSaveJob);
     assert.equal(resSaveJob.status, 200);
-    assert.equal(store.learning_review_queue.size, initialQueueCount + 1, "Consented job with active terms must enter learning review queue");
+    const saveJobBody: any = await resSaveJob.json();
+    assert.ok(saveJobBody.caseId, "Private job save must return caseId for subsequent explicit consent transition");
+    assert.equal(store.learning_review_queue.size, initialQueueCount, "Generic Terms + save_technician_job boolean must NOT auto-queue without explicit case consent");
+
+    const reqGrantConsent = new Request("https://pooldocai.test/api/clever-handler", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer consented_tech_token" },
+      body: JSON.stringify({
+        authenticatedApp: true,
+        action: "grant_case_learning_consent",
+        caseId: saveJobBody.caseId,
+        purpose: "shared_diagnostic_learning",
+        consentVersion: "2026-10-case-learning-v1",
+        caseLearningConsentAttested: true
+      })
+    });
+    const resGrantConsent = await capturedHandler!(reqGrantConsent);
+    assert.equal(resGrantConsent.status, 200);
+    assert.equal(store.learning_review_queue.size, initialQueueCount + 1, "Consented job with explicit case consent and active terms must enter learning review queue");
     const queuedJob = [...store.learning_review_queue.values()].pop();
     assert.equal(queuedJob?.source_kind, "technician_job");
-    console.log("PASS: Test 5A - Consented technician job with valid terms enters review queue.");
+    console.log("PASS: Test 5A - Consented technician job with explicit case consent transition enters review queue.");
 
     // 5B: Learning consent denied by technician
     const countBeforeDenied = store.learning_review_queue.size;

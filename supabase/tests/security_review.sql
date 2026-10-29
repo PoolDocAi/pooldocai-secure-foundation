@@ -2199,6 +2199,44 @@ BEGIN
     RAISE EXCEPTION 'Atomic-withdrawn case must be excluded from search_shared_learning (got % rows)', v_res_count;
   END IF;
 
+  -- 8b. Non-Destructive Rollback / Recovery Quarantine Simulation Check
+  -- Execute the Section 4.1 non-destructive quarantine UPDATE and verify that the revoked manual row
+  -- transitions to 'quarantined' (without deleting rows) while the revoked case row remains 'revoked',
+  -- and neither is ever exposed by search_shared_learning.
+  UPDATE public.shared_learning_knowledge k
+  SET
+    publication_status = 'quarantined',
+    consent_snapshot = false
+  WHERE k.id = v_shared_manual_pub_id
+    AND k.publication_status <> 'revoked'
+    AND (
+      k.source_kind = 'company_manual'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.company_manuals m
+        WHERE m.id = k.source_manual_id
+          AND m.company_id = k.source_company_id
+          AND COALESCE(m.shared_learning_opt_in, false) = true
+          AND COALESCE(m.reference_enabled, false) = true
+          AND m.extraction_status = 'ready'
+      )
+    );
+
+  SELECT publication_status INTO v_err_msg
+  FROM public.shared_learning_knowledge
+  WHERE id = v_shared_manual_pub_id;
+
+  IF v_err_msg <> 'quarantined' THEN
+    RAISE EXCEPTION 'Non-destructive recovery quarantine must mark withdrawn-manual knowledge as quarantined (got: %)', v_err_msg;
+  END IF;
+
+  SELECT count(*) INTO v_res_count
+  FROM public.search_shared_learning('Hayward Super Pump impeller torque', 4);
+
+  IF v_res_count <> 0 THEN
+    RAISE EXCEPTION 'Quarantined manual knowledge must remain excluded from search_shared_learning after recovery simulation (got % rows)', v_res_count;
+  END IF;
+
   -- 9. Teardown Section 13 Test Fixtures
   DELETE FROM public.shared_learning_knowledge WHERE source_queue_id IN (v_queue_ai_unverified, v_queue_tech_verified, v_queue_unresolved, v_queue_cross_tenant, v_queue_no_consent, v_queue_manual);
   DELETE FROM public.learning_review_audit WHERE case_id IN (v_case_ai_unverified, v_case_tech_verified, v_case_unresolved, v_case_cross_tenant, v_case_no_consent);

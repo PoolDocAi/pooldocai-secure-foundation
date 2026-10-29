@@ -45,6 +45,10 @@ function stripTs(code) {
 }
 
 // Extract exact production blocks from clever-handler
+const grantConsentMatch = handlerSource.match(/if\s*\(action\s*===\s*"grant_case_learning_consent"\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Technician close-out/);
+assert.ok(grantConsentMatch, "Found grant_case_learning_consent block in clever-handler");
+const grantConsentCode = stripTs(grantConsentMatch[1]);
+
 const saveJobMatch = handlerSource.match(/if\s*\(action\s*===\s*"save_technician_job"\)\s*\{([\s\S]*?)\n\s*\}\s*\n\s*\/\/\s*Authenticated troubleshooter/);
 assert.ok(saveJobMatch, "Found save_technician_job block in clever-handler");
 const saveJobCode = stripTs(saveJobMatch[1]);
@@ -179,10 +183,17 @@ function createMockHarness() {
   addMember(TENANT_B, TENANT_B.admin);
   addMember(TENANT_B, TENANT_B.tech);
 
-  // Initial legal acceptance on file for Tenant A Tech
+  // Initial legal acceptance on file for Tenant A Tech and Tenant A Admin
   store.pooldocai_legal_acceptances.set(`${TENANT_A.tech.userId}:${TENANT_A.companyId}`, {
     id: "legal_1",
     user_id: TENANT_A.tech.userId,
+    company_id: TENANT_A.companyId,
+    terms_version: "2026-10-v1",
+    accepted_at: new Date().toISOString()
+  });
+  store.pooldocai_legal_acceptances.set(`${TENANT_A.admin.userId}:${TENANT_A.companyId}`, {
+    id: "legal_1b",
+    user_id: TENANT_A.admin.userId,
     company_id: TENANT_A.companyId,
     terms_version: "2026-10-v1",
     accepted_at: new Date().toISOString()
@@ -464,6 +475,15 @@ function createMockHarness() {
         let limitCount = null;
         let orderField = null;
         let orderAsc = true;
+        store.injectedErrors = store.injectedErrors || new Map();
+
+        function getInjectedError(op) {
+          const key = `${tableName}:${op}`;
+          if (store.injectedErrors && store.injectedErrors.has(key)) {
+            return store.injectedErrors.get(key);
+          }
+          return null;
+        }
 
         const builder = {
           select: (fields) => builder,
@@ -489,20 +509,38 @@ function createMockHarness() {
             return builder;
           },
           maybeSingle: async () => {
+            const injErr = getInjectedError("select");
+            if (injErr) return { data: null, error: injErr };
             let res = rows.filter(r => filters.every(f => f(r)));
             return { data: res[0] || null, error: null };
           },
           single: async () => {
+            const injErr = getInjectedError("select");
+            if (injErr) return { data: null, error: injErr };
             let res = rows.filter(r => filters.every(f => f(r)));
             if (res.length === 0) return { data: null, error: { code: "PGRST116", message: "No rows found" } };
             return { data: res[0], error: null };
           },
           then: (resolve) => {
+            const injErr = getInjectedError("select");
+            if (injErr) return Promise.resolve({ data: null, error: injErr }).then(resolve);
             let res = rows.filter(r => filters.every(f => f(r)));
             if (limitCount != null) res = res.slice(0, limitCount);
             return Promise.resolve({ data: res, error: null }).then(resolve);
           },
           insert: (dataToInsert) => {
+            const injErr = getInjectedError("insert");
+            if (injErr) {
+              return {
+                data: null,
+                error: injErr,
+                select: () => ({
+                  single: async () => ({ data: null, error: injErr }),
+                  maybeSingle: async () => ({ data: null, error: injErr })
+                }),
+                then: (resolve) => resolve({ data: null, error: injErr })
+              };
+            }
             const items = Array.isArray(dataToInsert) ? dataToInsert : [dataToInsert];
             const inserted = [];
             for (const item of items) {
@@ -526,6 +564,8 @@ function createMockHarness() {
             };
           },
           upsert: (dataToUpsert, opts) => {
+            const injErr = getInjectedError("upsert");
+            if (injErr) return Promise.resolve({ data: null, error: injErr });
             const items = Array.isArray(dataToUpsert) ? dataToUpsert : [dataToUpsert];
             for (const item of items) {
               const key = item.case_id && item.purpose ? `${item.case_id}:${item.purpose}` : (item.id || `gen_${tableName}_${Math.random().toString(36).slice(2, 10)}`);
@@ -549,6 +589,8 @@ function createMockHarness() {
             };
 
             function executeUpdate(flts, upds) {
+              const injErr = getInjectedError("update");
+              if (injErr) return Promise.resolve({ error: injErr, count: 0 });
               let updatedCount = 0;
               if (store[tableName] instanceof Map) {
                 for (const [key, row] of store[tableName].entries()) {
@@ -594,6 +636,7 @@ function createMockHarness() {
 
     let targetCode = "";
     if (actionName === "save_technician_job") targetCode = saveJobCode;
+    else if (actionName === "grant_case_learning_consent") targetCode = grantConsentCode;
     else if (actionName === "review_learning_case" || actionName === "list_learning_review_queue") targetCode = reviewCode;
     else if (actionName === "withdraw_case_learning_consent") targetCode = withdrawCode;
     else if (actionName === "capture_learning_case") targetCode = captureCode;
@@ -840,7 +883,7 @@ async function runTask012Tests() {
     record("Job was NOT inserted into learning_review_queue due to company opt-out",
       harness.store.learning_review_queue.size === 0);
     record("Response message confirms notes saved privately due to inactive opt-in",
-      resOptOut.data.message.includes("Company or case learning opt-in is not active"));
+      resOptOut.data.message.includes("Company or explicit case learning consent is not active"));
   }
 
   // ---------------------------------------------------------------------------
@@ -875,35 +918,15 @@ async function runTask012Tests() {
   }
 
   // ---------------------------------------------------------------------------
-  // TEST 7: Case-Specific Consent Record & Anti-Spoofing
+  // TEST 7: Case-Specific Consent Record, Anti-Spoofing & Explicit Transition
   // ---------------------------------------------------------------------------
-  console.log("\n--- TEST 7: Case-Specific Consent Record & Anti-Spoofing ---");
+  console.log("\n--- TEST 7: Case-Specific Consent Record, Anti-Spoofing & Explicit Transition ---");
   {
     const harness = createMockHarness();
 
-    // 7a: Spoofed client flags with valid Terms but NO case-learning consent requested
-    const resNoCaseConsent = await harness.executeAction("save_technician_job", {
-      body: {
-        authenticatedApp: true,
-        complaint: "Filter pressure high",
-        resolution: "Backwashed filter",
-        outcome: "resolved",
-        caseLearningOptIn: false // Unchecked: having Terms acceptance must not auto-opt-in
-      },
-      authenticatedUserId: TENANT_A.tech.userId,
-      authenticatedCompanyId: TENANT_A.companyId,
-      authenticatedRole: "technician",
-      authenticatedPermissions: { canEditJobNotes: true }
-    });
-
-    const case1 = [...harness.store.diagnostic_cases.values()].pop();
-    record("Valid Terms without caseLearningOptIn does NOT grant case opt-in",
-      case1 && case1.case_learning_opt_in === false);
-    record("No case_learning_consents row created when caseLearningOptIn is false",
-      !harness.store.case_learning_consents.has(`${case1?.id}:shared_diagnostic_learning`));
-
-    // 7b: Legitimate explicit consent (Terms + caseLearningOptIn + companyOptedIn)
-    const resExplicit = await harness.executeAction("save_technician_job", {
+    // 7a: Generic Terms acceptance + spoofed caseLearningOptIn: true in save_technician_job
+    // MUST NOT authorize shared learning or create case_learning_consents!
+    const resSpoofedJobOptIn = await harness.executeAction("save_technician_job", {
       body: {
         authenticatedApp: true,
         complaint: "Pump leaking at shaft",
@@ -912,7 +935,7 @@ async function runTask012Tests() {
         equipmentCategory: "Pump",
         manufacturer: "Pentair",
         model: "IntelliFlo",
-        caseLearningOptIn: true
+        caseLearningOptIn: true // Spoofed boolean on initial save!
       },
       authenticatedUserId: TENANT_A.tech.userId,
       authenticatedCompanyId: TENANT_A.companyId,
@@ -921,14 +944,111 @@ async function runTask012Tests() {
     });
 
     const case2 = [...harness.store.diagnostic_cases.values()].pop();
-    record("Legitimate explicit consent creates case with case_learning_opt_in = true",
-      case2 && case2.case_learning_opt_in === true);
-    const consentRow = harness.store.case_learning_consents.get(`${case2?.id}:shared_diagnostic_learning`);
-    record("Durable case_learning_consents record created with consent_status = 'granted'",
-      consentRow && consentRow.consent_status === "granted" && consentRow.actor_user_id === TENANT_A.tech.userId);
-    record("Legitimate verified repair enters learning review queue", harness.store.learning_review_queue.size === 1);
+    record("Generic Terms + spoofed caseLearningOptIn: true in save_technician_job saves private notes (200 OK)",
+      resSpoofedJobOptIn.status === 200 && resSpoofedJobOptIn.data.ok === true && resSpoofedJobOptIn.data.caseId === case2?.id);
+    record("Generic Terms + spoofed caseLearningOptIn: true does NOT set case_learning_opt_in = true",
+      case2 && case2.case_learning_opt_in === false);
+    record("Generic Terms + spoofed caseLearningOptIn: true creates ZERO rows in case_learning_consents",
+      harness.store.case_learning_consents.size === 0);
+    record("Generic Terms + spoofed caseLearningOptIn: true creates ZERO rows in learning_review_queue",
+      harness.store.learning_review_queue.size === 0);
 
-    // 7c: Withdraw consent on this case
+    // 7b: Reject unattested or spoofed-identity consent transition attempts
+    const resMissingAttest = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: case2.id,
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: false
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    record("Consent transition without explicit attestation is rejected (400 EXPLICIT_CASE_CONSENT_REQUIRED)",
+      resMissingAttest.status === 400 && resMissingAttest.data.code === "EXPLICIT_CASE_CONSENT_REQUIRED");
+
+    const resSpoofedActor = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: case2.id,
+        actorUserId: TENANT_A.admin.userId, // Spoofed actor parameter!
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    record("Consent transition with forged actorUserId parameter is rejected (403 ACTOR_IDENTITY_MISMATCH)",
+      resSpoofedActor.status === 403 && resSpoofedActor.data.code === "ACTOR_IDENTITY_MISMATCH");
+
+    const resOtherUser = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: case2.id,
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.admin.userId, // Different user than case contributor!
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "company_admin",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    record("Another user cannot grant case-learning consent for contributor's case (403 CONTRIBUTOR_IDENTITY_MISMATCH)",
+      resOtherUser.status === 403 && resOtherUser.data.code === "CONTRIBUTOR_IDENTITY_MISMATCH");
+
+    const resCrossTenantConsent = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: case2.id,
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_B.tech.userId,
+      authenticatedCompanyId: TENANT_B.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    record("Company B cannot grant case-learning consent on Company A's private case (403 TENANT_MISMATCH)",
+      resCrossTenantConsent.status === 403 && resCrossTenantConsent.data.code === "TENANT_MISMATCH");
+
+    // 7c: Legitimate explicit case-learning consent transition by the authenticated contributor
+    const resExplicitGrant = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: case2.id,
+        purpose: "shared_diagnostic_learning",
+        consentVersion: "2026-10-case-learning-v1",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+
+    const case2Consented = harness.store.diagnostic_cases.get(case2.id);
+    record("Legitimate explicit grant_case_learning_consent succeeds (200 OK) and updates case_learning_opt_in = true",
+      resExplicitGrant.status === 200 && resExplicitGrant.data.ok === true && case2Consented.case_learning_opt_in === true);
+    const consentRow = harness.store.case_learning_consents.get(`${case2.id}:shared_diagnostic_learning`);
+    record("Durable case_learning_consents record created bound to case, company, contributor, purpose, version, timestamp",
+      Boolean(
+        consentRow &&
+        consentRow.consent_status === "granted" &&
+        consentRow.case_id === case2.id &&
+        consentRow.company_id === TENANT_A.companyId &&
+        consentRow.actor_user_id === TENANT_A.tech.userId &&
+        consentRow.purpose === "shared_diagnostic_learning" &&
+        consentRow.terms_version === "2026-10-case-learning-v1" &&
+        consentRow.granted_at
+      ));
+    record("Legitimate verified repair enters learning review queue after explicit consent transition",
+      harness.store.learning_review_queue.size === 1 && resExplicitGrant.data.queuedForReview === true);
+
+    // 7d: Withdraw consent on this case
     const withdrawRes = await harness.executeAction("withdraw_case_learning_consent", {
       body: { authenticatedApp: true, caseId: case2.id, reason: "Technician withdrew consent" },
       authenticatedUserId: TENANT_A.tech.userId,
@@ -939,7 +1059,7 @@ async function runTask012Tests() {
     const withdrawnConsent = harness.store.case_learning_consents.get(`${case2.id}:shared_diagnostic_learning`);
     record("Durable case consent status is updated to 'withdrawn'", withdrawnConsent?.consent_status === "withdrawn");
 
-    // 7d: Anti-Spoofing: An unrelated later job save on this case CANNOT silently re-enable consent
+    // 7e: Anti-Spoofing: An ordinary later job save on this case CANNOT silently re-enable consent
     const resLaterJob = await harness.executeAction("save_technician_job", {
       body: {
         authenticatedApp: true,
@@ -958,9 +1078,25 @@ async function runTask012Tests() {
     record("Subsequent job save referencing withdrawn case succeeds for internal operations", resLaterJob.status === 200);
     const case2After = harness.store.diagnostic_cases.get(case2.id);
     record("Later job save on existing case cannot re-enable previously withdrawn case",
-      case2After.case_learning_opt_in === false);
+      case2After.case_learning_opt_in === false && resLaterJob.data.learningStatus === "consent_withdrawn_locked");
     const consentAfter = harness.store.case_learning_consents.get(`${case2.id}:shared_diagnostic_learning`);
     record("Durable consent status remains strictly 'withdrawn'", consentAfter?.consent_status === "withdrawn");
+
+    // 7f: Explicit grant_case_learning_consent also refuses to reactivate withdrawn consent (409)
+    const resRegrantWithdrawn = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: case2.id,
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    record("Withdrawn consent cannot be reactivated via grant_case_learning_consent (409 CONSENT_WITHDRAWN_LOCKED)",
+      resRegrantWithdrawn.status === 409 && resRegrantWithdrawn.data.code === "CONSENT_WITHDRAWN_LOCKED");
   }
 
   // ---------------------------------------------------------------------------
@@ -979,7 +1115,7 @@ async function runTask012Tests() {
         equipmentCategory: "Pump",
         manufacturer: "Pentair",
         model: "IntelliFlo VSF",
-        caseLearningOptIn: true
+        caseLearningOptIn: false
       },
       authenticatedUserId: TENANT_A.tech.userId,
       authenticatedCompanyId: TENANT_A.companyId,
@@ -987,9 +1123,24 @@ async function runTask012Tests() {
       authenticatedPermissions: { canEditJobNotes: true }
     });
 
-    record("Verified technician job saves with 200 OK", resTechVerified.status === 200 && resTechVerified.data.ok === true);
+    record("Verified technician job saves privately first with 200 OK", resTechVerified.status === 200 && resTechVerified.data.ok === true);
     const techCase = [...harness.store.diagnostic_cases.values()].pop();
     record("Case carries technician_verified = true", techCase && techCase.technician_verified === true);
+
+    const resGrantTechCase = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: techCase.id,
+        purpose: "shared_diagnostic_learning",
+        consentVersion: "2026-10-case-learning-v1",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    record("Explicit case consent transition succeeds (200 OK)", resGrantTechCase.status === 200 && resGrantTechCase.data.ok === true);
     record("Verified repair enters learning_review_queue", harness.store.learning_review_queue.size === 1);
     const queueItem = [...harness.store.learning_review_queue.values()][0];
     record("Review queue item has source_kind = 'technician_job'", queueItem && queueItem.source_kind === "technician_job");
@@ -1553,6 +1704,314 @@ async function runTask012Tests() {
     record("Zero entries in learning_review_queue (private notes strictly isolated from learning)",
       harness.store.learning_review_queue.size === 0);
     record("Zero entries in shared_learning_knowledge", harness.store.shared_learning_knowledge.size === 0);
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST 14: Fail-Closed Consent Database Errors (SELECT / INSERT / UPDATE)
+  // ---------------------------------------------------------------------------
+  console.log("\n--- TEST 14: Fail-Closed Consent Database Errors (SELECT / INSERT / UPDATE) ---");
+  {
+    const harness = createMockHarness();
+
+    // Create an existing case for Tenant A
+    const existingCaseId = "14141414-1414-4141-8141-141414141414";
+    harness.store.diagnostic_cases.set(existingCaseId, {
+      id: existingCaseId,
+      tenant_id: TENANT_A.companyId,
+      case_status: "resolved",
+      technician_verified: true,
+      case_learning_opt_in: true,
+      approved_for_learning: false,
+      contributor_user_id: TENANT_A.tech.userId,
+      resolution_summary_redacted: "Replaced pressure switch"
+    });
+    harness.store.case_learning_consents.set(`${existingCaseId}:shared_diagnostic_learning`, {
+      case_id: existingCaseId,
+      company_id: TENANT_A.companyId,
+      actor_user_id: TENANT_A.tech.userId,
+      purpose: "shared_diagnostic_learning",
+      terms_version: "2026-10-case-learning-v1",
+      consent_status: "granted",
+      granted_at: new Date().toISOString()
+    });
+
+    // 14a: Failed consent SELECT during save_technician_job
+    harness.store.injectedErrors = new Map([
+      ["case_learning_consents:select", { code: "PGRST500", message: "Simulated consent SELECT timeout" }]
+    ]);
+    const resReadFailSave = await harness.executeAction("save_technician_job", {
+      body: {
+        authenticatedApp: true,
+        relatedCaseId: existingCaseId,
+        complaint: "Heater pressure switch fault",
+        resolution: "Replaced pressure switch and verified firing",
+        outcome: "resolved",
+        caseLearningOptIn: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    harness.store.injectedErrors.clear();
+
+    record("Failed consent SELECT during save_technician_job preserves private job notes (200 OK)",
+      resReadFailSave.status === 200 && resReadFailSave.data.ok === true && harness.store.technician_job_records.size === 1);
+    record("Failed consent SELECT during save_technician_job reports fail-closed status and CONSENT_LOOKUP_FAILED",
+      resReadFailSave.data.learningStatus === "consent_verification_failed_closed" &&
+      resReadFailSave.data.consentErrorCode === "CONSENT_LOOKUP_FAILED");
+    record("Failed consent SELECT during save_technician_job forces related case case_learning_opt_in = false and creates 0 queue items",
+      harness.store.diagnostic_cases.get(existingCaseId).case_learning_opt_in === false &&
+      harness.store.learning_review_queue.size === 0);
+
+    // 14b: Failed consent SELECT during grant_case_learning_consent
+    const privateCaseId = "14141414-2222-4222-8222-222222222222";
+    harness.store.diagnostic_cases.set(privateCaseId, {
+      id: privateCaseId,
+      tenant_id: TENANT_A.companyId,
+      case_status: "resolved",
+      technician_verified: true,
+      case_learning_opt_in: false,
+      approved_for_learning: false,
+      contributor_user_id: TENANT_A.tech.userId,
+      resolution_summary_redacted: "Replaced capacitor"
+    });
+
+    harness.store.injectedErrors.set("case_learning_consents:select", { code: "PGRST500", message: "Simulated SELECT error" });
+    const resGrantReadFail = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: privateCaseId,
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    harness.store.injectedErrors.clear();
+
+    record("Failed consent SELECT in grant_case_learning_consent fails closed (500 CONSENT_LOOKUP_FAILED)",
+      resGrantReadFail.status === 500 && resGrantReadFail.data.code === "CONSENT_LOOKUP_FAILED");
+    record("Failed consent SELECT leaves case unconsented and creates 0 queue items",
+      harness.store.diagnostic_cases.get(privateCaseId).case_learning_opt_in === false &&
+      harness.store.learning_review_queue.size === 0);
+
+    // 14c: Failed consent INSERT during grant_case_learning_consent
+    harness.store.injectedErrors.set("case_learning_consents:insert", { code: "PGRST500", message: "Simulated INSERT error" });
+    const resGrantInsertFail = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: privateCaseId,
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    harness.store.injectedErrors.clear();
+
+    record("Failed consent INSERT in grant_case_learning_consent fails closed (500 CONSENT_PERSIST_FAILED)",
+      resGrantInsertFail.status === 500 && resGrantInsertFail.data.code === "CONSENT_PERSIST_FAILED");
+    record("Failed consent INSERT leaves case_learning_opt_in = false and creates 0 queue items",
+      harness.store.diagnostic_cases.get(privateCaseId).case_learning_opt_in === false &&
+      !harness.store.case_learning_consents.has(`${privateCaseId}:shared_diagnostic_learning`) &&
+      harness.store.learning_review_queue.size === 0);
+
+    // 14d: Failed diagnostic_cases UPDATE after consent insert rolls back consent status to 'revoked'
+    harness.store.injectedErrors.set("diagnostic_cases:update", { code: "PGRST500", message: "Simulated case UPDATE error" });
+    const resGrantCaseUpdateFail = await harness.executeAction("grant_case_learning_consent", {
+      body: {
+        authenticatedApp: true,
+        caseId: privateCaseId,
+        purpose: "shared_diagnostic_learning",
+        caseLearningConsentAttested: true
+      },
+      authenticatedUserId: TENANT_A.tech.userId,
+      authenticatedCompanyId: TENANT_A.companyId,
+      authenticatedRole: "technician",
+      authenticatedPermissions: { canEditJobNotes: true }
+    });
+    harness.store.injectedErrors.clear();
+
+    const rolledBackConsent = harness.store.case_learning_consents.get(`${privateCaseId}:shared_diagnostic_learning`);
+    record("Failed diagnostic_cases UPDATE in grant_case_learning_consent fails closed (500 CASE_CONSENT_UPDATE_FAILED) and revokes partial consent row",
+      resGrantCaseUpdateFail.status === 500 &&
+      resGrantCaseUpdateFail.data.code === "CASE_CONSENT_UPDATE_FAILED" &&
+      rolledBackConsent?.consent_status === "revoked" &&
+      harness.store.learning_review_queue.size === 0);
+  }
+
+  // ---------------------------------------------------------------------------
+  // TEST 15: Non-Destructive Rollback / Recovery Simulation on Synthetic Fixtures
+  // ---------------------------------------------------------------------------
+  console.log("\n--- TEST 15: Non-Destructive Rollback / Recovery Simulation ---");
+  {
+    const rollbackDocPath = path.join(root, "docs/reviews/learning_safety_and_consent_migration_rollback_plan.md");
+    const rollbackDoc = fs.readFileSync(rollbackDocPath, "utf8");
+    const sqlSectionMatch = rollbackDoc.match(/### 4\.1 Rollback SQL Script[\s\S]*?```sql([\s\S]*?)```/);
+    const rollbackSql = sqlSectionMatch ? sqlSectionMatch[1] : "";
+
+    record("Rollback SQL script exists in Section 4.1", rollbackSql.length > 200);
+    record("Rollback SQL contains zero destructive DELETE / DROP TABLE / DROP COLUMN statements",
+      !/\bDELETE\s+FROM\b/i.test(rollbackSql) &&
+      !/\bDROP\s+TABLE\b/i.test(rollbackSql) &&
+      !/\bDROP\s+COLUMN\b/i.test(rollbackSql));
+    record("Rollback SQL enforces publication_status = 'quarantined', observed_diagnosis, unconfirmed_suggestion, company, manual, and case_learning_consents gates",
+      rollbackSql.includes("publication_status = 'quarantined'") &&
+      rollbackSql.includes("'observed_diagnosis'") &&
+      rollbackSql.includes("'unconfirmed_suggestion'") &&
+      rollbackSql.includes("public.case_learning_consents") &&
+      rollbackSql.includes("public.company_manuals") &&
+      rollbackSql.includes("k.publication_status = 'active'"));
+
+    // Execute synthetic fixture simulation of the Section 4.1 recovery quarantine + search_shared_learning
+    const harness = createMockHarness();
+
+    // Valid active case + consent
+    const validCaseId = "15151515-1111-4111-8111-111111111111";
+    harness.store.diagnostic_cases.set(validCaseId, {
+      id: validCaseId,
+      tenant_id: TENANT_A.companyId,
+      case_status: "resolved",
+      technician_verified: true,
+      case_learning_opt_in: true,
+      approved_for_learning: true,
+      contributor_user_id: TENANT_A.tech.userId
+    });
+    harness.store.case_learning_consents.set(`${validCaseId}:shared_diagnostic_learning`, {
+      case_id: validCaseId,
+      company_id: TENANT_A.companyId,
+      actor_user_id: TENANT_A.tech.userId,
+      purpose: "shared_diagnostic_learning",
+      terms_version: "2026-10-case-learning-v1",
+      consent_status: "granted"
+    });
+
+    // Withdrawn case consent
+    const withdrawnCaseId = "15151515-2222-4222-8222-222222222222";
+    harness.store.diagnostic_cases.set(withdrawnCaseId, {
+      id: withdrawnCaseId,
+      tenant_id: TENANT_A.companyId,
+      case_status: "resolved",
+      technician_verified: true,
+      case_learning_opt_in: false,
+      approved_for_learning: false,
+      contributor_user_id: TENANT_A.tech.userId
+    });
+    harness.store.case_learning_consents.set(`${withdrawnCaseId}:shared_diagnostic_learning`, {
+      case_id: withdrawnCaseId,
+      company_id: TENANT_A.companyId,
+      actor_user_id: TENANT_A.tech.userId,
+      purpose: "shared_diagnostic_learning",
+      terms_version: "2026-10-case-learning-v1",
+      consent_status: "withdrawn"
+    });
+
+    // Manuals: one active, one withdrawn
+    harness.store.company_manuals.set("man_valid_15", {
+      id: "man_valid_15",
+      company_id: TENANT_A.companyId,
+      shared_learning_opt_in: true,
+      reference_enabled: true,
+      status: "ready",
+      extraction_status: "ready"
+    });
+    harness.store.company_manuals.set("man_withdrawn_15", {
+      id: "man_withdrawn_15",
+      company_id: TENANT_A.companyId,
+      shared_learning_opt_in: false,
+      reference_enabled: true,
+      status: "ready",
+      extraction_status: "ready"
+    });
+
+    // Populate synthetic shared_learning_knowledge fixtures
+    const fixtures = [
+      { id: "fx_valid_repair", source_company_id: TENANT_A.companyId, source_case_id: validCaseId, source_kind: "technician_job", knowledge_type: "verified_repair", technician_verified: true, publication_status: "active", consent_snapshot: true, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo valid verified repair." },
+      { id: "fx_valid_manual", source_company_id: TENANT_A.companyId, source_manual_id: "man_valid_15", source_kind: "company_manual", knowledge_type: "manufacturer_manual", technician_verified: false, publication_status: "active", consent_snapshot: true, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo valid manufacturer manual." },
+      { id: "fx_revoked", source_company_id: TENANT_A.companyId, source_case_id: validCaseId, source_kind: "technician_job", knowledge_type: "verified_repair", technician_verified: true, publication_status: "revoked", consent_snapshot: false, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo revoked repair." },
+      { id: "fx_quarantined", source_company_id: TENANT_A.companyId, source_case_id: validCaseId, source_kind: "technician_job", knowledge_type: "verified_repair", technician_verified: true, publication_status: "quarantined", consent_snapshot: false, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo quarantined repair." },
+      { id: "fx_observed", source_company_id: TENANT_A.companyId, source_case_id: validCaseId, source_kind: "technician_job", knowledge_type: "observed_diagnosis", technician_verified: false, publication_status: "active", consent_snapshot: true, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo observed diagnosis." },
+      { id: "fx_unconfirmed", source_company_id: TENANT_A.companyId, source_case_id: validCaseId, source_kind: "authenticated_troubleshooter", knowledge_type: "unconfirmed_suggestion", technician_verified: false, publication_status: "active", consent_snapshot: true, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo unconfirmed suggestion." },
+      { id: "fx_withdrawn_company", source_company_id: TENANT_B.companyId, source_case_id: validCaseId, source_kind: "technician_job", knowledge_type: "verified_repair", technician_verified: true, publication_status: "active", consent_snapshot: true, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo withdrawn company." },
+      { id: "fx_withdrawn_manual", source_company_id: TENANT_A.companyId, source_manual_id: "man_withdrawn_15", source_kind: "company_manual", knowledge_type: "manufacturer_manual", technician_verified: false, publication_status: "active", consent_snapshot: true, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo withdrawn manual." },
+      { id: "fx_withdrawn_case", source_company_id: TENANT_A.companyId, source_case_id: withdrawnCaseId, source_kind: "technician_job", knowledge_type: "verified_repair", technician_verified: true, publication_status: "active", consent_snapshot: true, equipment_category: "Pump", manufacturer_normalized: "Pentair", model_normalized: "IntelliFlo", lesson_redacted: "Pentair IntelliFlo withdrawn case consent." }
+    ];
+    for (const fx of fixtures) {
+      harness.store.shared_learning_knowledge.set(fx.id, { ...fx, review_history: [] });
+    }
+
+    // Simulate Step 1 of Section 4.1 Rollback / Recovery SQL (Non-Destructive Quarantine)
+    for (const k of harness.store.shared_learning_knowledge.values()) {
+      if (k.publication_status === "revoked") continue;
+      const comp = k.source_company_id ? harness.store.companies.get(k.source_company_id) : null;
+      const companyValid = Boolean(comp && comp.status === "active" && comp.diagnostic_learning_opt_in === true);
+      let manualValid = true;
+      if (k.source_kind === "company_manual") {
+        const m = k.source_manual_id ? harness.store.company_manuals.get(k.source_manual_id) : null;
+        manualValid = Boolean(m && m.company_id === k.source_company_id && m.shared_learning_opt_in === true && m.reference_enabled === true && m.extraction_status === "ready");
+      }
+      let caseValid = true;
+      if (k.source_kind === "technician_job" || k.source_kind === "authenticated_troubleshooter") {
+        const dc = k.source_case_id ? harness.store.diagnostic_cases.get(k.source_case_id) : null;
+        const clc = k.source_case_id ? harness.store.case_learning_consents.get(`${k.source_case_id}:shared_diagnostic_learning`) : null;
+        caseValid = Boolean(
+          k.technician_verified === true &&
+          dc &&
+          dc.tenant_id === k.source_company_id &&
+          dc.case_status === "resolved" &&
+          dc.technician_verified === true &&
+          dc.case_learning_opt_in === true &&
+          dc.approved_for_learning === true &&
+          clc &&
+          clc.company_id === dc.tenant_id &&
+          clc.consent_status === "granted" &&
+          String(clc.terms_version || "").startsWith("2026-10") &&
+          (!dc.contributor_user_id || clc.actor_user_id === dc.contributor_user_id)
+        );
+      }
+      const shouldQuarantine = (
+        k.publication_status === "quarantined" ||
+        k.knowledge_type === "unconfirmed_suggestion" ||
+        k.knowledge_type === "observed_diagnosis" ||
+        (k.knowledge_type !== "verified_repair" && k.knowledge_type !== "manufacturer_manual") ||
+        k.source_kind === "public_demo" ||
+        k.consent_snapshot !== true ||
+        !companyValid ||
+        !manualValid ||
+        !caseValid
+      );
+      if (shouldQuarantine) {
+        k.publication_status = "quarantined";
+        k.consent_snapshot = false;
+        k.review_history.push({ action: "fail_closed_recovery_quarantine" });
+      }
+    }
+
+    // Verify non-destructive retention of all 9 fixture rows
+    record("Recovery simulation retains 100% of knowledge & audit records (zero rows deleted)",
+      harness.store.shared_learning_knowledge.size === fixtures.length);
+
+    // Execute search_shared_learning after recovery quarantine
+    const postRecoverySearch = await harness.client.rpc("search_shared_learning", { p_query: "Pentair IntelliFlo", p_limit: 20 });
+    const postRecoveryIds = (postRecoverySearch.data || []).map(r => r.id);
+
+    record("Rollback/recovery simulation exposes ONLY valid active verified_repair and manufacturer_manual entries",
+      postRecoveryIds.length === 2 &&
+      postRecoveryIds.includes("fx_valid_repair") &&
+      postRecoveryIds.includes("fx_valid_manual"));
+    record("Rollback/recovery simulation NEVER exposes revoked, quarantined, observed_diagnosis, unconfirmed_suggestion, or withdrawn company/manual/case content",
+      !postRecoveryIds.includes("fx_revoked") &&
+      !postRecoveryIds.includes("fx_quarantined") &&
+      !postRecoveryIds.includes("fx_observed") &&
+      !postRecoveryIds.includes("fx_unconfirmed") &&
+      !postRecoveryIds.includes("fx_withdrawn_company") &&
+      !postRecoveryIds.includes("fx_withdrawn_manual") &&
+      !postRecoveryIds.includes("fx_withdrawn_case"));
   }
 
   console.log("\n============================================================================");

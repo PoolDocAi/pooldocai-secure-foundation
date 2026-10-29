@@ -1633,7 +1633,7 @@ Deno.serve(async (req: Request) => {
   const noQueryActions = new Set([
     "save_technician_job", "capture_learning_case", "record_public_demo_consent", "capture_public_demo_turn", "accept_company_legal", "accept_public_demo_learning", "get_customer_widget_config", "submit_widget_service_request", "get_company_widget_settings", "save_company_widget_settings", "rotate_company_widget_key", "public_page_view", "photo_recognition",
     "process_company_manual", "import_company_webpage", "set_manual_learning_consent", "get_notifications", "mark_notification_read", "mark_all_notifications_read", "update_notification_preferences",
-    "review_learning_case", "list_learning_review_queue", "withdraw_case_learning_consent", "review_company_document",
+    "review_learning_case", "list_learning_review_queue", "grant_case_learning_consent", "withdraw_case_learning_consent", "review_company_document",
     "invite_company_member", "platform_list_account_statuses", "accept_company_invitation", "resend_company_invitation", "revoke_company_invitation", "get_company_usage", "export_company_usage", "platform_usage_export", "create_billing_checkout", "create_billing_portal", "platform_list_model_rate_cards", "platform_upsert_model_rate_card", "platform_create_temporary_credentials", "platform_list_temporary_credentials", "platform_revoke_temporary_credentials"
   ]);
   if (!query && !noQueryActions.has(action)) return jsonResponse({ error: "A non-empty query or message is required.", code: "QUERY_REQUIRED" }, 400);
@@ -2841,6 +2841,193 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Explicit, purpose-specific case-learning consent transition.
+  // Generic workspace Terms acceptance or a job-save boolean cannot substitute for this authenticated action.
+  if (action === "grant_case_learning_consent") {
+    if (!(body.authenticatedApp === true && authenticatedCompanyId && authenticatedUserId)) {
+      return jsonResponse({ error: "Authenticated company session required to grant case learning consent.", code: "AUTH_REQUIRED" }, 401);
+    }
+    const hasSharingPermission = authenticatedRole === "company_admin" || authenticatedPermissions?.canEditJobNotes === true;
+    if (!hasSharingPermission) {
+      return jsonResponse({ error: "Your company account does not have permission to grant case learning consent.", code: "CONSENT_PERMISSION_REQUIRED" }, 403);
+    }
+    if (body.companyId && textValue(body.companyId, 80) !== authenticatedCompanyId) {
+      return jsonResponse({ error: "Cannot grant learning consent for another company workspace.", code: "TENANT_MISMATCH" }, 403);
+    }
+    const requestedActorId = textValue(body.actorUserId ?? body.contributorUserId ?? body.userId, 80);
+    if (requestedActorId && requestedActorId !== authenticatedUserId) {
+      return jsonResponse({ error: "Consent actor identity cannot be forged or delegated to another user.", code: "ACTOR_IDENTITY_MISMATCH" }, 403);
+    }
+    const targetCaseId = textValue(body.caseId ?? body.case_id, 80);
+    if (!targetCaseId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetCaseId)) {
+      return jsonResponse({ error: "A valid caseId UUID is required to grant case learning consent.", code: "CASE_ID_INVALID" }, 400);
+    }
+    const purpose = textValue(body.purpose, 80) || "shared_diagnostic_learning";
+    if (purpose !== "shared_diagnostic_learning") {
+      return jsonResponse({ error: "Invalid consent purpose. Expected shared_diagnostic_learning.", code: "CONSENT_PURPOSE_INVALID" }, 400);
+    }
+    if (body.caseLearningConsentAttested !== true) {
+      return jsonResponse({ error: "Explicit case-specific learning consent attestation is required.", code: "EXPLICIT_CASE_CONSENT_REQUIRED" }, 400);
+    }
+    const requestedTermsVersion = textValue(body.consentVersion ?? body.termsVersion, 80) || "2026-10-case-learning-v1";
+    if (!requestedTermsVersion.startsWith("2026-10")) {
+      return jsonResponse({ error: "A current 2026-10 case-learning consent version is required.", code: "CONSENT_VERSION_INVALID" }, 400);
+    }
+
+    const { data: legalRow, error: legalErr } = await supabase
+      .from("pooldocai_legal_acceptances")
+      .select("terms_version,accepted_at")
+      .eq("user_id", authenticatedUserId)
+      .eq("company_id", authenticatedCompanyId)
+      .order("accepted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (legalErr) {
+      return jsonResponse({ error: "Could not verify contributor legal acceptance status. Failing closed.", code: "LEGAL_LOOKUP_FAILED" }, 500);
+    }
+    if (!legalRow?.terms_version || !String(legalRow.terms_version).startsWith("2026-10")) {
+      return jsonResponse({ error: "Current contributor legal terms must be accepted before granting case-specific learning consent.", code: "CONTRIBUTOR_TERMS_REQUIRED" }, 403);
+    }
+
+    const { data: existingCase, error: caseLookupError } = await supabase
+      .from("diagnostic_cases")
+      .select("id, tenant_id, case_status, technician_verified, equipment_category, manufacturer_normalized, model_normalized, symptom_redacted, resolution_summary_redacted, source_ids, contributor_user_id")
+      .eq("id", targetCaseId)
+      .maybeSingle();
+
+    if (caseLookupError) {
+      return jsonResponse({ error: "Could not verify diagnostic case ownership. Failing closed.", code: "CASE_LOOKUP_FAILED" }, 500);
+    }
+    if (!existingCase) {
+      return jsonResponse({ error: "Diagnostic case not found.", code: "CASE_NOT_FOUND" }, 404);
+    }
+    if (existingCase.tenant_id !== authenticatedCompanyId) {
+      return jsonResponse({ error: "The diagnostic case belongs to a different company workspace.", code: "TENANT_MISMATCH" }, 403);
+    }
+    if (existingCase.contributor_user_id && existingCase.contributor_user_id !== authenticatedUserId) {
+      return jsonResponse({ error: "Only the authenticated case contributor may grant case-specific learning consent for this case.", code: "CONTRIBUTOR_IDENTITY_MISMATCH" }, 403);
+    }
+
+    const { data: existingConsent, error: consentLookupError } = await supabase
+      .from("case_learning_consents")
+      .select("id, consent_status, actor_user_id, company_id, terms_version, granted_at")
+      .eq("case_id", targetCaseId)
+      .eq("purpose", "shared_diagnostic_learning")
+      .maybeSingle();
+
+    if (consentLookupError) {
+      return jsonResponse({ error: "Could not verify existing case learning consent status. Failing closed.", code: "CONSENT_LOOKUP_FAILED" }, 500);
+    }
+    if (existingConsent && (existingConsent.consent_status === "withdrawn" || existingConsent.consent_status === "revoked")) {
+      return jsonResponse({ error: "Consent for this diagnostic case was previously withdrawn and cannot be reactivated.", code: "CONSENT_WITHDRAWN_LOCKED" }, 409);
+    }
+    if (existingConsent && existingConsent.company_id && existingConsent.company_id !== authenticatedCompanyId) {
+      return jsonResponse({ error: "Existing consent belongs to a different company workspace.", code: "TENANT_MISMATCH" }, 403);
+    }
+    if (existingConsent && existingConsent.actor_user_id && existingConsent.actor_user_id !== authenticatedUserId) {
+      return jsonResponse({ error: "Consent for this case is bound to a different contributor.", code: "CONTRIBUTOR_IDENTITY_MISMATCH" }, 403);
+    }
+
+    const consentTimestamp = new Date().toISOString();
+    const effectiveTermsVersion = requestedTermsVersion;
+
+    if (!existingConsent) {
+      const { error: consentInsertError } = await supabase
+        .from("case_learning_consents")
+        .insert({
+          case_id: targetCaseId,
+          company_id: authenticatedCompanyId,
+          actor_user_id: authenticatedUserId,
+          purpose: "shared_diagnostic_learning",
+          terms_version: effectiveTermsVersion,
+          consent_status: "granted",
+          granted_at: consentTimestamp
+        });
+      if (consentInsertError) {
+        return jsonResponse({ error: "Could not persist durable case learning consent. Failing closed.", code: "CONSENT_PERSIST_FAILED" }, 500);
+      }
+    }
+
+    const { error: caseUpdateError } = await supabase
+      .from("diagnostic_cases")
+      .update({
+        case_learning_opt_in: true,
+        learning_terms_version: effectiveTermsVersion,
+        consent_origin: "explicit_case_learning_consent",
+        contributor_accepted_at: consentTimestamp,
+        contributor_user_id: authenticatedUserId
+      })
+      .eq("id", targetCaseId)
+      .eq("tenant_id", authenticatedCompanyId);
+
+    if (caseUpdateError) {
+      await supabase
+        .from("case_learning_consents")
+        .update({ consent_status: "revoked", withdrawn_at: new Date().toISOString(), withdrawn_by: authenticatedUserId })
+        .eq("case_id", targetCaseId)
+        .eq("purpose", "shared_diagnostic_learning");
+      return jsonResponse({ error: "Could not update diagnostic case consent state. Failing closed.", code: "CASE_CONSENT_UPDATE_FAILED" }, 500);
+    }
+
+    const { data: comp, error: compError } = await supabase
+      .from("companies")
+      .select("diagnostic_learning_opt_in")
+      .eq("id", authenticatedCompanyId)
+      .maybeSingle();
+
+    if (compError) {
+      return jsonResponse({ error: "Case consent recorded, but company learning opt-in could not be verified. Case was not queued for review.", code: "COMPANY_CONSENT_LOOKUP_FAILED" }, 500);
+    }
+    const companyOptedIn = Boolean(comp?.diagnostic_learning_opt_in);
+
+    let queuedForReview = false;
+    if (companyOptedIn && existingCase.case_status === "resolved" && existingCase.technician_verified === true && String(existingCase.resolution_summary_redacted || "").trim().length > 0) {
+      const { data: existingQueueItem, error: queueLookupError } = await supabase
+        .from("learning_review_queue")
+        .select("id, status")
+        .eq("case_id", targetCaseId)
+        .eq("tenant_id", authenticatedCompanyId)
+        .maybeSingle();
+
+      if (queueLookupError) {
+        return jsonResponse({ error: "Could not verify learning review queue state. Failing closed.", code: "QUEUE_LOOKUP_FAILED" }, 500);
+      }
+
+      if (!existingQueueItem) {
+        const lesson = `Equipment: ${existingCase.equipment_category || "unspecified"}; manufacturer: ${existingCase.manufacturer_normalized || "unspecified"}; model: ${existingCase.model_normalized || "unspecified"}. Issue: ${existingCase.symptom_redacted || "not supplied"}. Outcome: resolved. Resolution: ${existingCase.resolution_summary_redacted || "not supplied"}`.slice(0, 2000);
+        const { error: queueInsertError } = await supabase
+          .from("learning_review_queue")
+          .insert({
+            case_id: targetCaseId,
+            tenant_id: authenticatedCompanyId,
+            source_kind: "technician_job",
+            proposed_lesson_redacted: lesson,
+            supporting_source_ids: Array.isArray(existingCase.source_ids) ? existingCase.source_ids : [],
+            status: "pending"
+          });
+        if (queueInsertError) {
+          return jsonResponse({ error: "Case consent recorded, but queueing for review failed.", code: "LEARNING_QUEUE_FAILED" }, 500);
+        }
+        queuedForReview = true;
+      } else if (existingQueueItem.status === "pending" || existingQueueItem.status === "approved") {
+        queuedForReview = true;
+      }
+    }
+
+    return jsonResponse({
+      ok: true,
+      caseId: targetCaseId,
+      companyId: authenticatedCompanyId,
+      actorUserId: authenticatedUserId,
+      purpose: "shared_diagnostic_learning",
+      termsVersion: effectiveTermsVersion,
+      consentStatus: "granted",
+      grantedAt: existingConsent?.granted_at || consentTimestamp,
+      queuedForReview
+    }, 200);
+  }
+
   // Technician close-out: persistent case data always requires individual Supabase Auth.
   if (action === "save_technician_job") {
     if (!authenticatedCompanyId || !authenticatedUserId || !(authenticatedRole === "company_admin" || authenticatedPermissions?.canEditJobNotes === true)) return jsonResponse({ error: "Your company account does not have permission to edit job notes. Ask the company admin to enable that seat permission.", code: "JOB_NOTE_EDIT_PERMISSION_REQUIRED" }, 403);
@@ -2865,13 +3052,17 @@ Deno.serve(async (req: Request) => {
     const rawRelatedCaseId = textValue(body.relatedCaseId, 80);
     let validatedRelatedCaseId: string | null = null;
     let relatedCaseWithdrawn = false;
+    let consentLookupFailed = false;
+    let hasExistingGrantedCaseConsent = false;
+    let authoritativeTermsVersion: string | null = null;
+    let authoritativeAcceptedAt: string | null = null;
     if (rawRelatedCaseId) {
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawRelatedCaseId)) {
         return jsonResponse({ error: "The related case ID must be a valid UUID.", code: "RELATED_CASE_ID_INVALID" }, 400);
       }
       const { data: existingCase, error: caseLookupError } = await supabase
         .from("diagnostic_cases")
-        .select("id, tenant_id")
+        .select("id, tenant_id, contributor_user_id")
         .eq("id", rawRelatedCaseId)
         .eq("tenant_id", authenticatedCompanyId)
         .maybeSingle();
@@ -2880,15 +3071,27 @@ Deno.serve(async (req: Request) => {
       }
       validatedRelatedCaseId = existingCase.id;
 
-      // Check durable case consent table: a withdrawn or revoked case cannot be silently re-enabled
-      const { data: existingConsent } = await supabase
+      // Check durable case consent table: fail closed on lookup error, and never auto-grant or reactivate withdrawn consent.
+      const { data: existingConsent, error: consentLookupError } = await supabase
         .from("case_learning_consents")
-        .select("consent_status")
+        .select("id, company_id, actor_user_id, purpose, terms_version, consent_status, granted_at")
         .eq("case_id", validatedRelatedCaseId)
         .eq("purpose", "shared_diagnostic_learning")
         .maybeSingle();
-      if (existingConsent && (existingConsent.consent_status === "withdrawn" || existingConsent.consent_status === "revoked")) {
+      if (consentLookupError) {
+        consentLookupFailed = true;
+      } else if (existingConsent && (existingConsent.consent_status === "withdrawn" || existingConsent.consent_status === "revoked")) {
         relatedCaseWithdrawn = true;
+      } else if (
+        existingConsent &&
+        existingConsent.consent_status === "granted" &&
+        existingConsent.company_id === authenticatedCompanyId &&
+        existingConsent.actor_user_id === authenticatedUserId &&
+        String(existingConsent.terms_version || "").startsWith("2026-10")
+      ) {
+        hasExistingGrantedCaseConsent = true;
+        authoritativeTermsVersion = String(existingConsent.terms_version);
+        authoritativeAcceptedAt = String(existingConsent.granted_at || new Date().toISOString());
       }
     }
     const sessionRef = textValue(body.diagnosticSessionId || body.sessionId, 120);
@@ -2954,17 +3157,16 @@ Deno.serve(async (req: Request) => {
           console.error("Notification publish unexpected error:", notifErr);
         }
       }
-      // Every directly entered PWA job is automatically included in the learning loop
-      // as a privacy-minimized pending review item, regardless of its source.
+      // Private diagnostic case creation and learning eligibility check.
+      // Generic workspace Terms acceptance or a client boolean in save_technician_job
+      // NEVER creates case_learning_consents. Explicit case-specific consent must be
+      // granted via grant_case_learning_consent.
       const caseIssue = scrubPII([complaint, notes].filter(Boolean).join("\n").slice(0, 1200));
       const caseResolution = scrubPII(resolution || repairSteps.map(x => `${x.action} Result: ${x.result}`).join("\n").slice(0, 1200));
 
-      // Authoritative server-side contributor terms verification:
-      // Do not equate an arbitrary browser boolean with adequate sharing permission.
       let contributorConsentValid = false;
-      let authoritativeTermsVersion: string | null = null;
-      let authoritativeAcceptedAt: string | null = null;
-      if (body.caseLearningOptIn === true && authenticatedCompanyId && authenticatedUserId) {
+      let legalLookupFailed = false;
+      if (body.caseLearningOptIn === true && hasExistingGrantedCaseConsent && !consentLookupFailed && !relatedCaseWithdrawn && authenticatedCompanyId && authenticatedUserId) {
         const { data: legalRow, error: legalErr } = await supabase
           .from("pooldocai_legal_acceptances")
           .select("terms_version,accepted_at")
@@ -2974,20 +3176,29 @@ Deno.serve(async (req: Request) => {
           .limit(1)
           .maybeSingle();
 
-        if (!legalErr && legalRow?.terms_version && String(legalRow.terms_version).startsWith("2026-10")) {
+        if (legalErr) {
+          legalLookupFailed = true;
+        } else if (legalRow?.terms_version && String(legalRow.terms_version).startsWith("2026-10")) {
           contributorConsentValid = true;
-          authoritativeTermsVersion = String(legalRow.terms_version);
-          authoritativeAcceptedAt = String(legalRow.accepted_at || new Date().toISOString());
         }
       }
 
-      // Check governing company opt-in
-      const { data: comp } = await supabase.from("companies").select("diagnostic_learning_opt_in").eq("id", authenticatedCompanyId).maybeSingle();
-      const companyOptedIn = Boolean(comp?.diagnostic_learning_opt_in);
+      // Check governing company opt-in (fail closed on error)
+      const { data: comp, error: compErr } = await supabase.from("companies").select("diagnostic_learning_opt_in").eq("id", authenticatedCompanyId).maybeSingle();
+      const companyLookupFailed = Boolean(compErr);
+      const companyOptedIn = Boolean(!compErr && comp?.diagnostic_learning_opt_in === true);
 
-      // Authoritative seat permission: sharing requires valid editing seat or admin role
+      // Authoritative seat permission + preexisting explicit case-specific consent required
       const hasSharingPermission = authenticatedRole === "company_admin" || authenticatedPermissions?.canEditJobNotes === true;
-      const effectiveCaseOptIn = Boolean(body.caseLearningOptIn === true && contributorConsentValid && hasSharingPermission && !relatedCaseWithdrawn);
+      const effectiveCaseOptIn = Boolean(
+        body.caseLearningOptIn === true &&
+        hasExistingGrantedCaseConsent &&
+        contributorConsentValid &&
+        hasSharingPermission &&
+        !relatedCaseWithdrawn &&
+        !consentLookupFailed &&
+        !legalLookupFailed
+      );
 
       const { data: learningCase, error: learningCaseError } = await supabase.from("diagnostic_cases").insert({
         tenant_id: authenticatedCompanyId, case_status: row.case_status, equipment_category: row.equipment_category,
@@ -2995,60 +3206,38 @@ Deno.serve(async (req: Request) => {
         symptom_redacted: caseIssue, resolution_summary_redacted: caseResolution || null,
         source_ids: [data.id], technician_verified: row.technician_verified, approved_for_learning: false,
         case_learning_opt_in: effectiveCaseOptIn,
-        learning_terms_version: authoritativeTermsVersion,
-        consent_origin: effectiveCaseOptIn ? "verified_server_terms_acceptance" : "denied_or_unconsented",
-        contributor_accepted_at: authoritativeAcceptedAt,
-        contributor_user_id: effectiveCaseOptIn ? authenticatedUserId : null
+        learning_terms_version: effectiveCaseOptIn ? authoritativeTermsVersion : null,
+        consent_origin: effectiveCaseOptIn ? "explicit_case_learning_consent" : "denied_or_unconsented",
+        contributor_accepted_at: effectiveCaseOptIn ? authoritativeAcceptedAt : null,
+        contributor_user_id: authenticatedUserId
       }).select("id").single();
 
-      if (effectiveCaseOptIn && learningCase?.id) {
-        try {
-          await supabase.from("case_learning_consents").insert({
-            case_id: learningCase.id,
-            company_id: authenticatedCompanyId,
-            actor_user_id: authenticatedUserId,
-            purpose: "shared_diagnostic_learning",
-            terms_version: authoritativeTermsVersion || "2026-10",
-            consent_status: "granted",
-            granted_at: authoritativeAcceptedAt || new Date().toISOString()
-          });
-        } catch (consentErr) {
-          console.error("Durable case consent insert failed", consentErr);
-        }
-      }
-
+      let consentWriteFailed = false;
+      let queueInsertFailed = false;
       let stepLinked = false;
       if (validatedRelatedCaseId) {
-        await supabase
+        const { error: relatedCaseUpdateError } = await supabase
           .from("diagnostic_cases")
           .update({
             case_status: row.case_status,
             resolution_summary_redacted: caseResolution || null,
             technician_verified: row.technician_verified,
-            ...(relatedCaseWithdrawn ? { case_learning_opt_in: false } : (effectiveCaseOptIn ? {
+            ...(relatedCaseWithdrawn || consentLookupFailed || !effectiveCaseOptIn ? {
+              case_learning_opt_in: false,
+              approved_for_learning: false
+            } : {
               case_learning_opt_in: true,
               learning_terms_version: authoritativeTermsVersion,
+              consent_origin: "explicit_case_learning_consent",
               contributor_accepted_at: authoritativeAcceptedAt,
               contributor_user_id: authenticatedUserId
-            } : {}))
+            })
           })
           .eq("id", validatedRelatedCaseId)
           .eq("tenant_id", authenticatedCompanyId);
-
-        if (effectiveCaseOptIn && !relatedCaseWithdrawn) {
-          try {
-            await supabase.from("case_learning_consents").upsert({
-              case_id: validatedRelatedCaseId,
-              company_id: authenticatedCompanyId,
-              actor_user_id: authenticatedUserId,
-              purpose: "shared_diagnostic_learning",
-              terms_version: authoritativeTermsVersion || "2026-10",
-              consent_status: "granted",
-              granted_at: authoritativeAcceptedAt || new Date().toISOString()
-            }, { onConflict: "case_id,purpose" });
-          } catch (consentErr) {
-            console.error("Durable related case consent upsert failed", consentErr);
-          }
+        if (relatedCaseUpdateError) {
+          consentWriteFailed = true;
+          console.error("Related diagnostic case update failed", { code: relatedCaseUpdateError.code, caseId: validatedRelatedCaseId });
         }
 
         const { data: existingStep } = await supabase
@@ -3089,25 +3278,47 @@ Deno.serve(async (req: Request) => {
         const stepText = repairSteps.map(x => `${x.step}. ${x.action}${x.result ? ` — Result: ${x.result}` : ""}${x.parts ? `; Parts: ${x.parts}` : ""}`).join("\n").slice(0, 1200);
         await supabase.from("diagnostic_case_steps").insert({ case_id: learningCase.id, step_number: 1, step_type: "observation", prompt_redacted: stepText || caseIssue || "Technician job submitted", result_summary_redacted: caseResolution || null, source_ids: [data.id] });
         if (row.technician_verified && effectiveCaseOptIn && companyOptedIn) {
-          // Only successful, outcome-supported repairs enter the human review
-          // queue when explicit contributor terms and company consent are verified.
-          // The case itself stays company-private until explicit case
-          // and company sharing consent plus platform approval are verified.
-          const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
-          const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
-          if (queueError) console.error("Technician job learning queue failed", { code: queueError.code, jobId: data.id });
+          if (!consentWriteFailed && !companyLookupFailed) {
+            // Only successful, outcome-supported repairs enter the human review
+            // queue when explicit case-specific consent and company consent are verified.
+            const lesson = `Equipment: ${row.equipment_category || "unspecified"}; manufacturer: ${row.manufacturer_normalized || "unspecified"}; model: ${row.model_normalized || "unspecified"}. Issue: ${caseIssue || "not supplied"}. Repair steps: ${stepText || "not supplied"}. Outcome: ${row.outcome}. Resolution: ${caseResolution || "not supplied"}`.slice(0, 2000);
+            const { error: queueError } = await supabase.from("learning_review_queue").insert({ case_id: learningCase.id, tenant_id: authenticatedCompanyId, source_kind: "technician_job", proposed_lesson_redacted: lesson, supporting_source_ids: [data.id], status: "pending" });
+            if (queueError) {
+              queueInsertFailed = true;
+              console.error("Technician job learning queue failed", { code: queueError.code, jobId: data.id });
+            }
+          }
         }
         if (!row.related_case_id) await supabase.from("technician_job_records").update({ related_case_id: learningCase.id }).eq("id", data.id);
       } else { console.error("Technician job learning case failed", { code: learningCaseError?.code, jobId: data.id }); }
       let responseMsg: string;
-      if (row.technician_verified && effectiveCaseOptIn && companyOptedIn) {
+      let learningStatus = "private_only";
+      let consentErrorCode: string | null = null;
+      if (consentLookupFailed || legalLookupFailed || companyLookupFailed || consentWriteFailed || queueInsertFailed || learningCaseError) {
+        learningStatus = "consent_verification_failed_closed";
+        consentErrorCode = consentLookupFailed ? "CONSENT_LOOKUP_FAILED" : (legalLookupFailed ? "LEGAL_LOOKUP_FAILED" : (companyLookupFailed ? "COMPANY_CONSENT_LOOKUP_FAILED" : (consentWriteFailed ? "CONSENT_WRITE_FAILED" : (queueInsertFailed ? "LEARNING_QUEUE_FAILED" : "CASE_PERSIST_FAILED"))));
+        responseMsg = "Technician job notes saved privately. Learning consent verification failed closed; notes were not submitted for shared learning.";
+      } else if (relatedCaseWithdrawn) {
+        learningStatus = "consent_withdrawn_locked";
+        responseMsg = "Technician job notes saved privately. Case learning consent was previously withdrawn and cannot be reactivated by saving job notes.";
+      } else if (row.technician_verified && effectiveCaseOptIn && companyOptedIn) {
+        learningStatus = "queued_for_review";
         responseMsg = "Technician job notes saved; a verified repair candidate is awaiting review and all required sharing approvals.";
       } else if (!effectiveCaseOptIn || !companyOptedIn) {
-        responseMsg = "Technician job notes saved privately. Company or case learning opt-in is not active; notes will not enter the shared learning queue.";
+        learningStatus = "private_only";
+        responseMsg = "Technician job notes saved privately. Company or explicit case learning consent is not active; notes will not enter the shared learning queue.";
       } else {
+        learningStatus = "private_unverified";
         responseMsg = "Technician job notes saved privately. This case is not a verified completed repair.";
       }
-      return jsonResponse({ ok: true, job: data, message: responseMsg }, 200);
+      return jsonResponse({
+        ok: true,
+        job: data,
+        caseId: learningCase?.id || validatedRelatedCaseId || null,
+        learningStatus,
+        ...(consentErrorCode ? { consentErrorCode } : {}),
+        message: responseMsg
+      }, 200);
     } catch {
       return jsonResponse({ error: "Could not save the job record. Please retry.", code: "JOB_SAVE_FAILED" }, 500);
     }
