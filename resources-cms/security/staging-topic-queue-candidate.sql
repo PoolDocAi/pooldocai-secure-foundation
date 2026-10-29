@@ -142,13 +142,15 @@ BEGIN
    'version',q.version,'attempts',q.attempts);
 END $$;
 
-ALTER FUNCTION resources_cms.topic_queue_list() OWNER TO resources_cms_command_owner;
-ALTER FUNCTION resources_cms.topic_queue_command(text,uuid,integer,jsonb) OWNER TO resources_cms_command_owner;
-
+-- The non-superuser creator MUST set routine ACLs BEFORE ownership transfer.
+-- Afterwards postgres cannot grant/revoke privileges from the restricted owner.
 REVOKE ALL ON FUNCTION resources_cms.topic_queue_list(),
  resources_cms.topic_queue_command(text,uuid,integer,jsonb) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION resources_cms.topic_queue_list(),
  resources_cms.topic_queue_command(text,uuid,integer,jsonb) TO authenticated;
+
+ALTER FUNCTION resources_cms.topic_queue_list() OWNER TO resources_cms_command_owner;
+ALTER FUNCTION resources_cms.topic_queue_command(text,uuid,integer,jsonb) OWNER TO resources_cms_command_owner;
 
 -- Seed owner's eight requests as QUEUED topics, not CMS articles or approvals.
 INSERT INTO resources_cms.topic_queue(topic,brief,audience) VALUES

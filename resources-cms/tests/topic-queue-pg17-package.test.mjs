@@ -13,6 +13,10 @@ test('review-only PG17 package preserves candidate DDL in a single transaction',
  assert(at('BEGIN;')<at('DO $topic_preflight$'));
  assert(at('DO $topic_preflight$')<at('CREATE TABLE resources_cms.topic_queue'));
  assert(at('GRANT CREATE ON SCHEMA resources_cms TO resources_cms_command_owner')<at('ALTER FUNCTION resources_cms.topic_queue_list() OWNER'));
+ assert(at('GRANT EXECUTE ON FUNCTION resources_cms.topic_queue_list()')<at('ALTER FUNCTION resources_cms.topic_queue_list() OWNER'),
+  'creator must grant function access before transferring owner');
+ assert(at('REVOKE ALL ON FUNCTION resources_cms.topic_queue_list()')<at('ALTER FUNCTION resources_cms.topic_queue_list() OWNER'),
+  'creator must revoke PUBLIC before transferring owner');
  assert(at('ALTER FUNCTION resources_cms.topic_queue_command(text,uuid,integer,jsonb) OWNER')<at('REVOKE CREATE ON SCHEMA resources_cms'));
  assert(at('REVOKE resources_cms_command_owner FROM postgres GRANTED BY postgres RESTRICT')<at('DO $topic_postflight$'));
  assert(at('DO $topic_postflight$')<sql.lastIndexOf('COMMIT;'));
