@@ -32,6 +32,13 @@ jobs:
       - name: Install pinned CMS dependencies
         working-directory: resources-cms
         run: npm ci
+      - name: Export generated sanitizer for isolated full-source dynamic CMS test
+        uses: actions/upload-artifact@v4
+        with:
+          name: cms-verified-sanitizer
+          path: resources-cms/src/generated/sanitize-html.cjs
+          retention-days: 2
+          if-no-files-found: error
       - name: Test isolated Staging-only manual lookup tenant authorization
         working-directory: resources-cms
         run: node --test tests/manual-duplicate-tenant-isolation.test.mjs
