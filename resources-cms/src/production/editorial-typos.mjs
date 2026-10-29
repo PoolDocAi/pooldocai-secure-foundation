@@ -238,6 +238,11 @@ export function applySpellingEdits(article, approved) {
     const edits=approved.filter(p=>p.field===field).sort((a,b)=>b.start-a.start);
     if(!edits.length)continue;
     let value=String(field.startsWith('seo.')?changed.seo?.[field.slice(4)]||'':changed[field]||'');
+    for(let i=1;i<edits.length;i++){
+      const higher=edits[i-1],lower=edits[i];
+      if(lower.start+lower.before.length>higher.start)
+        throw Object.assign(new Error('Approved corrections overlap. Approve only one and screen again.'),{status:409});
+    }
     for(const edit of edits) {
       if(value.slice(edit.start,edit.start+edit.before.length)!==edit.before)
         throw Object.assign(new Error('The highlighted spelling changed; screen the current revision again'),{status:409});

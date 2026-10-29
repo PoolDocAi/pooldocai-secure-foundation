@@ -1,5 +1,6 @@
 import { descriptionProposal } from './seo-description.mjs';
 import { spellingSuggestions, applySpellingEdits } from './editorial-typos.mjs';
+import { languageSuggestions } from './editorial-language.mjs';
 
 // Proposals never mutate input. Candidate edits are re-derived from a saved
 // revision on approval, rather than trusted from a browser-supplied diff.
@@ -42,6 +43,7 @@ export function reviewProposals(article) {
     if(i>=20)break;
   }
   proposals.push(...spellingSuggestions(article,25));
+  proposals.push(...languageSuggestions(article,20));
   return proposals;
 }
 
@@ -76,6 +78,11 @@ export function applyApprovedProposals(article, approvals, proposals = reviewPro
       const replacement=number+' '+approval.verifiedUnit;
       units.push({before:proposal.before,replacement});
       applied.push({id:proposal.id,before:proposal.before,after:replacement,field:proposal.field});
+    } else if(proposal.kind==='editorial-text') {
+      if(Object.keys(approval).some(k=>k!=='id'))reject('Unsupported language approval');
+      if(typeof proposal.start!=='number' || !['title','summary','body','seo.title','seo.description'].includes(proposal.field))reject('Invalid language proposal');
+      spelling.push(proposal); // Single-range approved text edits, same offset checks.
+      applied.push({id:proposal.id,before:proposal.before,after:proposal.after,field:proposal.field});
     } else if(proposal.kind==='spelling') {
       if(Object.keys(approval).some(k=>k!=='id'))reject('Unsupported spelling approval');
       if(typeof proposal.start!=='number' || !['title','summary','body','seo.title','seo.description'].includes(proposal.field))reject('Invalid spelling proposal');

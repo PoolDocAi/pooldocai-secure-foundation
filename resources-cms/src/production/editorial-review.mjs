@@ -1,6 +1,7 @@
 import { articleChecksum } from './article-intake.mjs';
 import {descriptionProposal} from './seo-description.mjs';
 import {reviewProposals} from './review-proposals.mjs';
+import {longSentenceFindings} from './editorial-language.mjs';
 
 const plain = value => String(value || '').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 const words = value => new Set(plain(value).toLowerCase().match(/[a-z0-9]{3,}/g) || []);
@@ -48,6 +49,15 @@ export function reviewArticle(row, peers = []) {
     if ((text && text === plain(other.body)) || (own.size >= 20 && similarity >= .7) || (article.slug && article.slug === other.slug)) add('duplicate','warning',`Potential overlap with accessible article ${peer.id}; token similarity ${Math.round(similarity*100)}%.`,'Compare both drafts, consolidate repeated material or explain the distinct audience and purpose.');
   }
   const proposals=reviewProposals(article);
+  findings.push(...longSentenceFindings(article));
+  for(const p of proposals.filter(p=>p.kind==='editorial-text')){
+    findings.push({
+      area:p.category==='repetition'?'repetition':p.category==='spacing'?'formatting':'grammar',
+      severity:'suggested-edit',field:p.field,evidence:p.before,excerpt:p.context,
+      highlight:p.before,why:p.why,
+      suggestion:'Approve this specific change only if it improves the intended sentence: "'+p.before+'" → "'+p.after+'".'
+    });
+  }
   for(const p of proposals.filter(p=>p.kind==='spelling')) {
     findings.push({
       area:'spelling',severity:'suggested-edit',field:p.field,
