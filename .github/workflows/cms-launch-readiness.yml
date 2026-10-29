@@ -1,0 +1,26 @@
+name: CMS launch readiness helpers
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cms-launch-readiness.yml'
+      - 'resources-cms/scripts/launch-readiness-recovery/**'
+      - 'resources-cms/tests/launch-readiness-recovery/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  storage-integrity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Require installed archive tool for synthetic encrypted recovery test
+        run: command -v 7z || command -v 7zz
+      - name: Test Storage integrity and synthetic encrypted recovery
+        working-directory: resources-cms
+        run: node --test tests/launch-readiness-recovery/storage-recovery.test.mjs
