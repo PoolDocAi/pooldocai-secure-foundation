@@ -19,6 +19,7 @@ let me,
   saveTimer,
   saving = null,
   editGeneration = 0;
+let publishedCmsIds = new Set();
 const isOwner = () => me?.role === "owner",
   canWrite = () => ["owner", "editor"].includes(me?.role),
   canReview = () => ["owner", "reviewer"].includes(me?.role);
@@ -165,7 +166,7 @@ async function changePage(next, { fromHistory = false, position = historyPositio
   });
   await refresh();
   if (page === "dashboard") await dashboard();
-  if (page === "library") library();
+  if (page === "library") await library();
   if (page === "topics") await topicQueuePage();
   if (page === "taxonomy") taxonomies();
   if (page === "media") await mediaLibrary();
@@ -212,6 +213,7 @@ function auditActorLabel(event) {
 }
 async function dashboard() {
   const d = await api("/api/dashboard");
+  publishedCmsIds = new Set(d.publicArticleIds || []);
   main.innerHTML =
     title(
       "A little knowledge. A lot of clarity.",
@@ -221,7 +223,7 @@ async function dashboard() {
         : "",
     ) +
     `<div class="hero-note"><div><p class="eyebrow">THOUGHTFULLY PUBLISHED</p><h2>Help people take the right next step.</h2><p>Build a useful resource library. Every draft stays private until you choose to publish it.</p></div><button id="browse">Open content library →</button></div><div class="stats">${[
-      ["published", "Published resources"],
+      ["published", "Published through CMS"],
       ["draft", "Drafts in progress"],
       ["scheduled", "Scheduled"],
       ["review", "Awaiting review"],
@@ -274,7 +276,9 @@ function bindEdits() {
         openEditor(b.dataset.edit).catch((e) => toast(e.message, true))),
   );
 }
-function library() {
+async function library() {
+  const status = await api("/api/dashboard");
+  publishedCmsIds = new Set(status.publicArticleIds || []);
   main.innerHTML =
     title(
       "Content library",
@@ -300,7 +304,7 @@ function drawTable() {
         r.data.categoryId === $("#category-filter").value) &&
       (!$("#tag-filter").value ||
         r.data.tagIds.includes($("#tag-filter").value)) &&
-      (!$("#status-filter").value || r.status === $("#status-filter").value),
+      (!$("#status-filter").value || ($("#status-filter").value === "published" ? publishedCmsIds.has(r.id) : r.status === $("#status-filter").value)),
   );
   if ($("#sort").value === "title")
     rows.sort((a, b) => a.data.title.localeCompare(b.data.title));
@@ -308,7 +312,7 @@ function drawTable() {
   $("#result-count").textContent =
     `${rows.length} resource${rows.length === 1 ? "" : "s"}`;
   $("#article-table").innerHTML = rows.length
-    ? `<div class="table-wrap"><table class="library"><thead><tr><th>Resource</th><th>Status</th><th>Category</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="title-cell">${isOwner() && !["archived", "deleted"].includes(r.status) ? `<label class="check-label"><input type="checkbox" data-select-row="${r.id}" aria-label="Select ${esc(r.data.title)}"> Select</label>` : ""}<strong>${esc(r.data.title)}</strong><small>/resources/${esc(r.data.slug)}/</small>${r.data.tagIds.map((id) => `<span class="badge">${esc(cat(id))}</span>`).join("")}</td><td>${badge(r.status)}<small>Knowledge: ${esc(r.knowledge.status)}</small>${r.published && r.status !== "published" ? "<small>Earlier version is live</small>" : ""}</td><td>${esc(cat(r.data.categoryId))}</td><td>${esc(date(r.updated_at))}</td><td><div class="row-actions"><button data-edit="${r.id}">${canWrite() ? "Edit" : "View"}</button><button data-preview="${r.id}">Preview</button>${canWrite() ? `<button data-row-action="duplicate" data-id="${r.id}">Duplicate</button>` : ""}${isOwner() ? (["archived", "deleted"].includes(r.status) ? `<button data-row-action="restore" data-id="${r.id}">Restore</button>${r.status === "archived" ? `<button class="danger" data-row-action="delete" data-id="${r.id}">Move to trash</button>` : ""}` : `<button data-row-action="archive" data-id="${r.id}">Archive</button>`) : ""}</div></td></tr>`).join("")}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="library"><thead><tr><th>Resource</th><th>Status</th><th>Category</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="title-cell">${isOwner() && !["archived", "deleted"].includes(r.status) ? `<label class="check-label"><input type="checkbox" data-select-row="${r.id}" aria-label="Select ${esc(r.data.title)}"> Select</label>` : ""}<strong>${esc(r.data.title)}</strong><small>/resources/${esc(r.data.slug)}/</small>${r.data.tagIds.map((id) => `<span class="badge">${esc(cat(id))}</span>`).join("")}</td><td>${badge(r.status)}<small>Knowledge: ${esc(r.knowledge.status)}</small>${publishedCmsIds.has(r.id) && r.status !== "published" ? "<small>Earlier approved CMS revision remains publicly accessible</small>" : ""}</td><td>${esc(cat(r.data.categoryId))}</td><td>${esc(date(r.updated_at))}</td><td><div class="row-actions"><button data-edit="${r.id}">${canWrite() ? "Edit" : "View"}</button><button data-preview="${r.id}">Preview</button>${canWrite() ? `<button data-row-action="duplicate" data-id="${r.id}">Duplicate</button>` : ""}${isOwner() ? (["archived", "deleted"].includes(r.status) ? `<button data-row-action="restore" data-id="${r.id}">Restore</button>${r.status === "archived" ? `<button class="danger" data-row-action="delete" data-id="${r.id}">Move to trash</button>` : ""}` : `<button data-row-action="archive" data-id="${r.id}">Archive</button>`) : ""}</div></td></tr>`).join("")}</tbody></table></div>`
     : '<div class="empty">No resources match these filters.</div>';
   $$("[data-select-row]").forEach(
     (c) =>
