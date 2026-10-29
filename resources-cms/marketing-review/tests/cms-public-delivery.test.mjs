@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createMarketingCMSDelivery, liveNavigation } from '../api/cms-public.mjs';
 import { PublicCMSDelivery } from '../src/production/public-delivery.mjs';
 
@@ -32,7 +32,12 @@ test('legacy fixture navigation UUIDs map to actual immutable CMS identity witho
   const nav = liveNavigation(rows.map(row => ({ id: row.id, slug: row.slug })));
   assert.ok(nav.memberships.some(member => member.articleId === id));
   assert.ok(nav.folders.some(folder => folder.url === '/resources/collections/explore-resources/learning-center/'));
-  for (const suffix of ['', '/']) assert.equal((await get('/resources/collections/explore-resources/learning-center' + suffix)).status, 200);
+  for (const suffix of ['', '/']) {
+    const response = await get('/resources/collections/explore-resources/learning-center' + suffix);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    for (const href of ['/privacy.html','/terms.html','mailto:hello@pooldocai.com']) assert.ok(html.includes(`href="${href}"`), href);
+  }
   assert.equal((await get('/resources/collections/explore-resources/missing/')).status, 404);
   const legacyTagsPath = await (await get('/api/public/resources?path=whats-wrong')).json(); assert.equal(legacyTagsPath.total, 1); assert.equal(legacyTagsPath.items[0].tags.length, 0); // Folder routing does not invent facet tags.
 });
@@ -59,7 +64,18 @@ test('routing cutover has no stale static article fallback and retains old accep
   const config = JSON.parse(readFileSync(new URL('../vercel.cms-preview.json', import.meta.url)));
   assert.ok(config.rewrites.some(r => r.source === '/resources/:articleSlug([a-z0-9-]+)/' && r.destination.includes('/api/cms-public')));
   assert.ok(config.rewrites.some(r => r.source === '/sitemap.xml' && r.destination.includes('/api/cms-public')));
-  assert.ok(readFileSync(new URL('../scripts/build-cms-preview.mjs', import.meta.url), 'utf8').includes('rmSync(`public/resources/${slug}`'));
-  assert.match(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'), /api\/review/);
+  const build = readFileSync(new URL('../scripts/build-cms-preview.mjs', import.meta.url), 'utf8');
+  assert.ok(build.includes("pruneStaticPublications('public')"), 'All static article/Hub fallbacks must be pruned, not just two known slugs');
+  const active = readFileSync(new URL('../vercel.json', import.meta.url), 'utf8');
+  const protectedOriginal = new URL('../vercel.original-protected-review.json', import.meta.url);
+  if (existsSync(protectedOriginal)) {
+    // Privately assembled owner source deliberately selects the new dynamic
+    // config; preserve the legacy preview config separately for audit.
+    assert.match(active, /api\/cms-public/);
+    assert.match(readFileSync(protectedOriginal, 'utf8'), /api\/review/);
+  } else {
+    // The deliberate partial GitHub mirror still has the original preview config.
+    assert.match(active, /api\/review/);
+  }
   assert.match(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), /class="footer-resources"/);
 });
