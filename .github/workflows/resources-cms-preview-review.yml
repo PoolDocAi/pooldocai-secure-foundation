@@ -47,6 +47,9 @@ jobs:
       - name: Test private article intake and automated review boundaries
         working-directory: resources-cms
         run: npm run test:article-intake
+      - name: Test encrypted recovery packaging with synthetic database and Storage bytes
+        working-directory: resources-cms
+        run: node --test tests/recovery-bundle.test.mjs
       - name: Install isolated browser
         working-directory: resources-cms
         run: npx playwright install --with-deps chromium
