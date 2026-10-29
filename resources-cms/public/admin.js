@@ -461,7 +461,7 @@ async function openEditor(id) {
       )
       .join(
         "",
-      )}<button type="button" id="add-link">Link</button><button type="button" id="add-internal">Resource link</button><button type="button" id="add-image">Image</button><button type="button" id="add-download">Download</button><button type="button" id="add-table">Table</button><button type="button" id="add-callout">Callout</button><button type="button" id="add-warning">Safety warning</button></div><div id="body" class="rich-editor" contenteditable="${canWrite()}" role="textbox" aria-label="Article content" aria-multiline="true">${d.body}</div><details><summary>Sources & citations</summary><div><label>Source references<textarea id="sources" rows="5">${esc(d.sources.map((s) => `${s.label} | ${s.url}`).join("\n"))}</textarea><small>One source per line: Source title | https://original-source-url. Use Link in the toolbar for inline citations.</small></label></div></details></section><aside><section class="panel"><h2>Editorial workflow</h2><p class="muted">Publishing and knowledge eligibility are separate permissions.</p><div class="actions">${canWrite() ? '<button data-action="review">Submit for Editorial Review</button>' : ""}${canReview() ? '<button data-action="approve">Approve for Publication</button>' : ""}${isOwner() ? `<button class="primary" data-action="publish">Publish</button><button data-action="unpublish">Unpublish</button><button id="schedule">Schedule publication</button>${current.status === "scheduled" ? '<button data-action="cancel-schedule">Cancel schedule</button>' : ""}` : ""}<button id="revisions">View Revision History</button></div><hr><h3>Diagnostic knowledge</h3><p class="muted">${esc(current.knowledge.classification?.replaceAll("_", " "))}<br>${esc(current.knowledge.verification_status || "Unverified")} ${current.knowledge.reviewed_at ? " · " + esc(date(current.knowledge.reviewed_at)) : ""}</p><div class="actions">${canWrite() ? '<button data-action="knowledge-submit">Submit for Knowledge Review</button>' : ""}${canReview() ? '<button id="knowledge-approve">Approve for Knowledge Base</button><button class="danger" data-action="knowledge-revoke">Revoke Knowledge Approval</button>' : ""}</div></section><section class="panel"><h2>Organization</h2><label>Primary category<select id="categoryId">${opt(
+      )}<button type="button" id="add-link">Link</button><button type="button" id="add-internal">Resource link</button><button type="button" id="add-image">Image</button><button type="button" id="add-download">Download</button><button type="button" id="add-table">Table</button><button type="button" id="add-callout">Callout</button><button type="button" id="add-warning">Safety warning</button></div><div id="body" class="rich-editor" contenteditable="${canWrite()}" role="textbox" aria-label="Article content" aria-multiline="true">${d.body}</div><details><summary>Sources & citations</summary><div><label>Source references<textarea id="sources" rows="5">${esc(d.sources.map((s) => `${s.label} | ${s.url}`).join("\n"))}</textarea><small>One source per line: Source title | https://original-source-url. Use Link in the toolbar for inline citations.</small></label></div></details></section><aside><section class="panel"><h2>Organization</h2><label>Primary category<select id="categoryId">${opt(
       taxonomy.filter((t) => t.kind === "category" && !t.archived),
       d.categoryId,
     )}</select></label><label>Topic tags<select id="tagIds" multiple size="6">${taxonomy
@@ -480,40 +480,32 @@ async function openEditor(id) {
       )
       .join(
         "",
-      )}</select></label></section><section class="panel"><h2>Equipment context</h2><label>Manufacturer (if applicable)<input id="manufacturer" value="${esc(d.manufacturer)}"></label><label>Model (if applicable)<input id="model" value="${esc(d.model)}"></label><label>Equipment category<input id="equipmentCategory" value="${esc(d.equipmentCategory)}" placeholder="Pump, filter, heater…"></label></section><section class="panel"><h2>Search & social</h2><label>URL slug<input id="slug" value="${esc(d.slug)}"><small>Published URL changes require separate authorization. Keep existing article URLs unchanged.</small></label><label>SEO title<input id="seo-title" value="${esc(d.seo.title)}" maxlength="180"></label><label>Meta description<small>When empty, saving extracts a description from complete article sentences. Deterministic authoring, not AI verification. Existing descriptions are preserved. Review and edit before publication; target about 140–160 characters.</small><textarea id="seo-description" maxlength="500">${esc(d.seo.description)}</textarea></label><label>Canonical URL<input id="seo-canonical" type="url" value="${esc(d.seo.canonical)}"></label><label>Open Graph title<input id="seo-ogTitle" value="${esc(d.seo.ogTitle)}"></label><label>Open Graph description<textarea id="seo-ogDescription">${esc(d.seo.ogDescription)}</textarea></label><label>Social image<input id="seo-image" value="${esc(d.seo.image)}" placeholder="/media/…"></label><button type="button" id="pick-social">Choose social image</button><label>Social image alt text<input id="seo-imageAlt" value="${esc(d.seo.imageAlt)}"></label><label>Featured image<input id="featuredImage" value="${esc(d.featuredImage)}" placeholder="/media/…"></label><button type="button" id="pick-featured">Choose featured image</button><label>Featured image alt text<input id="featuredImageAlt" value="${esc(d.featuredImageAlt)}"></label><label>Original publication date<input id="publishedAt" type="date" value="${esc(d.publishedAt?.slice(0, 10) || "")}"><small>Leave blank for first publication. Revision dates are recorded automatically.</small></label><label class="check-label"><input id="seo-noindex" type="checkbox" ${d.seo.noindex ? "checked" : ""}> Exclude from search indexing</label><div id="editor-warnings">${current.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("")}</div></section></aside></div>`;
+      )}</select></label></section><section class="panel"><h2>Equipment context</h2><label>Manufacturer (if applicable)<input id="manufacturer" value="${esc(d.manufacturer)}"></label><label>Model (if applicable)<input id="model" value="${esc(d.model)}"></label><label>Equipment category<input id="equipmentCategory" value="${esc(d.equipmentCategory)}" placeholder="Pump, filter, heater…"></label></section><section class="panel"><h2>Search & social</h2><label>URL slug<input id="slug" value="${esc(d.slug)}"><small>Published URL changes require separate authorization. Keep existing article URLs unchanged.</small></label><label>SEO title<input id="seo-title" value="${esc(d.seo.title)}" maxlength="180"></label><label>Meta description<small>If missing, screening can propose an extract from your article, but nothing is inserted or saved unless you approve it. Verify factual accuracy before publication.</small><textarea id="seo-description" maxlength="500">${esc(d.seo.description)}</textarea></label><label>Canonical URL<input id="seo-canonical" type="url" value="${esc(d.seo.canonical)}"></label><label>Open Graph title<input id="seo-ogTitle" value="${esc(d.seo.ogTitle)}"></label><label>Open Graph description<textarea id="seo-ogDescription">${esc(d.seo.ogDescription)}</textarea></label><label>Social image<input id="seo-image" value="${esc(d.seo.image)}" placeholder="/media/…"></label><button type="button" id="pick-social">Choose social image</button><label>Social image alt text<input id="seo-imageAlt" value="${esc(d.seo.imageAlt)}"></label><label>Featured image<input id="featuredImage" value="${esc(d.featuredImage)}" placeholder="/media/…"></label><button type="button" id="pick-featured">Choose featured image</button><label>Featured image alt text<input id="featuredImageAlt" value="${esc(d.featuredImageAlt)}"></label><label>Original publication date<input id="publishedAt" type="date" value="${esc(d.publishedAt?.slice(0, 10) || "")}"><small>Leave blank for first publication. Revision dates are recorded automatically.</small></label><label class="check-label"><input id="seo-noindex" type="checkbox" ${d.seo.noindex ? "checked" : ""}> Exclude from search indexing</label><div id="editor-warnings">${current.warnings.map((w) => `<p class="warning">${esc(w)}</p>`).join("")}</div></section></aside></div><section class="panel"><h2>Editorial workflow</h2><p class="muted">Publishing and knowledge eligibility are separate permissions.</p><div class="actions">${canWrite() ? '<button data-action="review">Submit for Editorial Review</button>' : ""}${canReview() ? '<button data-action="approve">Approve for Publication</button>' : ""}${isOwner() ? `<button class="primary" data-action="publish">Publish</button><button data-action="unpublish">Unpublish</button><button id="schedule">Schedule publication</button>${current.status === "scheduled" ? '<button data-action="cancel-schedule">Cancel schedule</button>' : ""}` : ""}<button id="revisions">View Revision History</button></div><hr><h3>Diagnostic knowledge</h3><p class="muted">${esc(current.knowledge.classification?.replaceAll("_", " "))}<br>${esc(current.knowledge.verification_status || "Unverified")} ${current.knowledge.reviewed_at ? " · " + esc(date(current.knowledge.reviewed_at)) : ""}</p><div class="actions">${canWrite() ? '<button data-action="knowledge-submit">Submit for Knowledge Review</button>' : ""}${canReview() ? '<button id="knowledge-approve">Approve for Knowledge Base</button><button class="danger" data-action="knowledge-revoke">Revoke Knowledge Approval</button>' : ""}</div></section>`;
   $("#back").onclick = () => navigate("library");
-  $("#save")?.addEventListener("click", () =>
-    save()
-      .then(() => toast("Draft saved"))
-      .catch((e) => toast(e.message, true)),
-  );
-  $("#preview").onclick = async () => {
-    try {
-      await save();
-      preview(id);
-    } catch (e) {
-      toast(e.message, true);
-    }
+  $("#save")?.addEventListener("click", () => {
+    if (!dirty) return toast("No unsaved edits to save.");
+    if (!confirm("Save your edits as a new private draft revision? Nothing will be published.")) return;
+    save().then(() => toast("Approved edits saved as a private draft")).catch(e => toast(e.message, true));
+  });
+  $("#preview").onclick = () => {
+    if (dirty) return toast("Unsaved changes: click Save Draft to approve those edits before previewing the saved revision.", true);
+    preview(id);
   };
   $("#revisions").onclick = showRevisions;
   const reviewButton = document.createElement('button');
   reviewButton.id = 'automated-review';
-  reviewButton.textContent = 'Save & screen draft (suggestions only)';
-  reviewButton.title = 'Saves unsaved draft edits first. Technical and editorial suggestions are not applied automatically.';
+  reviewButton.textContent = 'Screen saved draft — no changes';
+  reviewButton.title = 'Read-only suggestions; you choose and approve any proposed corrections.';
   $('#revisions').before(reviewButton);
   const reviewHelp = document.createElement('p');
   reviewHelp.className = 'muted';
-  reviewHelp.textContent = 'Checks saved text and suggests fixes; it does not automatically correct technical content. Unsaved edits are saved first. A missing SEO description may be generated as a held draft revision.';
+  reviewHelp.textContent = 'This scan is read-only. Exact passages and reasons appear in the report. Approve selected proposed changes before a new private revision is saved.';
   reviewButton.after(reviewHelp);
   reviewButton.onclick = async () => {
     reviewButton.disabled = true;
     try {
-      if (canWrite()) await save();
+      if (dirty) throw Error('Save Draft explicitly first, or discard unsaved edits, before screening the saved revision.');
       const report = await api('/api/content/'+current.id+'/automated-review',{method:'POST',body:{version:current.version}});
-      if (report.savedArticle) {
-        current = report.savedArticle;
-        if (!dirty) $('#seo-description').value = current.data.seo.description;
-      }
       showAutomatedReview(report);
     } catch (error) { toast(error.message,true); }
     finally { reviewButton.disabled = false; }
@@ -645,15 +637,67 @@ async function openEditor(id) {
   };
   main.focus();
 }
+function reviewPassage(f) {
+  const passage=String(f.excerpt||f.evidence||''), target=String(f.highlight||'');
+  const at=target?passage.toLowerCase().indexOf(target.toLowerCase()):-1;
+  if(at<0)return '<blockquote>'+esc(passage)+'</blockquote>';
+  return '<blockquote>'+esc(passage.slice(0,at))+'<mark>'+esc(passage.slice(at,at+target.length))+'</mark>'+esc(passage.slice(at+target.length))+'</blockquote>';
+}
 function showAutomatedReview(report, source, notices = []) {
-  const savedSummary = report.savedArticle
-    ? 'An absent SEO description was generated and saved as a new protected draft revision. Article-body corrections were not applied.'
-    : 'No automatic corrections were applied by this review.';
-  modal(`<h2>Automated article review</h2><p>Saved version ${esc(report.version)} · ${esc(report.engine)}</p><p>Checksum: <code>${esc(report.checksum)}</code></p><p>This report applies only to this saved version. Any edit requires a new review. No approval, publication, diagnostic knowledge access or image permission is granted.</p><p role="status"><strong>${esc(savedSummary)}</strong></p><p>Other findings are suggestions for manual editorial review. This checker does not verify measurements or equipment instructions and does not silently change units.</p>${source?`<p>Uploaded ${esc(source.type)} · SHA-256: <code>${esc(source.sha256)}</code></p>`:''}${notices.map(n=>`<p class="notice">${esc(n)}</p>`).join('')}<h3>Coverage and limits</h3><ul>${Object.entries(report.coverage).map(([area,coverage])=>`<li>${esc(area)}: ${esc(coverage)}</li>`).join('')}</ul><h3>Findings and suggested fixes</h3>${report.findings.map(f=>`<section class="panel"><h4>${esc(f.area)} · ${esc(f.severity)}</h4><p><strong>Evidence:</strong> ${esc(f.evidence)}</p><p><strong>Suggested fix:</strong> ${esc(f.suggestion)}</p></section>`).join('')||'<p>No rule triggered. Human technical, safety and source review is still required.</p>'}<button id="return-to-editor">Return to editor</button> <button id="download-article-review">Download this report</button>`,()=>{
+  const title=current?.id===report.articleId ? current.data.title : report.title || 'Unknown article';
+  const proposalCards=(report.proposals||[]).map(p=>'<section class="panel"><label class="check-label"><input type="checkbox" data-proposal="'+esc(p.id)+'"> Approve this proposed change</label><p><strong>Field:</strong> '+esc(p.field)+'</p><p><strong>Why:</strong> '+esc(p.why)+'</p><p><strong>Current:</strong> <mark>'+esc(p.before)+'</mark></p>'+(
+    p.kind==='verified-unit'
+      ? '<label>Replacement unit (choose only after checking the source)<select data-unit="'+esc(p.id)+'"><option value="">Choose verified unit</option><option value="ppm">ppm</option><option value="mg/L">mg/L</option></select></label><label class="check-label"><input type="checkbox" data-source-verified="'+esc(p.id)+'"> I verified this exact reading against its original source.</label>'
+      : '<p><strong>Proposed:</strong> '+esc(p.after)+'</p>'
+  )+'</section>').join('');
+  modal('<h2>Automated article review</h2><p><strong>Article:</strong> '+esc(title)+'</p><p><strong>Article ID:</strong> <code>'+esc(report.articleId)+'</code> · Saved version '+esc(report.version)+'</p><p>Checksum: <code>'+esc(report.checksum)+'</code></p><p role="status"><strong>Read-only screening: no draft edits or corrections were saved.</strong></p><p>Only selected changes you explicitly approve will be written as a new private draft revision. Other findings require your own source check and manual editing. Nothing here authorizes publication or diagnostic knowledge.</p>'+(
+    source?'<p>Uploaded '+esc(source.type)+' · SHA-256: <code>'+esc(source.sha256)+'</code></p>':''
+  )+notices.map(n=>'<p>'+esc(n)+'</p>').join('')+'<h3>Findings: exact passages and reasons</h3>'+(
+    report.findings.map(f=>'<section class="panel"><h4>'+esc(f.area)+' · '+esc(f.severity)+'</h4><p><strong>Where:</strong> '+esc(f.field||'article')+'</p><p><strong>Passage needing review:</strong></p>'+reviewPassage(f)+'<p><strong>Why review this:</strong> '+esc(f.why||f.suggestion)+'</p><p><strong>Suggested next step:</strong> '+esc(f.suggestion)+'</p></section>').join('')||'<p>No rule triggered. Human technical and source verification is still necessary.</p>'
+  )+'<h3>Proposed changes requiring your approval</h3>'+(
+    proposalCards||'<p>No precise, safe edit can be proposed for these findings. Check highlighted passages and make manual edits in the editor.</p>'
+  )+(proposalCards?'<button id="apply-review" class="primary">Approve selected changes &amp; save private draft</button>':'')+
+  '<button id="return-to-editor">Return to editor without changes</button> <button id="download-article-review">Download report</button>',()=>{
     $('#return-to-editor').onclick=()=>{dialog.close();$('#body')?.focus();};
-    $('#download-article-review').onclick=()=>{const blob=new Blob([JSON.stringify({...report,...(source?{uploadSource:source,notices}:{})},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='article-review-'+report.articleId+'-v'+report.version+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+    $('#download-article-review').onclick=()=>{
+      const blob=new Blob([JSON.stringify({...report,...(source?{uploadSource:source,notices}:{})},null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='article-review-'+report.articleId+'-v'+report.version+'.json';
+      a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    };
+    if(!proposalCards)return;
+    $('#apply-review').onclick=async()=>{
+      const selected=[...document.querySelectorAll('[data-proposal]:checked')],approvals=[];
+      if(!selected.length)return toast('Choose at least one proposal; nothing has been changed.',true);
+      if(dirty)return toast('Unsaved edits exist. Save or discard them first.',true);
+      for(const el of selected){
+        const id=el.dataset.proposal,p=report.proposals.find(x=>x.id===id);
+        if(!p) return toast('Review proposal is no longer available.',true);
+        if(p.kind==='verified-unit'){
+          const verifiedUnit=document.querySelector('[data-unit="'+id+'"]').value;
+          const sourceVerified=document.querySelector('[data-source-verified="'+id+'"]').checked;
+          if(!verifiedUnit||!sourceVerified)return toast('Verify the original reading and select a replacement unit for each technical change.',true);
+          approvals.push({id,verifiedUnit,sourceVerified});
+        } else approvals.push({id});
+      }
+      const differences=approvals.map(a=>{
+        const p=report.proposals.find(x=>x.id===a.id);
+        const target=p.kind==='verified-unit'?p.before.match(/^\d+(?:\.\d+)?/)[0]+' '+a.verifiedUnit:p.after;
+        return p.field+':\nBEFORE: '+p.before+'\nAFTER: '+target;
+      }).join('\n\n');
+      if(!confirm('Approve and SAVE the following exact changes as ONE new private draft revision?\n\n'+differences+'\n\nNo publication or knowledge approval.'))return;
+      const button=$('#apply-review');button.disabled=true;
+      try{
+        const result=await api('/api/content/'+report.articleId+'/apply-review',{method:'POST',body:{version:report.version,checksum:report.checksum,approvals}});
+        dialog.close();
+        await openEditor(result.article.id);
+        toast('Your '+result.applied.length+' approved change(s) were saved as a private draft.');
+      } catch(e){toast(e.message,true);}
+      finally{button.disabled=false;}
+    };
   });
 }
+
 function collect() {
   const d = { ...current.data };
   for (const id of [
@@ -712,11 +756,7 @@ function markDirty() {
   dirty = true;
   editGeneration++;
   $("#save-status").textContent = "Unsaved changes";
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(
-    () => save().catch((e) => toast("Autosave failed: " + e.message, true)),
-    1300,
-  );
+  clearTimeout(saveTimer); // No automatic save: explicit user approval is required.
 }
 async function save() {
   clearTimeout(saveTimer);
@@ -749,12 +789,11 @@ async function save() {
     })
     .finally(() => (saving = null));
   await saving;
-  if (dirty) return save();
-  return current;
+  return current; // Edits made during the request remain unsaved until another explicit Save Draft click.
 }
 async function editorAction(action) {
   try {
-    await save();
+    if(dirty) throw Error("Save Draft explicitly before changing editorial workflow.");
     if(action === "publish" && me?.ownerPublishing) return await requestOwnerPublication();
     if (
       ["publish", "unpublish", "knowledge-revoke"].includes(action) &&
@@ -790,7 +829,7 @@ function preview(id) {
 }
 async function showRevisions() {
   try {
-    await save();
+    if(dirty) throw Error("Save Draft explicitly before opening revision history.");
     const rows = await api(`/api/content/${current.id}/revisions`);
     modal(
       `<h2>Revision history</h2><p>Restoring creates a new draft revision. It does not publish or restore knowledge eligibility.</p>${rows.map((r) => `<div class="revision-item"><div><strong>Revision ${r.version}</strong> · ${esc(r.reason)}<br><small>${esc(date(r.created_at))} · ${esc(r.data.title)}</small></div>${canWrite() ? `<button data-restore-revision="${r.id}">Restore Version</button>` : ""}</div>`).join("")}`,
@@ -829,7 +868,7 @@ function schedule() {
     () =>
       ($("#schedule-confirm").onclick = async () => {
         try {
-          await save();
+          if(dirty) throw Error("Save Draft explicitly before scheduling publication.");
           await api(`/api/content/${current.id}/schedule`, {
             method: "POST",
             body: {
@@ -853,7 +892,7 @@ function knowledgeApprove() {
     () =>
       ($("#k-confirm").onclick = async () => {
         try {
-          await save();
+          if(dirty) throw Error("Save Draft explicitly before reviewing knowledge eligibility.");
           const evidence = [
             {
               url: $("#k-source").value,
