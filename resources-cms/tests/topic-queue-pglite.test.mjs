@@ -86,3 +86,23 @@ test('failed generation releases the claim and older version cannot be replayed'
   assert.equal(next.version,claimed.version+1);
  }finally{await pg.close();}
 });
+
+
+test('durable generation guard serializes claims and records billable attempts',async()=>{
+ const pg=await fixture();
+ try{
+  await identity(pg,owner);
+  const rows=(await pg.query('SELECT resources_cms.topic_queue_list() AS topics')).rows[0].topics;
+  const first=await command(pg,'claim',rows[0].id,rows[0].version);
+  await assert.rejects(command(pg,'claim',rows[1].id,rows[1].version),/Another topic is already generating/i);
+  const released=await command(pg,'release',rows[0].id,first.version);
+  assert.equal(released.status,'queued');
+  const next=await command(pg,'claim',rows[1].id,rows[1].version);
+  assert.equal(next.status,'generating');
+  await pg.exec('RESET ROLE');
+  const counts=(await pg.query('SELECT count(*)::integer n FROM resources_cms.topic_generation_attempts')).rows[0].n;
+  assert.equal(counts,2);
+  const restricted=await pg.query("SELECT has_table_privilege('anon','resources_cms.topic_generation_attempts','SELECT') AS anon");
+  assert.equal(restricted.rows[0].anon,false);
+ }finally{await pg.close();}
+});

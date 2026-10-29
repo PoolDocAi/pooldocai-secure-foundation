@@ -22,6 +22,28 @@ REVOKE ALL ON resources_cms.topic_queue FROM PUBLIC,anon,authenticated,resources
 GRANT SELECT,INSERT,UPDATE ON resources_cms.topic_queue TO resources_cms_command_owner;
 CREATE POLICY topic_queue_owner_only ON resources_cms.topic_queue FOR ALL TO resources_cms_command_owner USING(true) WITH CHECK(true);
 
+-- One row lock serializes paid generation claims across serverless workers.
+-- Every claim counts toward a rolling 24h budget, including failed providers.
+CREATE TABLE resources_cms.topic_generation_gate(id integer PRIMARY KEY CHECK(id=1));
+INSERT INTO resources_cms.topic_generation_gate VALUES(1);
+CREATE TABLE resources_cms.topic_generation_attempts(
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ topic_id uuid NOT NULL REFERENCES resources_cms.topic_queue(id),
+ actor_id uuid NOT NULL,
+ claimed_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX cms_topic_generation_recent ON resources_cms.topic_generation_attempts(claimed_at);
+ALTER TABLE resources_cms.topic_generation_gate ENABLE ROW LEVEL SECURITY;
+ALTER TABLE resources_cms.topic_generation_attempts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON resources_cms.topic_generation_gate,resources_cms.topic_generation_attempts
+ FROM PUBLIC,anon,authenticated,resources_cms_runtime;
+GRANT SELECT,UPDATE ON resources_cms.topic_generation_gate TO resources_cms_command_owner;
+GRANT SELECT,INSERT ON resources_cms.topic_generation_attempts TO resources_cms_command_owner;
+CREATE POLICY cms_topic_gate_command_only ON resources_cms.topic_generation_gate
+ FOR ALL TO resources_cms_command_owner USING(true) WITH CHECK(true);
+CREATE POLICY cms_topic_attempt_command_only ON resources_cms.topic_generation_attempts
+ FOR ALL TO resources_cms_command_owner USING(true) WITH CHECK(true);
+
 -- Only verified Supabase PostgREST claims with active CMS owner membership
 -- can reach the queue. Never derive authorization from request body.
 CREATE FUNCTION resources_cms.topic_queue_list()
@@ -69,9 +91,18 @@ BEGIN
    IF p_action='claim' THEN
      IF q.state<>'queued' OR q.attempts>=3
      THEN RAISE EXCEPTION 'Topic is not ready for generation' USING ERRCODE='22023'; END IF;
+     PERFORM 1 FROM resources_cms.topic_generation_gate WHERE id=1 FOR UPDATE;
+     IF (SELECT count(*) FROM resources_cms.topic_generation_attempts
+           WHERE claimed_at>now()-interval '24 hours')>=10
+     THEN RAISE EXCEPTION 'Daily editorial generation budget exhausted' USING ERRCODE='22023'; END IF;
+     IF EXISTS(SELECT 1 FROM resources_cms.topic_queue
+           WHERE state='generating' AND claimed_at>now()-interval '3 minutes')
+     THEN RAISE EXCEPTION 'Another topic is already generating' USING ERRCODE='22023'; END IF;
      UPDATE resources_cms.topic_queue SET state='generating',attempts=attempts+1,
        claimed_at=now(),version=version+1,updated_at=now()
        WHERE id=p_id RETURNING * INTO q;
+     INSERT INTO resources_cms.topic_generation_attempts(topic_id,actor_id)
+     VALUES(p_id,actor_id);
    ELSIF p_action='release' THEN
      IF q.state<>'generating' THEN RAISE EXCEPTION 'Topic is not generating' USING ERRCODE='22023'; END IF;
      UPDATE resources_cms.topic_queue SET state='queued',claimed_at=NULL,
