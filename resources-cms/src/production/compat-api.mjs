@@ -74,7 +74,7 @@ export function compatibilityRoute({ db, identity, memberRole, origin, uploadRou
         // article content (e.g. Markdown vs structured JSON).
         const existing = await db.list(user,{limit:200});
         if (!Array.isArray(existing)) throw new Error('CMS article catalog unavailable');
-        const comparable = value => String(value || '').replace(/\\s+/g,' ').trim();
+        const comparable = value => String(value || '').replace(/\s+/g,' ').trim();
         const duplicate = existing.find(row => {
           const saved = row.editable || row.data || {};
           return row.slug === intake.article.slug || saved.slug === intake.article.slug ||
