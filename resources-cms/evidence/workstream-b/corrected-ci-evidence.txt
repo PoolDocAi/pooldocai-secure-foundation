@@ -1,0 +1,1 @@
+PASS: PR path trigger; contents read; pinned actions; persist-credentials false; focused tests; npm run test:production; auth/supabase-data/mfa/app/serverless syntax; no hosted secret or deployment step.

@@ -1,0 +1,1 @@
+PASS: Node24 auth/supabase-data/mfa/app/serverless syntax; existing nondeploying PR workflow includes focused tests and production suite, pinned actions, contents read, no hosted secrets. No CI dispatch.

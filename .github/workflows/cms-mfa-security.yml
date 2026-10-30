@@ -1,0 +1,46 @@
+name: CMS TOTP MFA security tests (Staging-only)
+on:
+  pull_request:
+    paths:
+      - 'resources-cms/src/production/**'
+      - 'resources-cms/public/**'
+      - 'resources-cms/tests/totp-mfa.test.mjs'
+      - 'resources-cms/tests/mfa-*.test.mjs'
+      - 'resources-cms/supabase/schema-proposals/mfa-*.sql'
+      - '.github/workflows/cms-mfa-security.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auth-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: resources-cms/package-lock.json
+      - name: Install without production credentials
+        working-directory: resources-cms
+        run: npm ci
+      - name: Test TOTP password-only denial and verified sessions
+        working-directory: resources-cms
+        run: node --test tests/totp-mfa.test.mjs tests/mfa-bootstrap-routes.test.mjs tests/mfa-aal2-database.test.mjs tests/serverless-app.test.mjs tests/login-fix.test.mjs
+      - name: Test production adapters without hosted credentials
+        working-directory: resources-cms
+        run: npm run test:production
+      - name: Check server and browser syntax
+        working-directory: resources-cms
+        run: |
+          node --check src/production/auth.mjs
+          node --check src/production/supabase-data.mjs
+          node --check src/production/mfa.mjs
+          node --check src/production/app.mjs
+          node --check src/production/serverless.mjs
+          node --check public/login.js
+          node --check public/mfa-settings.js
