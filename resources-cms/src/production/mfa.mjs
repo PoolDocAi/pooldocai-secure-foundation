@@ -59,7 +59,7 @@ async function requestBody(request){
   try{return JSON.parse(text)}catch{throw new AuthError('Invalid MFA request',422)}
 }
 
-export function mfaRoute({origin,authConfig,memberRole,allowPreEnrollment=false,fetchImpl=fetch}){
+export function mfaRoute({origin,authConfig,memberRole,bootstrapMemberRole,allowPreEnrollment=false,fetchImpl=fetch}){
   return async(request)=>{
     try{
       if(request.method!=='POST')return json({error:'Method not allowed'},405);
@@ -72,7 +72,11 @@ export function mfaRoute({origin,authConfig,memberRole,allowPreEnrollment=false,
       try{token=pendingToken(request)}
       catch{token=sessionToken(request);temporary=false}
       const user=await verifiedIdentity(token,{...authConfig,fetchImpl});
-      const role=await memberRole({...user,accessToken:token});
+      let useBootstrap=temporary;
+      if(!temporary&&allowPreEnrollment){
+        try{aal2Required(token,user)}catch{useBootstrap=true}
+      }
+      const role=await (useBootstrap?bootstrapMemberRole:memberRole)({...user,accessToken:token});
       if(!temporary){if(role!=='owner')throw new AuthError('Owner required',403);if(!allowPreEnrollment)aal2Required(token,user)}
       const body=await requestBody(request);
       if(pathname==='/api/mfa/enroll'){

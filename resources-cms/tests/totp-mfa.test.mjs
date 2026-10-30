@@ -37,7 +37,7 @@ function cookies(response){
 }
 
 test('password login issues short-lived pending cookie and NO privileged session cookie',async()=>{
-  const route=loginRoute({origin,signIn,memberRole,authConfig:config,requireMfa:true});
+  const route=loginRoute({origin,signIn,memberRole,bootstrapMemberRole:memberRole,authConfig:config,requireMfa:true});
   const response=await route(request('/api/login',{email:'owner@example.test',password:'synthetic'}));
   assert.equal(response.status,200);
   const data=await response.json();
@@ -51,12 +51,12 @@ test('password login issues short-lived pending cookie and NO privileged session
 });
 
 test('staging owner can enroll with valid pending cookie, but only TOTP verification elevates to AAL2',async()=>{
-  const login=loginRoute({origin,signIn,memberRole,authConfig:config,requireMfa:true});
+  const login=loginRoute({origin,signIn,memberRole,bootstrapMemberRole:memberRole,authConfig:config,requireMfa:true});
   const response=await login(request('/api/login',{}));
   const data=await response.json();
   const sessionCookies=cookies(response);
   const authHeaders={Cookie:sessionCookies,'X-CSRF-Token':data.csrf};
-  const route=mfaRoute({origin,authConfig:config,memberRole,fetchImpl:mockFetch});
+  const route=mfaRoute({origin,authConfig:config,memberRole,bootstrapMemberRole:memberRole,fetchImpl:mockFetch});
   const setup=await route(request('/api/mfa/enroll',{},authHeaders));
   assert.equal(setup.status,200);
   const qr=await setup.json();
@@ -93,7 +93,7 @@ test('refresh under MFA policy refuses AAL1 and clears privileged cookies',async
 });
 
 test('missing pending token, origin, or CSRF cannot enroll MFA',async()=>{
-  const route=mfaRoute({origin,authConfig:config,memberRole,fetchImpl:mockFetch});
+  const route=mfaRoute({origin,authConfig:config,memberRole,bootstrapMemberRole:memberRole,fetchImpl:mockFetch});
   assert.equal((await route(request('/api/mfa/enroll',{},{'X-CSRF-Token':'none'}))).status,403);
   assert.equal((await route(request('/api/mfa/enroll',{},{
     Cookie:'__Host-pooldocai-cms-csrf=valid','X-CSRF-Token':'valid'
@@ -113,6 +113,7 @@ test('full CMS app blocks AAL1 from admin and privileged command routes',async()
   const db={
     transaction:async (_actor,cb)=>cb({query:async()=>({rows:[{role:'owner'}]})}),
     memberRole:async()=> 'owner',
+    mfaPrivateRole:async()=> 'owner',
     command:async()=>{commanded=true;return {ok:true}},
     publicIndex:async()=>[],publicArticle:async()=>null,redirect:async()=>null
   };

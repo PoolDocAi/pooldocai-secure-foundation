@@ -55,6 +55,10 @@ export class SupabaseDataCMS {
     return this.rpc("query", { p_operation: operation, p_payload: payload }, auth.accessToken);
   }
 
+  // Membership-only, zero-argument RPCs; neither accepts a target user/company.
+  mfaBootstrapRole(user) { return this.rpc("mfa_member_role", {}, principal(user).accessToken); }
+  mfaPrivateRole(user) { return this.rpc("mfa_private_role", {}, principal(user).accessToken); }
+
   memberRole(user) { return this.admin(user, "member-role"); }
 
   command(user, articleId, version, action, payload = {}, commandId = randomUUID()) {

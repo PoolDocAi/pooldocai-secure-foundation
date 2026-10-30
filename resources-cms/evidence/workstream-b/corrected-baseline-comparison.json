@@ -1,0 +1,36 @@
+{
+  "core": {
+    "identical_to_clean_baseline": true,
+    "titles": [
+      "\u2716 existing URLs imported without HTML/content/citation changes; marketing regression hashes",
+      "\u2716 logical export omits authentication secrets and binary backup restores exact database state",
+      "\u2716 migrated social metadata survives editing and self-canonical updates on slug publication",
+      "\u2716 approved content creates immutable draft revisions without publication or knowledge authorization",
+      "\u2716 approved reconciliation is idempotent and rejects authorization claims",
+      "\u2716 approved writing and technical distinctions are retained",
+      "\u2716 approved source manuscripts and workflow alternatives remain byte-identical",
+      "\u2716 approved PDF remains byte-identical and water-test order is correct",
+      "\u2716 Resource 13 HTML transcription preserves the approved water-test order",
+      "\u2716 31-resource collection preserves history, live snapshot, source parity and release holds",
+      "\u2716 existing URLs imported without HTML/content/citation changes; marketing regression hashes",
+      "\u2716 logical export omits authentication secrets and binary backup restores exact database state",
+      "\u2716 migrated social metadata survives editing and self-canonical updates on slug publication",
+      "\u2716 approved content creates immutable draft revisions without publication or knowledge authorization",
+      "\u2716 approved reconciliation is idempotent and rejects authorization claims",
+      "\u2716 approved writing and technical distinctions are retained",
+      "\u2716 approved source manuscripts and workflow alternatives remain byte-identical",
+      "\u2716 approved PDF remains byte-identical and water-test order is correct",
+      "\u2716 Resource 13 HTML transcription preserves the approved water-test order",
+      "\u2716 31-resource collection preserves history, live snapshot, source parity and release holds"
+    ]
+  },
+  "integration": {
+    "identical_to_clean_baseline": true,
+    "titles": [
+      "\u2716 exact proposed rollback-only Staging fixture executes locally and leaves no residue",
+      "\u2716 32-resource v31 conversion retains revisions, provenance and holds across restore",
+      "\u2716 exact proposed rollback-only Staging fixture executes locally and leaves no residue",
+      "\u2716 32-resource v31 conversion retains revisions, provenance and holds across restore"
+    ]
+  }
+}

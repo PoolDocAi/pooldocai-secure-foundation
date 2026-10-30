@@ -1,6 +1,6 @@
 import {aal2Required,mfaRoute} from './mfa.mjs';
 import {publicNavigation,addNavigationBreadcrumbs} from '../platform/navigation.mjs';
-import { membership, sessionToken, signInWithPassword, verifiedIdentity } from "./auth.mjs";
+import { mfaMembership, membership, sessionToken, signInWithPassword, verifiedIdentity } from "./auth.mjs";
 import { compatibilityRoute } from "./compat-api.mjs";
 import { productionRuntime } from "./runtime.mjs";
 import { PrivateStorage } from "./storage.mjs";
@@ -28,19 +28,23 @@ export function createProductionApp(runtime = productionRuntime()) {
   const identity = async (request) => {
     const accessToken = sessionToken(request);
     const user=await verifiedIdentity(accessToken,authConfig);
-    if(config.requireMfa)aal2Required(accessToken,user);
+    if(config.requireMfa){
+      aal2Required(accessToken,user);
+      await mfaMembership(db,{...user,accessToken});
+    }
     return {...user,accessToken};
   };
-  const memberRole = (user) => membership(db, user);
+  const memberRole = (user) => config.requireMfa ? mfaMembership(db,user) : membership(db,user);
+  const bootstrapMemberRole = (user) => mfaMembership(db,user,{bootstrap:true});
   const storage = new PrivateStorage({ url: config.supabaseUrl, publishableKey: config.publishableKey });
-  const login = loginRoute({ origin: config.origin, authConfig, requireMfa:config.requireMfa, signIn: (email, password) => signInWithPassword(email, password, authConfig), memberRole,
+  const login = loginRoute({ origin: config.origin, authConfig, bootstrapMemberRole, requireMfa:config.requireMfa, signIn: (email, password) => signInWithPassword(email, password, authConfig), memberRole,
     onIdentityVerified: ({ id }) => {
       if (id === config.recoveryOwnerId) console.info('cms_owner_identity_verified', { id });
     },
   });
   const logout = logoutRoute({ origin: config.origin, authConfig });
   const refresh = refreshRoute({ origin: config.origin, authConfig, memberRole, requireMfa:config.requireMfa });
-  const mfa=mfaRoute({origin:config.origin,authConfig,memberRole,allowPreEnrollment:config.mfaEnrollmentEnabled&&!config.requireMfa});
+  const mfa=mfaRoute({origin:config.origin,authConfig,memberRole,bootstrapMemberRole,allowPreEnrollment:config.mfaEnrollmentEnabled&&!config.requireMfa});
   const command = commandRoute({ identity, db, origin: config.origin });
   const upload = mediaUploadRoute({ identity, db, storage, origin: config.origin });
   const media = mediaReadRoute({ identity, db, storage });

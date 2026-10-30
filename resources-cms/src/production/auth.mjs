@@ -156,3 +156,17 @@ export async function membership(db, id, allowed = ["owner", "editor", "reviewer
     return role;
   }, { readOnly: true });
 }
+
+// No fallback to the general query RPC: a missing bootstrap deployment fails closed.
+export async function mfaMembership(db, user, { bootstrap = false } = {}) {
+  if (!UUID.test(String(user?.id || "")) || !user?.accessToken) throw new AuthError("CMS membership denied", 403);
+  const method = bootstrap ? "mfaBootstrapRole" : "mfaPrivateRole";
+  if (typeof db[method] !== "function") throw new AuthError("MFA authorization unavailable", 503);
+  let role;
+  try { role = await db[method](user); }
+  catch (error) {
+    throw new AuthError("MFA authorization rejected", [401,403].includes(error?.status) || error?.code === "42501" ? 403 : 503);
+  }
+  if (!["owner", "editor", "reviewer", "viewer"].includes(role)) throw new AuthError("CMS membership denied", 403);
+  return role;
+}
